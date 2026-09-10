@@ -57,6 +57,9 @@ func TestGetDaemonIdentity(t *testing.T) {
 	if identity.Cluster.ID != "cluster-123" {
 		t.Errorf("got cluster ID %q, want cluster-123", identity.Cluster.ID)
 	}
+	if !identity.Cluster.QuorumEnabled {
+		t.Error("expected cluster quorum feature to be enabled")
+	}
 	if identity.Node.AgentVersion != "v3.0.0" {
 		t.Errorf("got agent version %q, want v3.0.0", identity.Node.AgentVersion)
 	}

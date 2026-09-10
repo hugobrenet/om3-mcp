@@ -18,7 +18,8 @@ func RegisterClusterTools(registrar *Registrar, service *core.Service) error {
 			Name:  "get_cluster_health",
 			Title: "Assess cluster health",
 			Description: "Compute a deterministic health assessment from the last-known OpenSVC cluster status for the cluster, nodes, and visible actor objects. " +
-				"This read-only call does not refresh instance drivers; healthy means no problem in the status currently published by the daemon, not a real-time probe.",
+				"Node issues include stable codes and bounded evidence; remediation options are conditional candidates and are never selected or applied by this read-only tool. " +
+				"The call does not refresh instance drivers; healthy means no problem in the status currently published by the daemon, not a real-time probe.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ GetClusterHealthInput) (*mcp.CallToolResult, GetClusterHealthOutput, error) {

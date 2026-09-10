@@ -69,7 +69,7 @@ Unknown properties are rejected by the generated input schema.
     "id": "11111111-2222-3333-4444-555555555555",
     "name": "lab-cluster",
     "nodes": ["lab-node-01"],
-    "quorum": false
+    "quorum_enabled": false
   },
   "daemon": {
     "nodename": "lab-node-01",
@@ -94,7 +94,8 @@ Unknown properties are rejected by the generated input schema.
 
 `listener.address` can be empty when OpenSVC uses its default bind behavior.
 Version and timestamp values are reported by the daemon and are not generated
-by the MCP.
+by the MCP. `cluster.quorum_enabled` reports whether the quorum feature is
+configured; it does not report whether the cluster currently attains quorum.
 
 #### Errors
 
@@ -109,4 +110,4 @@ Errors never include the delegated JWT.
 
 ## Compatibility
 
-Verified against OpenSVC `3.0.0-rc21` `GET /api/cluster/status` behavior.
+Verified against OpenSVC `3.0.0-rc30` `GET /api/cluster/status` behavior.

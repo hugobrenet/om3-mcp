@@ -56,8 +56,38 @@ Leader names are sorted lexicographically.
 
 A node is unhealthy when it is missing, has no agent version or monitor state,
 has a non-empty monitor state other than `idle`, is frozen, or reports overload.
+Node issues are structured objects with a stable `code` and a `message`.
 An unparseable non-empty `frozen_at` is treated conservatively as frozen. The
 evaluated node set is the union of configured and reported nodes.
+
+| Node issue code | Meaning |
+|---|---|
+| `node_status_missing` | A configured node has no published status |
+| `agent_version_missing` | The node publishes no agent version |
+| `monitor_state_missing` | The node publishes no monitor state |
+| `monitor_state_not_idle` | The node monitor state is not `idle` |
+| `node_frozen` | The node has a non-zero or invalid frozen timestamp |
+| `memory_below_threshold` | Available memory violates the configured policy |
+| `swap_below_threshold` | Available swap violates the configured policy |
+| `overload_cause_undetermined` | The overload flag cannot be explained from the bounded data |
+
+When a node reports overload, the MCP reproduces the daemon's deterministic
+checks using the node configuration and statistics:
+
+- `memory_below_threshold` when `node.min_avail_mem_pct > 0` and the available
+  memory percentage is below that threshold;
+- `swap_below_threshold` when `node.min_avail_swap_pct > 0` and the available
+  swap percentage is below that threshold;
+- `overload_cause_undetermined` when the node reports overload but the required
+  data is absent or the published values do not explain it.
+
+Memory and swap issues include the values used by the comparison, the exact
+configuration key, and conditional remediation options. These options describe
+operator choices; the MCP never selects or applies one. An exact configuration
+candidate is included only when a deterministic value exists for a clearly
+stated condition. For example, a node with no swap receives the candidate
+`node.min_avail_swap_pct=0` under the condition that the absence of swap is
+intentional; the caller still has to establish that intent.
 
 Only objects with an `avail` field are treated as actors. An actor is
 problematic when at least one condition holds:
@@ -100,52 +130,70 @@ evaluated node is healthy, and no visible actor object is problematic.
 {}
 ```
 
-#### Lab output example
+#### Overload output excerpt
 
 ```json
 {
-  "cluster": {
-    "id": "11111111-2222-3333-4444-555555555555",
-    "is_compatible": true,
-    "is_frozen": false,
-    "issues": [],
-    "leader_nodes": ["lab-node-01"],
-    "name": "lab-cluster"
-  },
-  "healthy": true,
+  "healthy": false,
   "node_summary": {
     "frozen": 0,
-    "healthy": 1,
+    "healthy": 0,
     "missing": 0,
     "non_idle": 0,
-    "overloaded": 0,
+    "overloaded": 1,
     "total": 1
   },
   "nodes": [
     {
-      "healthy": true,
+      "healthy": false,
       "is_frozen": false,
       "is_leader": true,
-      "is_overloaded": false,
-      "issues": [],
+      "is_overloaded": true,
+      "issues": [
+        {
+          "code": "swap_below_threshold",
+          "message": "node has no swap while a minimum available swap threshold is enabled",
+          "evidence": {
+            "swap_total_mb": 0,
+            "swap_available_pct": 0,
+            "minimum_swap_available_pct": 10
+          },
+          "policy": {
+            "config_key": "node.min_avail_swap_pct",
+            "current_value": 10,
+            "unit": "percent",
+            "overloaded_when": "swap_available_pct < minimum_swap_available_pct",
+            "disabled_when_value_is": 0
+          },
+          "remediation_options": [
+            {
+              "id": "provide_swap",
+              "applies_when": "swap is expected on this node",
+              "description": "configure swap capacity so OpenSVC can evaluate available swap against the threshold"
+            },
+            {
+              "id": "disable_swap_threshold",
+              "applies_when": "the absence of swap is intentional",
+              "description": "disable the OpenSVC available swap check for this node",
+              "configuration": {
+                "key": "node.min_avail_swap_pct",
+                "value": 0
+              }
+            }
+          ]
+        }
+      ],
       "monitor_state": "idle",
       "name": "lab-node-01",
       "reported": true
     }
-  ],
-  "object_summary": {
-    "down": 0,
-    "not_applicable": 0,
-    "other": 0,
-    "problems": 0,
-    "total": 1,
-    "up": 1,
-    "warn": 0
-  },
-  "problem_objects": [],
-  "problem_objects_truncated": false
+  ]
 }
 ```
+
+The real response also includes `cluster`, `object_summary`, `problem_objects`,
+and `problem_objects_truncated`; they are omitted from this excerpt to keep the
+overload contract readable.
 
 `problem_objects` is sorted by canonical object path. Node and leader names are
 also sorted for deterministic output.
@@ -160,5 +208,5 @@ also sorted for deterministic output.
 
 ## Compatibility
 
-Verified against OpenSVC `3.0.0-rc21`. Health rules must be reviewed whenever
+Verified against OpenSVC `3.0.0-rc30`. Health rules must be reviewed whenever
 OpenSVC adds or changes status values.

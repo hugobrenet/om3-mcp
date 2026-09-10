@@ -45,10 +45,10 @@ type DaemonProcessIdentity struct {
 }
 
 type ClusterIdentity struct {
-	ID     string   `json:"id" jsonschema:"the OpenSVC cluster identifier"`
-	Name   string   `json:"name" jsonschema:"the OpenSVC cluster name"`
-	Nodes  []string `json:"nodes" jsonschema:"the configured OpenSVC cluster node names"`
-	Quorum bool     `json:"quorum" jsonschema:"whether cluster quorum is enabled"`
+	ID            string   `json:"id" jsonschema:"the OpenSVC cluster identifier"`
+	Name          string   `json:"name" jsonschema:"the OpenSVC cluster name"`
+	Nodes         []string `json:"nodes" jsonschema:"the configured OpenSVC cluster node names"`
+	QuorumEnabled bool     `json:"quorum_enabled" jsonschema:"whether the OpenSVC cluster quorum feature is enabled; this does not report whether quorum is currently attained"`
 }
 
 type NodeIdentity struct {
@@ -63,6 +63,20 @@ type NodeIdentity struct {
 type ListenerIdentity struct {
 	Address string `json:"address" jsonschema:"the configured OpenSVC daemon listener address"`
 	Port    int    `json:"port" jsonschema:"the configured OpenSVC daemon listener port"`
+}
+
+type clusterNodeConfig struct {
+	MinAvailMemPct  int `json:"min_avail_mem_pct"`
+	MinAvailSwapPct int `json:"min_avail_swap_pct"`
+}
+
+type clusterNodeStats struct {
+	Load15M      float64 `json:"load_15m"`
+	MemAvailPct  int     `json:"mem_avail"`
+	MemTotalMB   uint64  `json:"mem_total"`
+	Score        int     `json:"score"`
+	SwapAvailPct int     `json:"swap_avail"`
+	SwapTotalMB  uint64  `json:"swap_total"`
 }
 
 type clusterStatusResponse struct {
@@ -82,6 +96,8 @@ type clusterStatusResponse struct {
 			IsFrozen     bool `json:"is_frozen"`
 		} `json:"status"`
 		Node map[string]struct {
+			Config *clusterNodeConfig `json:"config"`
+			Stats  *clusterNodeStats  `json:"stats"`
 			Status struct {
 				Agent        string `json:"agent"`
 				API          int    `json:"api"`
@@ -150,7 +166,7 @@ func (s *Service) GetDaemonIdentity(ctx context.Context) (DaemonIdentity, error)
 
 	return DaemonIdentity{
 		Daemon:   DaemonProcessIdentity{NodeName: nodeName, PID: node.Daemon.PID, StartedAt: node.Daemon.StartedAt, Routines: status.Daemon.Routines},
-		Cluster:  ClusterIdentity{ID: status.Cluster.Config.ID, Name: status.Cluster.Config.Name, Nodes: status.Cluster.Config.Nodes, Quorum: status.Cluster.Config.Quorum},
+		Cluster:  ClusterIdentity{ID: status.Cluster.Config.ID, Name: status.Cluster.Config.Name, Nodes: status.Cluster.Config.Nodes, QuorumEnabled: status.Cluster.Config.Quorum},
 		Node:     NodeIdentity{AgentVersion: node.Status.Agent, APIVersion: node.Status.API, Compat: node.Status.Compat, IsLeader: node.Status.IsLeader, IsOverloaded: node.Status.IsOverloaded, BootedAt: node.Status.BootedAt},
 		Listener: ListenerIdentity{Address: status.Cluster.Config.Listener.Address, Port: status.Cluster.Config.Listener.Port},
 	}, nil

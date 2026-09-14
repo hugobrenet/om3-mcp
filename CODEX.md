@@ -29,7 +29,7 @@ Streamable HTTP and delegated OpenSVC access JWT authentication are implemented.
 - Language: Go
 - Minimum current toolchain: Go 1.25.5
 - MCP SDK: github.com/modelcontextprotocol/go-sdk
-- MCP transport: Streamable HTTP on loopback
+- MCP transport: Streamable HTTP over a local Unix socket
 - HTTP client: Go standard library
 - Tests: Go testing and httptest
 
@@ -148,7 +148,9 @@ Only uncomment or add a domain when that domain actually exists.
 
 ### config
 
-internal/config owns environment-variable loading, defaults, parsing, and the exported process Config type. It enforces a loopback listen address while MCP server TLS is not implemented.
+internal/config owns environment-variable loading, defaults, parsing, and the
+exported process Config type. It validates the local Unix socket path used by
+the MCP listener.
 
 ### client
 
@@ -384,7 +386,7 @@ Use httptest.Server for HTTP behavior. Do not require a live OpenSVC daemon for 
 
 The end-to-end Streamable HTTP test in cmd/opensvc-daemon-mcp/main_test.go must continue to:
 
-- build and start the real MCP binary on a temporary loopback port;
+- build and start the real MCP binary on a temporary Unix socket;
 - sign a test access JWT and send it on every MCP request;
 - list tools;
 - call every registered tool;
@@ -437,7 +439,7 @@ Current environment:
 |---|---|
 | OPENSVC_DAEMON_URL | https://127.0.0.1:1215 |
 | OPENSVC_DAEMON_REQUEST_TIMEOUT | 20s |
-| OPENSVC_MCP_LISTEN_ADDRESS | 127.0.0.1:8080 |
+| OPENSVC_MCP_SOCKET_PATH | /run/opensvc-daemon-mcp/mcp.sock |
 | OPENSVC_MCP_JWT_VERIFY_KEY_FILE | /var/lib/opensvc/certs/ca_certificates |
 | OPENSVC_DAEMON_TLS_CA_FILE | empty |
 | OPENSVC_DAEMON_TLS_INSECURE | false |
@@ -471,9 +473,7 @@ Before adding a Go module:
 
 ## Known limitations
 
-- no MCP server-side TLS yet, so listening is restricted to loopback;
 - JWT creation and refresh remain the agent's responsibility;
-- no Unix socket transport;
 - a limited, mostly read-only diagnostic tool set;
 - no tool-specific policy engine;
 - no audit subsystem;

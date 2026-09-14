@@ -10,7 +10,7 @@ This project is in an early development stage.
 
 The current implementation:
 
-- runs as a Streamable HTTP MCP server on a loopback address;
+- carries Streamable HTTP over a permissioned local Unix socket;
 - uses the official Go MCP SDK;
 - connects to a configurable OpenSVC daemon API URL;
 - requires an OpenSVC Bearer access JWT on every MCP request;
@@ -76,7 +76,7 @@ The server supports these environment variables:
 |---|---|---|
 | OPENSVC_DAEMON_URL | https://127.0.0.1:1215 | Base URL of the local OpenSVC daemon API |
 | OPENSVC_DAEMON_REQUEST_TIMEOUT | 20s | Whole-request timeout for daemon JSON, SSE, and bounded stream calls; accepted range 1s to 2m |
-| OPENSVC_MCP_LISTEN_ADDRESS | 127.0.0.1:8080 | Streamable HTTP listen address; currently restricted to a loopback IP |
+| OPENSVC_MCP_SOCKET_PATH | /run/opensvc-daemon-mcp/mcp.sock | Local Unix socket carrying Streamable HTTP |
 | OPENSVC_MCP_JWT_VERIFY_KEY_FILE | /var/lib/opensvc/certs/ca_certificates | OpenSVC cluster CA certificate or RSA public key used to verify JWT signatures |
 | OPENSVC_DAEMON_TLS_CA_FILE | empty | PEM CA certificates appended to the system trust store |
 | OPENSVC_DAEMON_TLS_INSECURE | false | Disable daemon certificate verification. Development only. |
@@ -85,7 +85,7 @@ Example:
 
 ~~~bash
 export OPENSVC_DAEMON_URL=https://127.0.0.1:1215
-export OPENSVC_MCP_LISTEN_ADDRESS=127.0.0.1:8080
+export OPENSVC_MCP_SOCKET_PATH=/run/opensvc-daemon-mcp/mcp.sock
 export OPENSVC_MCP_JWT_VERIFY_KEY_FILE=/var/lib/opensvc/certs/ca_certificates
 ~~~
 
@@ -115,13 +115,27 @@ Start the Streamable HTTP MCP server:
 
 ~~~bash
 OPENSVC_DAEMON_URL=https://127.0.0.1:1215 \
-OPENSVC_MCP_LISTEN_ADDRESS=127.0.0.1:8080 \
+OPENSVC_MCP_SOCKET_PATH=/run/opensvc-daemon-mcp/mcp.sock \
 OPENSVC_MCP_JWT_VERIFY_KEY_FILE=/var/lib/opensvc/certs/ca_certificates \
 OPENSVC_DAEMON_TLS_INSECURE=true \
   ./bin/opensvc-daemon-mcp
 ~~~
 
-The MCP endpoint is `http://127.0.0.1:8080/mcp`. Until server-side TLS is implemented, configuration rejects non-loopback listen addresses so Bearer tokens cannot cross an unencrypted network. `OPENSVC_DAEMON_TLS_INSECURE` affects only the separate MCP-to-daemon HTTPS connection.
+The server exposes its `/mcp` HTTP route only through the configured Unix
+socket. The parent directory must already exist; the supplied systemd unit
+creates it with `RuntimeDirectory=opensvc-daemon-mcp`. The server validates the
+path, refuses to replace an ordinary file or active socket, removes a proven
+stale socket, applies mode `0660`, and cleans the socket up on a graceful stop.
+`OPENSVC_DAEMON_TLS_INSECURE` affects only the separate MCP-to-daemon HTTPS
+connection.
+
+## systemd
+
+The canonical unit is
+`deploy/systemd/opensvc-daemon-mcp.service`. Systemd creates
+`/run/opensvc-daemon-mcp` as `opensvc-mcp:opensvc-mcp` with mode `0750`; the
+MCP process creates `mcp.sock` as `0660`. A local client service must receive
+the supplementary `opensvc-mcp` group explicitly to connect.
 
 ## Development
 
@@ -163,7 +177,7 @@ The test suite covers:
 - bounded RFC 7807 error propagation through real MCP tool calls, including malformed and interrupted responses;
 - the current core use cases and their bounded response shaping;
 - fail-fast validation of tool names, descriptions, annotations, schemas, and duplicate names;
-- end-to-end Streamable HTTP MCP calls to every registered tool using a delegated JWT against a fake OpenSVC daemon.
+- end-to-end Streamable HTTP MCP calls over a Unix socket to every registered tool using a delegated JWT against a fake OpenSVC daemon.
 
 ## Design principles
 
@@ -182,7 +196,7 @@ The test suite covers:
 
 Near-term work is expected to focus on:
 
-1. TLS for the Streamable HTTP MCP server and controlled non-loopback binding;
+1. local systemd deployment and Unix socket permission validation;
 2. richer tests against representative OpenSVC v3 responses;
 3. stable error and audit contracts;
 4. additional read-only tools driven by operational use cases;

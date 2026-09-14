@@ -10,7 +10,7 @@ import (
 
 func TestLoadDefaults(t *testing.T) {
 	t.Setenv("OPENSVC_DAEMON_URL", "")
-	t.Setenv("OPENSVC_MCP_LISTEN_ADDRESS", "")
+	t.Setenv("OPENSVC_MCP_SOCKET_PATH", "")
 	t.Setenv("OPENSVC_MCP_JWT_VERIFY_KEY_FILE", "")
 	t.Setenv("OPENSVC_DAEMON_TLS_CA_FILE", "")
 	t.Setenv("OPENSVC_DAEMON_TLS_INSECURE", "")
@@ -23,7 +23,7 @@ func TestLoadDefaults(t *testing.T) {
 
 	want := Config{
 		DaemonURL:        defaultDaemonURL,
-		ListenAddress:    defaultListenAddress,
+		SocketPath:       defaultSocketPath,
 		JWTVerifyKeyFile: defaultJWTVerifyKeyFile,
 		HTTP: client.HTTPOptions{
 			TLSInsecure: defaultTLSInsecure,
@@ -37,7 +37,7 @@ func TestLoadDefaults(t *testing.T) {
 
 func TestLoadFromEnvironment(t *testing.T) {
 	t.Setenv("OPENSVC_DAEMON_URL", "https://node-a.example:1215")
-	t.Setenv("OPENSVC_MCP_LISTEN_ADDRESS", "127.0.0.1:9090")
+	t.Setenv("OPENSVC_MCP_SOCKET_PATH", " /run/opensvc-daemon-mcp/../opensvc-daemon-mcp/custom.sock ")
 	t.Setenv("OPENSVC_MCP_JWT_VERIFY_KEY_FILE", "/tmp/cluster-ca.pem")
 	t.Setenv("OPENSVC_DAEMON_TLS_CA_FILE", "/tmp/ca.crt")
 	t.Setenv("OPENSVC_DAEMON_TLS_INSECURE", "true")
@@ -50,7 +50,7 @@ func TestLoadFromEnvironment(t *testing.T) {
 
 	want := Config{
 		DaemonURL:        "https://node-a.example:1215",
-		ListenAddress:    "127.0.0.1:9090",
+		SocketPath:       "/run/opensvc-daemon-mcp/custom.sock",
 		JWTVerifyKeyFile: "/tmp/cluster-ca.pem",
 		HTTP: client.HTTPOptions{
 			TLSInsecure: true,
@@ -63,15 +63,14 @@ func TestLoadFromEnvironment(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsNonLoopbackListenAddress(t *testing.T) {
-	t.Setenv("OPENSVC_MCP_LISTEN_ADDRESS", "0.0.0.0:8080")
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("Load succeeded, want an error")
-	}
-	if !strings.Contains(err.Error(), "loopback") {
-		t.Fatalf("got error %q, want loopback restriction", err)
+func TestLoadRejectsInvalidUnixSocketPath(t *testing.T) {
+	for _, socketPath := range []string{"mcp.sock", "/", "/" + strings.Repeat("a", maximumUnixPathBytes)} {
+		t.Run(socketPath, func(t *testing.T) {
+			t.Setenv("OPENSVC_MCP_SOCKET_PATH", socketPath)
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OPENSVC_MCP_SOCKET_PATH") {
+				t.Fatalf("Load() error = %v, want Unix socket path error", err)
+			}
+		})
 	}
 }
 

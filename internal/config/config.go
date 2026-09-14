@@ -2,9 +2,10 @@ package config
 
 import (
 	"fmt"
-	"net"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/client"
@@ -12,9 +13,10 @@ import (
 
 const (
 	defaultDaemonURL        = "https://127.0.0.1:1215"
-	defaultListenAddress    = "127.0.0.1:8080"
+	defaultSocketPath       = "/run/opensvc-daemon-mcp/mcp.sock"
 	defaultJWTVerifyKeyFile = "/var/lib/opensvc/certs/ca_certificates"
 	defaultTLSInsecure      = false
+	maximumUnixPathBytes    = 107
 	minDaemonRequestTimeout = time.Second
 	maxDaemonRequestTimeout = 2 * time.Minute
 )
@@ -22,7 +24,7 @@ const (
 // Config contains the runtime configuration of the MCP server process.
 type Config struct {
 	DaemonURL        string
-	ListenAddress    string
+	SocketPath       string
 	JWTVerifyKeyFile string
 	HTTP             client.HTTPOptions
 }
@@ -48,13 +50,13 @@ func Load() (Config, error) {
 			maxDaemonRequestTimeout,
 		)
 	}
-	listenAddress := getenv("OPENSVC_MCP_LISTEN_ADDRESS", defaultListenAddress)
-	if err := validateLoopbackAddress(listenAddress); err != nil {
-		return Config{}, fmt.Errorf("validate OPENSVC_MCP_LISTEN_ADDRESS: %w", err)
+	socketPath, err := cleanUnixSocketPath(getenv("OPENSVC_MCP_SOCKET_PATH", defaultSocketPath))
+	if err != nil {
+		return Config{}, fmt.Errorf("parse OPENSVC_MCP_SOCKET_PATH: %w", err)
 	}
 	return Config{
 		DaemonURL:        getenv("OPENSVC_DAEMON_URL", defaultDaemonURL),
-		ListenAddress:    listenAddress,
+		SocketPath:       socketPath,
 		JWTVerifyKeyFile: getenv("OPENSVC_MCP_JWT_VERIFY_KEY_FILE", defaultJWTVerifyKeyFile),
 		HTTP: client.HTTPOptions{
 			TLSInsecure: tlsInsecure,
@@ -64,20 +66,18 @@ func Load() (Config, error) {
 	}, nil
 }
 
-func validateLoopbackAddress(address string) error {
-	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		return fmt.Errorf("split host and port: %w", err)
+func cleanUnixSocketPath(value string) (string, error) {
+	path := filepath.Clean(strings.TrimSpace(value))
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("path must be absolute")
 	}
-	ip := net.ParseIP(host)
-	if ip == nil || !ip.IsLoopback() {
-		return fmt.Errorf("HTTP MCP transport without TLS must listen on a loopback IP")
+	if path == string(filepath.Separator) {
+		return "", fmt.Errorf("path must name a socket")
 	}
-	portNumber, err := strconv.Atoi(port)
-	if err != nil || portNumber < 0 || portNumber > 65535 {
-		return fmt.Errorf("invalid TCP port %q", port)
+	if len([]byte(path)) > maximumUnixPathBytes {
+		return "", fmt.Errorf("path exceeds the Linux Unix socket limit of %d bytes", maximumUnixPathBytes)
 	}
-	return nil
+	return path, nil
 }
 
 func getenv(name string, fallback string) string {

@@ -1,0 +1,34 @@
+[Unit]
+Description=OpenSVC daemon MCP server
+After=network-online.target opensvc-server.service
+Wants=network-online.target
+Requires=opensvc-server.service
+
+[Service]
+Type=simple
+User=opensvc-mcp
+Group=opensvc-mcp
+EnvironmentFile=/etc/opensvc-ai/mcp.env
+Environment=OPENSVC_MCP_SOCKET_PATH=/run/opensvc-daemon-mcp/mcp.sock
+ExecStart=/usr/local/libexec/opensvc-daemon-mcp
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=35s
+RuntimeDirectory=opensvc-daemon-mcp
+RuntimeDirectoryMode=0750
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

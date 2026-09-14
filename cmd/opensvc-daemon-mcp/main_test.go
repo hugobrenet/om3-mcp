@@ -149,7 +149,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	}))
 	defer daemonServer.Close()
 
-	listenAddress := reserveLoopbackAddress(t)
+	socketPath := filepath.Join(t.TempDir(), "mcp.sock")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	binary := filepath.Join(t.TempDir(), "opensvc-daemon-mcp")
 	build := exec.CommandContext(ctx, "go", "build", "-o", binary, ".")
@@ -161,7 +161,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	command.Env = append(
 		os.Environ(),
 		"OPENSVC_DAEMON_URL="+daemonServer.URL,
-		"OPENSVC_MCP_LISTEN_ADDRESS="+listenAddress,
+		"OPENSVC_MCP_SOCKET_PATH="+socketPath,
 		"OPENSVC_MCP_JWT_VERIFY_KEY_FILE="+verifyKeyFile,
 	)
 	var serverOutput bytes.Buffer
@@ -177,7 +177,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	}()
 
 	httpClient := &http.Client{Transport: bearerRoundTripper{
-		base:  http.DefaultTransport,
+		base:  unixHTTPTransport(socketPath),
 		token: token,
 	}}
 	var session *mcp.ClientSession
@@ -189,7 +189,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 			nil,
 		)
 		session, err = mcpClient.Connect(ctx, &mcp.StreamableClientTransport{
-			Endpoint:             "http://" + listenAddress + "/mcp",
+			Endpoint:             "http://localhost/mcp",
 			HTTPClient:           httpClient,
 			DisableStandaloneSSE: true,
 		}, nil)
@@ -591,7 +591,7 @@ func TestDaemonAPIErrorsOverStreamableHTTP(t *testing.T) {
 	}))
 	defer daemonServer.Close()
 
-	listenAddress := reserveLoopbackAddress(t)
+	socketPath := filepath.Join(t.TempDir(), "mcp.sock")
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	binary := filepath.Join(t.TempDir(), "opensvc-daemon-mcp")
 	build := exec.CommandContext(ctx, "go", "build", "-o", binary, ".")
@@ -603,7 +603,7 @@ func TestDaemonAPIErrorsOverStreamableHTTP(t *testing.T) {
 	command.Env = append(
 		os.Environ(),
 		"OPENSVC_DAEMON_URL="+daemonServer.URL,
-		"OPENSVC_MCP_LISTEN_ADDRESS="+listenAddress,
+		"OPENSVC_MCP_SOCKET_PATH="+socketPath,
 		"OPENSVC_MCP_JWT_VERIFY_KEY_FILE="+verifyKeyFile,
 	)
 	var serverOutput bytes.Buffer
@@ -619,7 +619,7 @@ func TestDaemonAPIErrorsOverStreamableHTTP(t *testing.T) {
 	}()
 
 	httpClient := &http.Client{Transport: bearerRoundTripper{
-		base:  http.DefaultTransport,
+		base:  unixHTTPTransport(socketPath),
 		token: token,
 	}}
 	var session *mcp.ClientSession
@@ -631,7 +631,7 @@ func TestDaemonAPIErrorsOverStreamableHTTP(t *testing.T) {
 			nil,
 		)
 		session, err = mcpClient.Connect(ctx, &mcp.StreamableClientTransport{
-			Endpoint:             "http://" + listenAddress + "/mcp",
+			Endpoint:             "http://localhost/mcp",
 			HTTPClient:           httpClient,
 			DisableStandaloneSSE: true,
 		}, nil)
@@ -753,17 +753,14 @@ func (t bearerRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 	return t.base.RoundTrip(clone)
 }
 
-func reserveLoopbackAddress(t *testing.T) string {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserve loopback address: %v", err)
+func unixHTTPTransport(socketPath string) *http.Transport {
+	dialer := &net.Dialer{Timeout: time.Second}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return dialer.DialContext(ctx, "unix", socketPath)
 	}
-	address := listener.Addr().String()
-	if err := listener.Close(); err != nil {
-		t.Fatalf("release loopback address: %v", err)
-	}
-	return address
+	return transport
 }
 
 func writeTestJWTVerifyKey(t *testing.T) (*rsa.PrivateKey, string) {

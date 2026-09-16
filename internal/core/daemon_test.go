@@ -17,8 +17,8 @@ func (f *fakeJSONGetter) GetJSON(_ context.Context, path string, query url.Value
 	if path != "/api/cluster/status" {
 		f.t.Errorf("got path %q, want /api/cluster/status", path)
 	}
-	if got := query.Get("selector"); got != "**" {
-		f.t.Errorf("got selector %q, want **", got)
+	if len(query) != 0 {
+		f.t.Errorf("got unexpected cluster status query %v, want no parameters", query)
 	}
 	return json.Unmarshal([]byte(f.payload), output)
 }

@@ -142,7 +142,7 @@ type clusterStatusResponse struct {
 
 func (s *Service) getClusterStatus(ctx context.Context) (clusterStatusResponse, error) {
 	var status clusterStatusResponse
-	err := s.client.GetJSON(ctx, "/api/cluster/status", url.Values{"selector": {"**"}}, &status)
+	err := s.client.GetJSON(ctx, "/api/cluster/status", nil, &status)
 	if err != nil {
 		return clusterStatusResponse{}, fmt.Errorf("get cluster status: %w", err)
 	}

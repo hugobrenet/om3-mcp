@@ -31,7 +31,7 @@ health flag returned by the daemon.
 #### OpenSVC API and freshness
 
 ```text
-GET /api/cluster/status?selector=**
+GET /api/cluster/status
 ```
 
 The daemon serves a cached cluster view. Refreshing that cache does not execute
@@ -39,9 +39,12 @@ resource status drivers. Consequently, `healthy=true` means no issue is present
 in the visible last-known OpenSVC state; it does not prove that every resource
 was probed during this call.
 
-The endpoint accepts `guest` or a higher role. Object summaries cover only
-namespaces visible to the delegated JWT. A healthy result makes no assertion
-about inaccessible namespaces.
+The endpoint accepts `guest` or a higher role. Without `selector` or
+`namespace`, OpenSVC can serve its prepared cluster JSON directly to global
+`guest`, `operator`, `admin`, or `root` callers. OpenSVC still filters the
+response for namespace-scoped grants. Object summaries cover only namespaces
+visible to the delegated JWT. A healthy result makes no assertion about
+inaccessible namespaces.
 
 #### Assessment rules
 

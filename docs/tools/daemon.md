@@ -29,7 +29,7 @@ object inventory, configuration, or resource state.
 #### OpenSVC API
 
 ```text
-GET /api/cluster/status?selector=**
+GET /api/cluster/status
 ```
 
 The tool selects the local node using `daemon.nodename`. It rejects a response
@@ -37,9 +37,11 @@ that does not contain the local node or its agent version. The large object,
 instance, resource, heartbeat, and private configuration portions of the daemon
 response are discarded.
 
-The endpoint accepts `guest` or a higher operational role. Namespace grants can
-filter the underlying object payload, but this tool returns only identity and
-compatibility fields.
+The endpoint accepts `guest` or a higher operational role. Omitting `selector`
+and `namespace` lets OpenSVC serve its prepared cluster JSON directly to a
+caller with a global `guest`, `operator`, `admin`, or `root` grant. OpenSVC still
+filters the response for namespace-scoped grants. This tool returns only
+identity and compatibility fields.
 
 #### MCP properties
 

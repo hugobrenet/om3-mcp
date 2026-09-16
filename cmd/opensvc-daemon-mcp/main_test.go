@@ -48,6 +48,9 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		response.Header().Set("Content-Type", "application/json")
 		switch request.URL.Path {
 		case "/api/cluster/status":
+			if request.URL.RawQuery != "" {
+				t.Errorf("got cluster status query %q, want no parameters", request.URL.RawQuery)
+			}
 			fmt.Fprint(response, `{
 			"cluster": {
 				"config": {"id": "cluster-123", "name": "prod", "nodes": ["node-a"]},

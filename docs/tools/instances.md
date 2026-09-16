@@ -86,6 +86,10 @@ Lab input example:
 
 ```json
 {
+  "provenance": {
+    "source": "opensvc_daemon",
+    "observed_at": "2026-07-15T07:18:12Z"
+  },
   "count": 3,
   "entries": [
     {
@@ -200,6 +204,10 @@ Lab input example:
 
 ```json
 {
+  "provenance": {
+    "source": "opensvc_daemon",
+    "observed_at": "2026-07-15T05:31:03Z"
+  },
   "count": 1,
   "instances": [
     {
@@ -301,6 +309,10 @@ monitor fields.
 
 ```json
 {
+  "provenance": {
+    "source": "opensvc_daemon",
+    "observed_at": "2026-07-15T05:35:59Z"
+  },
   "current_updated_at": "2026-07-15T14:35:58.608127647+09:00",
   "duration_ms": 251,
   "instance": {

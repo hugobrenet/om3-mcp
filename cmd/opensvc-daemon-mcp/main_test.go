@@ -17,12 +17,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/core"
 	mcptools "github.com/hugobrenet/opensvc-daemon-mcp/internal/tools"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -234,6 +236,8 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		}
 		if tool.OutputSchema == nil {
 			t.Errorf("tool %q has no output schema", tool.Name)
+		} else {
+			assertProvenanceOutputSchema(t, tool.Name, tool.OutputSchema)
 		}
 		assertSchemaPropertyDescriptions(t, tool.OutputSchema, "outputSchema")
 		if tool.Annotations == nil {
@@ -288,6 +292,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	if identity.Daemon.NodeName != "node-a" || identity.Cluster.ID != "cluster-123" || identity.Node.AgentVersion != "v3.0.0" {
 		t.Errorf("got unexpected identity %#v", identity)
 	}
+	assertResultProvenance(t, identity.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "get_cluster_health",
@@ -310,6 +315,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	if !health.Healthy || health.ObjectSummary.Total != 1 || health.ObjectSummary.Up != 1 {
 		t.Errorf("got unexpected cluster health %#v", health)
 	}
+	assertResultProvenance(t, health.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_cluster_objects",
@@ -332,6 +338,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	if objects.Total != 2 || objects.Count != 2 || objects.Objects[0].Path != "cluster" || objects.Objects[1].Path != "prod/svc/app" {
 		t.Errorf("got unexpected cluster object list %#v", objects)
 	}
+	assertResultProvenance(t, objects.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "get_object_status",
@@ -348,6 +355,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	if objectStatus.Availability != "up" || objectStatus.InstanceCount != 1 {
 		t.Errorf("got unexpected object status %#v", objectStatus)
 	}
+	assertResultProvenance(t, objectStatus.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "get_object_config",
@@ -373,6 +381,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	if objectConfig.Items[0].Keyword != "app#main.command" || objectConfig.Items[0].Value != "/opt/app/start" || objectConfig.Items[1].Keyword != "app#main.type" {
 		t.Errorf("got unexpected object config items %#v", objectConfig.Items)
 	}
+	assertResultProvenance(t, objectConfig.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_object_instances",
@@ -389,6 +398,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	if instances.Count != 1 || instances.Instances[0].Node != "node-a" {
 		t.Errorf("got unexpected object instances %#v", instances)
 	}
+	assertResultProvenance(t, instances.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "get_instance_logs",
@@ -413,6 +423,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	if strings.Contains(string(data), "_MACHINE_ID") || strings.Contains(string(data), "must-not-survive") || strings.Contains(string(data), "GRANT") {
 		t.Errorf("instance log output exposes raw journald metadata: %s", data)
 	}
+	assertResultProvenance(t, logs.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "refresh_instance_status",
@@ -431,6 +442,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	if !refreshed.RefreshObserved || refreshed.TimedOut || refreshed.SessionID != "session-1" || refreshed.CurrentUpdatedAt != "2026-07-15T10:00:01Z" {
 		t.Errorf("got unexpected refresh result %#v", refreshed)
 	}
+	assertResultProvenance(t, refreshed.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_object_resources",
@@ -447,6 +459,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	if resources.Count != 1 || resources.Resources[0].RID != "container#app" {
 		t.Errorf("got unexpected object resources %#v", resources)
 	}
+	assertResultProvenance(t, resources.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "get_container_logs",
@@ -464,6 +477,42 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	}
 	if containerLogs.ResourceID != "container#app" || containerLogs.LineCount != 2 || containerLogs.Content != "application started\nready to accept connections" || containerLogs.Truncated {
 		t.Errorf("got unexpected container logs %#v", containerLogs)
+	}
+	assertResultProvenance(t, containerLogs.Provenance)
+}
+
+func assertResultProvenance(t *testing.T, provenance core.Provenance) {
+	t.Helper()
+	if provenance.Source != "opensvc_daemon" {
+		t.Errorf("provenance source = %q, want opensvc_daemon", provenance.Source)
+	}
+	observedAt, err := time.Parse(time.RFC3339Nano, provenance.ObservedAt)
+	if err != nil || !strings.HasSuffix(provenance.ObservedAt, "Z") {
+		t.Errorf("provenance observed_at = %q, want RFC3339Nano UTC: %v", provenance.ObservedAt, err)
+		return
+	}
+	if observedAt.After(time.Now()) {
+		t.Errorf("provenance observed_at = %q is in the future", provenance.ObservedAt)
+	}
+}
+
+func assertProvenanceOutputSchema(t *testing.T, toolName string, schema any) {
+	t.Helper()
+	encoded, err := json.Marshal(schema)
+	if err != nil {
+		t.Errorf("tool %q output schema marshal: %v", toolName, err)
+		return
+	}
+	var shape struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	if err := json.Unmarshal(encoded, &shape); err != nil {
+		t.Errorf("tool %q output schema decode: %v", toolName, err)
+		return
+	}
+	if len(shape.Properties["provenance"]) == 0 || !slices.Contains(shape.Required, "provenance") {
+		t.Errorf("tool %q output schema must require provenance", toolName)
 	}
 }
 

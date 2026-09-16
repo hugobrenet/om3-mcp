@@ -29,6 +29,7 @@ type GetContainerLogsOptions struct {
 }
 
 type ContainerLogs struct {
+	Provenance Provenance             `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
 	Object     ClusterObjectReference `json:"object" jsonschema:"the canonical OpenSVC object reference"`
 	Node       string                 `json:"node" jsonschema:"the exact node hosting the queried container resource"`
 	ResourceID string                 `json:"resource_id" jsonschema:"the exact OpenSVC container resource id"`
@@ -98,6 +99,7 @@ func (s *Service) GetContainerLogs(ctx context.Context, options GetContainerLogs
 
 	content, contentTruncated := normalizeContainerLogContent(raw.Bytes())
 	return ContainerLogs{
+		Provenance: s.newProvenance(),
 		Object:     reference,
 		Node:       node,
 		ResourceID: resourceID,

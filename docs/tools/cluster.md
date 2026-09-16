@@ -134,6 +134,10 @@ evaluated node is healthy, and no visible actor object is problematic.
 
 ```json
 {
+  "provenance": {
+    "source": "opensvc_daemon",
+    "observed_at": "2026-07-15T05:00:00Z"
+  },
   "healthy": false,
   "node_summary": {
     "frozen": 0,

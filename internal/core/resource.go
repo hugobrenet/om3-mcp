@@ -24,6 +24,7 @@ type ListObjectResourcesOptions struct {
 }
 
 type ObjectResourceList struct {
+	Provenance Provenance             `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
 	Object     ClusterObjectReference `json:"object" jsonschema:"the canonical OpenSVC object reference"`
 	NodeFilter string                 `json:"node_filter,omitempty" jsonschema:"the optional node filter used for the daemon request"`
 	RIDFilter  string                 `json:"rid_filter,omitempty" jsonschema:"the optional resource id filter used for the daemon request"`
@@ -197,6 +198,7 @@ func (s *Service) ListObjectResources(ctx context.Context, options ListObjectRes
 	if result.Truncated {
 		result.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(resourceSortKey(page[len(page)-1])))
 	}
+	result.Provenance = s.newProvenance()
 	return result, nil
 }
 

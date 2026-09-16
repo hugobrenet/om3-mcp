@@ -26,6 +26,7 @@ type GetObjectConfigOptions struct {
 }
 
 type ObjectConfig struct {
+	Provenance      Provenance             `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
 	Object          ClusterObjectReference `json:"object" jsonschema:"the canonical OpenSVC object reference"`
 	KeywordFilter   []string               `json:"keyword_filter,omitempty" jsonschema:"the sorted exact keyword filters sent to the daemon"`
 	Total           int                    `json:"total" jsonschema:"the number of matching configuration keywords returned by the daemon"`
@@ -127,6 +128,7 @@ func (s *Service) GetObjectConfig(ctx context.Context, options GetObjectConfigOp
 	}
 
 	return ObjectConfig{
+		Provenance:      s.newProvenance(),
 		Object:          reference,
 		KeywordFilter:   keywords,
 		Total:           len(response.Items),

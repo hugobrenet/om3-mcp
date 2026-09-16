@@ -26,6 +26,7 @@ type ListObjectInstancesOptions struct {
 }
 
 type ObjectInstanceList struct {
+	Provenance Provenance             `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
 	Object     ClusterObjectReference `json:"object" jsonschema:"the canonical OpenSVC object reference"`
 	NodeFilter string                 `json:"node_filter,omitempty" jsonschema:"the optional node filter used for the daemon request"`
 	Total      int                    `json:"total" jsonschema:"the current number of visible instances matching the filters"`
@@ -69,6 +70,7 @@ type RefreshInstanceStatusOptions struct {
 }
 
 type RefreshInstanceStatusResult struct {
+	Provenance        Provenance             `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
 	Object            ClusterObjectReference `json:"object" jsonschema:"the canonical OpenSVC object reference"`
 	Node              string                 `json:"node" jsonschema:"the refreshed instance node name"`
 	SessionID         string                 `json:"session_id" jsonschema:"the OpenSVC session identifier returned when the status action was accepted"`
@@ -185,6 +187,7 @@ func (s *Service) ListObjectInstances(ctx context.Context, options ListObjectIns
 	if result.Truncated {
 		result.NextCursor = page[len(page)-1].Node
 	}
+	result.Provenance = s.newProvenance()
 	return result, nil
 }
 
@@ -274,6 +277,7 @@ func (s *Service) RefreshInstanceStatus(ctx context.Context, options RefreshInst
 			}
 			result.TimedOut = true
 			result.DurationMS = time.Since(started).Milliseconds()
+			result.Provenance = s.newProvenance()
 			return result, nil
 		case <-timer.C:
 		}
@@ -283,6 +287,7 @@ func (s *Service) RefreshInstanceStatus(ctx context.Context, options RefreshInst
 			if errors.Is(pollCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
 				result.TimedOut = true
 				result.DurationMS = time.Since(started).Milliseconds()
+				result.Provenance = s.newProvenance()
 				return result, nil
 			}
 			return RefreshInstanceStatusResult{}, fmt.Errorf("poll refreshed instance status: %w", err)
@@ -292,6 +297,7 @@ func (s *Service) RefreshInstanceStatus(ctx context.Context, options RefreshInst
 		if current.UpdatedAt != "" && current.UpdatedAt != previous.UpdatedAt {
 			result.RefreshObserved = true
 			result.DurationMS = time.Since(started).Milliseconds()
+			result.Provenance = s.newProvenance()
 			return result, nil
 		}
 	}

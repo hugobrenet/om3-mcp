@@ -22,6 +22,7 @@ type ListClusterObjectsOptions struct {
 }
 
 type ClusterObjectList struct {
+	Provenance Provenance               `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
 	Selector   string                   `json:"selector" jsonschema:"the OpenSVC object selector used for this page"`
 	Total      int                      `json:"total" jsonschema:"the total number of objects matching the selector and caller grants"`
 	Count      int                      `json:"count" jsonschema:"the number of objects returned in this page"`
@@ -101,6 +102,7 @@ func (s *Service) ListClusterObjects(ctx context.Context, options ListClusterObj
 	if result.Truncated {
 		result.NextCursor = objects[len(objects)-1].Path
 	}
+	result.Provenance = s.newProvenance()
 	return result, nil
 }
 

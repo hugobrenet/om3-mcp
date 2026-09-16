@@ -25,12 +25,13 @@ type GetInstanceLogsOptions struct {
 }
 
 type InstanceLogList struct {
-	Object    ClusterObjectReference `json:"object" jsonschema:"the canonical OpenSVC object reference"`
-	Node      string                 `json:"node" jsonschema:"the exact node hosting the queried object instance"`
-	Lines     int                    `json:"lines" jsonschema:"the requested maximum number of recent log entries"`
-	Count     int                    `json:"count" jsonschema:"the number of bounded log entries returned"`
-	Entries   []InstanceLogEntry     `json:"entries" jsonschema:"the recent OpenSVC instance log entries in chronological order"`
-	Truncated bool                   `json:"truncated" jsonschema:"whether older entries or message content were omitted by response bounds"`
+	Provenance Provenance             `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
+	Object     ClusterObjectReference `json:"object" jsonschema:"the canonical OpenSVC object reference"`
+	Node       string                 `json:"node" jsonschema:"the exact node hosting the queried object instance"`
+	Lines      int                    `json:"lines" jsonschema:"the requested maximum number of recent log entries"`
+	Count      int                    `json:"count" jsonschema:"the number of bounded log entries returned"`
+	Entries    []InstanceLogEntry     `json:"entries" jsonschema:"the recent OpenSVC instance log entries in chronological order"`
+	Truncated  bool                   `json:"truncated" jsonschema:"whether older entries or message content were omitted by response bounds"`
 }
 
 type InstanceLogEntry struct {
@@ -139,7 +140,8 @@ func (s *Service) GetInstanceLogs(ctx context.Context, options GetInstanceLogsOp
 		entries = []InstanceLogEntry{}
 	}
 	return InstanceLogList{
-		Object: reference, Node: node, Lines: lines, Count: len(entries),
+		Provenance: s.newProvenance(),
+		Object:     reference, Node: node, Lines: lines, Count: len(entries),
 		Entries: entries, Truncated: truncated,
 	}, nil
 }

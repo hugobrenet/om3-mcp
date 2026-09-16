@@ -28,6 +28,9 @@ It is not production-ready.
 
 The MCP currently exposes mostly read-only tools plus one explicit,
 non-destructive instance status refresh.
+Every successful tool result includes a minimal `provenance` object naming the
+OpenSVC daemon API as its source and recording when the MCP collected the
+result; this time does not establish freshness of the underlying status.
 Detailed documentation is organized by OpenSVC daemon domain and includes
 verified, normalized lab input/output examples:
 

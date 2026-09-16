@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"time"
 )
 
 type JSONGetter interface {
@@ -24,17 +25,19 @@ type StreamGetter interface {
 
 type Service struct {
 	client JSONGetter
+	now    func() time.Time
 }
 
 func New(client JSONGetter) *Service {
-	return &Service{client: client}
+	return &Service{client: client, now: time.Now}
 }
 
 type DaemonIdentity struct {
-	Daemon   DaemonProcessIdentity `json:"daemon" jsonschema:"identity of the local OpenSVC daemon process"`
-	Cluster  ClusterIdentity       `json:"cluster" jsonschema:"identity of the OpenSVC cluster"`
-	Node     NodeIdentity          `json:"node" jsonschema:"identity and role of the local OpenSVC node"`
-	Listener ListenerIdentity      `json:"listener" jsonschema:"OpenSVC daemon listener configuration"`
+	Provenance Provenance            `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
+	Daemon     DaemonProcessIdentity `json:"daemon" jsonschema:"identity of the local OpenSVC daemon process"`
+	Cluster    ClusterIdentity       `json:"cluster" jsonschema:"identity of the OpenSVC cluster"`
+	Node       NodeIdentity          `json:"node" jsonschema:"identity and role of the local OpenSVC node"`
+	Listener   ListenerIdentity      `json:"listener" jsonschema:"OpenSVC daemon listener configuration"`
 }
 
 type DaemonProcessIdentity struct {
@@ -165,9 +168,10 @@ func (s *Service) GetDaemonIdentity(ctx context.Context) (DaemonIdentity, error)
 	}
 
 	return DaemonIdentity{
-		Daemon:   DaemonProcessIdentity{NodeName: nodeName, PID: node.Daemon.PID, StartedAt: node.Daemon.StartedAt, Routines: status.Daemon.Routines},
-		Cluster:  ClusterIdentity{ID: status.Cluster.Config.ID, Name: status.Cluster.Config.Name, Nodes: status.Cluster.Config.Nodes, QuorumEnabled: status.Cluster.Config.Quorum},
-		Node:     NodeIdentity{AgentVersion: node.Status.Agent, APIVersion: node.Status.API, Compat: node.Status.Compat, IsLeader: node.Status.IsLeader, IsOverloaded: node.Status.IsOverloaded, BootedAt: node.Status.BootedAt},
-		Listener: ListenerIdentity{Address: status.Cluster.Config.Listener.Address, Port: status.Cluster.Config.Listener.Port},
+		Provenance: s.newProvenance(),
+		Daemon:     DaemonProcessIdentity{NodeName: nodeName, PID: node.Daemon.PID, StartedAt: node.Daemon.StartedAt, Routines: status.Daemon.Routines},
+		Cluster:    ClusterIdentity{ID: status.Cluster.Config.ID, Name: status.Cluster.Config.Name, Nodes: status.Cluster.Config.Nodes, QuorumEnabled: status.Cluster.Config.Quorum},
+		Node:       NodeIdentity{AgentVersion: node.Status.Agent, APIVersion: node.Status.API, Compat: node.Status.Compat, IsLeader: node.Status.IsLeader, IsOverloaded: node.Status.IsOverloaded, BootedAt: node.Status.BootedAt},
+		Listener:   ListenerIdentity{Address: status.Cluster.Config.Listener.Address, Port: status.Cluster.Config.Listener.Port},
 	}, nil
 }

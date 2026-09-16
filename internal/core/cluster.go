@@ -11,6 +11,7 @@ import (
 const maxClusterHealthProblemObjects = 100
 
 type ClusterHealth struct {
+	Provenance              Provenance                 `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
 	Healthy                 bool                       `json:"healthy" jsonschema:"whether all evaluated cluster health checks pass"`
 	Cluster                 ClusterHealthStatus        `json:"cluster" jsonschema:"cluster-wide health checks"`
 	NodeSummary             ClusterNodeHealthSummary   `json:"node_summary" jsonschema:"summary of evaluated node health"`
@@ -113,7 +114,9 @@ func (s *Service) GetClusterHealth(ctx context.Context) (ClusterHealth, error) {
 	if err != nil {
 		return ClusterHealth{}, fmt.Errorf("get cluster health: %w", err)
 	}
-	return clusterHealthFromStatus(status), nil
+	health := clusterHealthFromStatus(status)
+	health.Provenance = s.newProvenance()
+	return health, nil
 }
 
 func clusterHealthFromStatus(status clusterStatusResponse) ClusterHealth {

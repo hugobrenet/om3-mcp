@@ -81,6 +81,10 @@ Lab input example:
 
 ```json
 {
+  "provenance": {
+    "source": "opensvc_daemon",
+    "observed_at": "2026-07-15T05:40:00Z"
+  },
   "object": {
     "path": "lab/svc/redis",
     "namespace": "lab",
@@ -173,6 +177,10 @@ Lab input example:
 
 ```json
 {
+  "provenance": {
+    "source": "opensvc_daemon",
+    "observed_at": "2026-07-15T05:31:03Z"
+  },
   "count": 1,
   "node_filter": "lab-node-01",
   "object": {

@@ -82,6 +82,10 @@ Lab input example:
 
 ```json
 {
+  "provenance": {
+    "source": "opensvc_daemon",
+    "observed_at": "2026-07-15T05:00:00Z"
+  },
   "count": 1,
   "objects": [
     {
@@ -151,6 +155,10 @@ Wildcard paths are intentionally unsupported.
 
 ```json
 {
+  "provenance": {
+    "source": "opensvc_daemon",
+    "observed_at": "2026-07-15T05:31:03Z"
+  },
   "availability": "up",
   "frozen": "unfrozen",
   "instance_count": 1,
@@ -233,6 +241,10 @@ Lab input example:
 
 ```json
 {
+  "provenance": {
+    "source": "opensvc_daemon",
+    "observed_at": "2026-07-15T05:35:00Z"
+  },
   "object": {
     "kind": "svc",
     "name": "redis",

@@ -9,6 +9,7 @@ import (
 )
 
 type ObjectStatus struct {
+	Provenance       Provenance             `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
 	Object           ClusterObjectReference `json:"object" jsonschema:"the canonical OpenSVC object reference"`
 	IsActor          bool                   `json:"is_actor" jsonschema:"whether the object has actor availability and placement state"`
 	Availability     string                 `json:"availability,omitempty" jsonschema:"the aggregate object availability reported by OpenSVC"`
@@ -100,6 +101,7 @@ func (s *Service) GetObjectStatus(ctx context.Context, path string) (ObjectStatu
 	if data.Availability != nil {
 		result.Availability = *data.Availability
 	}
+	result.Provenance = s.newProvenance()
 	return result, nil
 }
 

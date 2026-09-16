@@ -50,21 +50,40 @@ bounded RFC 7807 `title` and `detail` fields returned by OpenSVC.
 
 ## Freshness model
 
+Every successful tool result includes a `provenance` object:
+
+```json
+{
+  "source": "opensvc_daemon",
+  "observed_at": "2026-09-16T10:00:00Z"
+}
+```
+
+`source` identifies the daemon API that supplied the MCP result, not
+necessarily the original data store (for example, instance logs originate in
+the node journal). `observed_at` is the UTC time when the MCP finished
+collecting and normalizing the result. It is not a status update timestamp and
+does not guarantee that the underlying data is fresh. Tool errors have no
+successful result provenance.
+
 Read-only status tools return the last-known state held by the daemon. They do
 not execute resource drivers. An out-of-band runtime failure or recovery may be
 absent until OpenSVC refreshes the instance status.
 
-Always inspect `updated_at` before relying on status for a diagnosis. Use
-`refresh_instance_status` only for one exact object instance when a fresher
-probe is required. It is non-destructive, but it executes status drivers and
-updates daemon state.
+Always inspect daemon-provided `updated_at`, where available, before relying on
+status for a diagnosis. Unlike `observed_at`, it dates the OpenSVC status
+itself. Use `refresh_instance_status` only for one exact object instance when
+a fresher probe is required. It is non-destructive, but it executes status
+drivers and updates daemon state.
 
 ## Lab examples
 
 The JSON examples were captured through the real Streamable HTTP MCP server
 against an OpenSVC `3.0.0-rc21` single-node lab running a Redis Docker resource.
 Values are normalized for publication while preserving the actual response
-shape:
+shape. The `provenance` fields in these historical examples illustrate the
+current contract; their timestamps are representative, not original capture
+metadata:
 
 | Value | Example |
 |---|---|

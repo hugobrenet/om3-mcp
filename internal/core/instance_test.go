@@ -118,7 +118,9 @@ func TestRefreshInstanceStatus(t *testing.T) {
 
 func TestRefreshInstanceStatusReturnsStructuredTimeout(t *testing.T) {
 	client := &refreshInstanceClient{t: t}
-	result, err := New(client).RefreshInstanceStatus(context.Background(), RefreshInstanceStatusOptions{
+	service := New(client)
+	service.now = func() time.Time { return time.Date(2026, 9, 16, 10, 0, 0, 0, time.UTC) }
+	result, err := service.RefreshInstanceStatus(context.Background(), RefreshInstanceStatusOptions{
 		Path: "lab/svc/redis", Node: "node-a", Timeout: 5 * time.Second,
 	})
 	if err != nil {
@@ -132,6 +134,9 @@ func TestRefreshInstanceStatusReturnsStructuredTimeout(t *testing.T) {
 	}
 	if result.CurrentUpdatedAt != result.PreviousUpdatedAt || result.Instance.UpdatedAt != result.PreviousUpdatedAt {
 		t.Errorf("timeout did not return the last observed instance: %+v", result)
+	}
+	if result.Provenance.Source != provenanceSourceOpenSVCDaemon || result.Provenance.ObservedAt != "2026-09-16T10:00:00Z" {
+		t.Errorf("timeout result has unexpected provenance: %+v", result.Provenance)
 	}
 }
 

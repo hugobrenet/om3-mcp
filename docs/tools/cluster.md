@@ -23,7 +23,8 @@ nodes, and actor objects visible to the delegated caller.
 
 Use it for the first operational diagnosis: leadership, compatibility, frozen
 or missing nodes, non-idle monitors, overload, and a bounded list of problematic
-objects. Continue with object and instance tools for a focused diagnosis.
+objects. It also summarizes heartbeat streams and peer links for each node.
+Continue with object and instance tools for a focused diagnosis.
 
 This is an MCP-defined assessment derived from OpenSVC fields, not a canonical
 health flag returned by the daemon.
@@ -58,7 +59,8 @@ Cluster issues include:
 Leader names are sorted lexicographically.
 
 A node is unhealthy when it is missing, has no agent version or monitor state,
-has a non-empty monitor state other than `idle`, is frozen, or reports overload.
+has a non-empty monitor state other than `idle`, is frozen, reports overload, or
+has degraded or unavailable heartbeat status in a multi-node cluster.
 Node issues are structured objects with a stable `code` and a `message`.
 An unparseable non-empty `frozen_at` is treated conservatively as frozen. The
 evaluated node set is the union of configured and reported nodes.
@@ -73,6 +75,79 @@ evaluated node set is the union of configured and reported nodes.
 | `memory_below_threshold` | Available memory violates the configured policy |
 | `swap_below_threshold` | Available swap violates the configured policy |
 | `overload_cause_undetermined` | The overload flag cannot be explained from the bounded data |
+| `heartbeat_degraded` | A reported heartbeat stream is not running or a reported stream/peer link is not beating |
+| `heartbeat_status_unknown` | Heartbeat data is absent, too old, has an invalid timestamp, or lacks an RX view of a configured peer |
+
+Each reported node has a `heartbeat` object with `state`, OpenSVC
+`updated_at`, stream and link counts, RX peer counts, and a bounded issue list.
+`node_summary.heartbeat_degraded` and `node_summary.heartbeat_unknown` count
+nodes in those states. For a single-node cluster with no streams, heartbeat
+state is `not_applicable`.
+
+| Heartbeat state | Rule |
+|---|---|
+| `healthy` | Recent status; every reported stream is `running`, every reported link is beating, and each configured peer has an RX link |
+| `degraded` | A reported stream is not `running` or a reported link has `is_beating=false` |
+| `unknown` | Status or timestamp is missing/invalid, older than three minutes, more than 30 seconds in the future, or a configured peer has no reported RX link |
+| `not_applicable` | Single configured node and no heartbeat streams |
+
+`heartbeat.updated_at` is written by OpenSVC when it publishes the heartbeat
+subsystem. OpenSVC normally refreshes it within 60 seconds; the MCP allows three
+minutes for propagation before classifying the view as `unknown`. A recent MCP
+`provenance.observed_at` does not make old heartbeat data fresh. The stream's
+own `updated_at` is currently zero on the lab build and is not used. The MCP
+uses OpenSVC's `is_beating` value rather than inventing an age threshold for
+`last_beating_at`. It does not treat every alert as a failure: OpenSVC also
+publishes informational alerts.
+
+Heartbeat issue codes provide the exact evidence:
+
+| Heartbeat issue code | Meaning |
+|---|---|
+| `heartbeat_stream_not_running` | A stream reports a state other than `running`; `stream_id` and `stream_state` identify it |
+| `heartbeat_peer_not_beating` | A stream/peer link reports `is_beating=false`; `stream_id`, `peer`, `changed_at`, and `last_beating_at` identify it |
+| `heartbeat_peer_stale` | All reported RX links to a configured peer are not beating, from this node's view |
+| `heartbeat_rx_peer_missing` | No RX link to a configured peer is reported; reachability cannot be inferred |
+| `heartbeat_status_missing` | No heartbeat status is published for a reported node |
+| `heartbeat_timestamp_missing` | Publication time is absent, invalid, or the Go zero time |
+| `heartbeat_status_stale` | Publication time is older than three minutes |
+| `heartbeat_timestamp_in_future` | Publication time is more than 30 seconds ahead of the MCP clock |
+
+Stream/peer issues are sorted by stream ID and peer name. At most 50 heartbeat
+issues per node are returned; `issues_total` and `issues_truncated` disclose
+omissions. The link counters include RX and TX. `rx_peers_stale` follows
+OpenSVC's rule that a peer is stale from one node's point of view when none of
+its RX links are beating. One failed link with another RX link still beating is
+a degraded heartbeat, not proof that the peer is unreachable. A stale peer in
+this cached view does not by itself prove a node failure or cluster partition.
+Compare the local views on both nodes for a partition investigation.
+
+On the two-node lab after the 17 September 2026 update, a real authenticated
+call on `node1` reported the following heartbeat summary (the publication time
+is normalized here):
+
+```json
+{
+  "node_summary": {"heartbeat_degraded": 0, "heartbeat_unknown": 0},
+  "nodes": [
+    {"name": "node1", "heartbeat": {"state": "healthy", "updated_at": "2026-09-17T12:00:00Z", "streams_total": 2, "streams_running": 2, "links_total": 2, "links_beating": 2, "links_not_beating": 0, "rx_peers_beating": 1, "rx_peers_stale": 0, "issues_total": 0, "issues": [], "issues_truncated": false}},
+    {"name": "node2", "heartbeat": {"state": "healthy", "updated_at": "2026-09-17T12:00:00Z", "streams_total": 2, "streams_running": 2, "links_total": 2, "links_beating": 2, "links_not_beating": 0, "rx_peers_beating": 1, "rx_peers_stale": 0, "issues_total": 0, "issues": [], "issues_truncated": false}}
+  ]
+}
+```
+
+The same response had `healthy=false` because both nodes independently
+reported overload; the heartbeat counters were healthy. This excerpt shows
+only heartbeat-related fields from the full result.
+
+In a controlled lab test, stopping only `hb#1.tx` on `node2` made `node1`
+report `heartbeat.state=degraded`, `rx_peers_stale=1`, and the issues
+`heartbeat_peer_not_beating` (`hb#1.rx`, `node2`) and
+`heartbeat_peer_stale` (`node2`). The heartbeat view for `node2` became
+`unknown` from `node1`. After the sender restarted, both nodes again reported
+`heartbeat.state=healthy` with two beating links each. The global
+`healthy=false` value also existed before the test because of unrelated node
+overload; the heartbeat issues and recovery were observed directly.
 
 When a node reports overload, the MCP reproduces the daemon's deterministic
 checks using the node configuration and statistics:
@@ -115,7 +190,9 @@ Problem objects are sorted by path. At most 100 are returned and
 `problem_objects_truncated` indicates whether additional problems were omitted.
 
 The top-level `healthy` field is true only when the cluster has no issue, every
-evaluated node is healthy, and no visible actor object is problematic.
+evaluated node is healthy, and no visible actor object is problematic. Unknown
+heartbeat state on a reported multi-node cluster node prevents a healthy result,
+but is kept distinct from a confirmed degraded heartbeat.
 
 #### MCP properties
 

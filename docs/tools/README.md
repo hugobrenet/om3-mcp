@@ -5,6 +5,9 @@ tools. Runtime names, descriptions, annotations, and JSON Schemas remain
 available through MCP `tools/list`; these documents explain how to select and
 combine the tools during operations.
 
+`get_cluster_health` provides a bounded heartbeat summary. A separate tool for
+full per-link details can be considered if the lab diagnostics require it.
+
 ## Domains
 
 | Domain | Tools | Documentation |
@@ -33,7 +36,8 @@ get_daemon_identity
 ```
 
 `get_daemon_identity` confirms the target node and cluster.
-`get_cluster_health` provides a bounded first assessment.
+`get_cluster_health` provides a bounded first assessment, including heartbeat
+stream and peer-link health from the daemon's last-known cluster view.
 The object, instance, and resource tools then narrow a diagnosis from cluster
 inventory to the exact failing resource.
 

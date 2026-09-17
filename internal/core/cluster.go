@@ -31,23 +31,26 @@ type ClusterHealthStatus struct {
 }
 
 type ClusterNodeHealthSummary struct {
-	Total      int `json:"total" jsonschema:"number of configured or reported nodes evaluated"`
-	Healthy    int `json:"healthy" jsonschema:"number of evaluated nodes with no health issues"`
-	Missing    int `json:"missing" jsonschema:"number of configured nodes with no reported status data"`
-	Frozen     int `json:"frozen" jsonschema:"number of reported nodes considered frozen"`
-	Overloaded int `json:"overloaded" jsonschema:"number of reported nodes indicating overload"`
-	NonIdle    int `json:"non_idle" jsonschema:"number of reported nodes whose non-empty monitor state is not idle"`
+	Total             int `json:"total" jsonschema:"number of configured or reported nodes evaluated"`
+	Healthy           int `json:"healthy" jsonschema:"number of evaluated nodes with no health issues"`
+	Missing           int `json:"missing" jsonschema:"number of configured nodes with no reported status data"`
+	Frozen            int `json:"frozen" jsonschema:"number of reported nodes considered frozen"`
+	Overloaded        int `json:"overloaded" jsonschema:"number of reported nodes indicating overload"`
+	NonIdle           int `json:"non_idle" jsonschema:"number of reported nodes whose non-empty monitor state is not idle"`
+	HeartbeatDegraded int `json:"heartbeat_degraded" jsonschema:"number of reported nodes with degraded heartbeat streams or links"`
+	HeartbeatUnknown  int `json:"heartbeat_unknown" jsonschema:"number of nodes whose heartbeat status cannot be assessed"`
 }
 
 type ClusterNodeHealth struct {
-	Name         string                   `json:"name" jsonschema:"the OpenSVC node name"`
-	Reported     bool                     `json:"reported" jsonschema:"whether cluster status contains data for this node"`
-	Healthy      bool                     `json:"healthy" jsonschema:"whether this node has no evaluated health issues"`
-	MonitorState string                   `json:"monitor_state" jsonschema:"the monitor state reported by the node, or an empty string when unavailable"`
-	IsLeader     bool                     `json:"is_leader" jsonschema:"whether the node reports itself as cluster leader"`
-	IsFrozen     bool                     `json:"is_frozen" jsonschema:"whether the node frozen timestamp is non-zero or invalid"`
-	IsOverloaded bool                     `json:"is_overloaded" jsonschema:"whether the node reports overload"`
-	Issues       []ClusterNodeHealthIssue `json:"issues" jsonschema:"deterministic structured health issues identified for this node"`
+	Name         string                     `json:"name" jsonschema:"the OpenSVC node name"`
+	Reported     bool                       `json:"reported" jsonschema:"whether cluster status contains data for this node"`
+	Healthy      bool                       `json:"healthy" jsonschema:"whether this node has no evaluated health issues"`
+	Heartbeat    ClusterNodeHeartbeatHealth `json:"heartbeat" jsonschema:"bounded assessment of this node's published heartbeat streams and peers"`
+	MonitorState string                     `json:"monitor_state" jsonschema:"the monitor state reported by the node, or an empty string when unavailable"`
+	IsLeader     bool                       `json:"is_leader" jsonschema:"whether the node reports itself as cluster leader"`
+	IsFrozen     bool                       `json:"is_frozen" jsonschema:"whether the node frozen timestamp is non-zero or invalid"`
+	IsOverloaded bool                       `json:"is_overloaded" jsonschema:"whether the node reports overload"`
+	Issues       []ClusterNodeHealthIssue   `json:"issues" jsonschema:"deterministic structured health issues identified for this node"`
 }
 
 type ClusterNodeHealthIssue struct {
@@ -114,12 +117,12 @@ func (s *Service) GetClusterHealth(ctx context.Context) (ClusterHealth, error) {
 	if err != nil {
 		return ClusterHealth{}, fmt.Errorf("get cluster health: %w", err)
 	}
-	health := clusterHealthFromStatus(status)
+	health := clusterHealthFromStatus(status, s.now())
 	health.Provenance = s.newProvenance()
 	return health, nil
 }
 
-func clusterHealthFromStatus(status clusterStatusResponse) ClusterHealth {
+func clusterHealthFromStatus(status clusterStatusResponse, now time.Time) ClusterHealth {
 	health := ClusterHealth{
 		Cluster: ClusterHealthStatus{
 			ID:           status.Cluster.Config.ID,
@@ -163,9 +166,20 @@ func clusterHealthFromStatus(status clusterStatusResponse) ClusterHealth {
 		node, reported := status.Cluster.Node[name]
 		nodeHealth := ClusterNodeHealth{Name: name, Reported: reported, Issues: []ClusterNodeHealthIssue{}}
 		if !reported {
+			nodeHealth.Heartbeat = ClusterNodeHeartbeatHealth{State: "unknown", Issues: []ClusterHeartbeatIssue{}}
+			health.NodeSummary.HeartbeatUnknown++
 			nodeHealth.Issues = append(nodeHealth.Issues, nodeIssue("node_status_missing", "configured node has no status data"))
 			health.NodeSummary.Missing++
 		} else {
+			nodeHealth.Heartbeat = clusterHeartbeatHealth(node.Daemon.Heartbeat, name, status.Cluster.Config.Nodes, now)
+			switch nodeHealth.Heartbeat.State {
+			case "degraded":
+				health.NodeSummary.HeartbeatDegraded++
+				nodeHealth.Issues = append(nodeHealth.Issues, nodeIssue("heartbeat_degraded", "one or more heartbeat streams or peer links are degraded"))
+			case "unknown":
+				health.NodeSummary.HeartbeatUnknown++
+				nodeHealth.Issues = append(nodeHealth.Issues, nodeIssue("heartbeat_status_unknown", "heartbeat status cannot be assessed from the published node data"))
+			}
 			nodeHealth.MonitorState = node.Monitor.State
 			nodeHealth.IsLeader = node.Status.IsLeader
 			nodeHealth.IsFrozen = isNonZeroTimestamp(node.Status.FrozenAt)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestGetClusterHealthDegraded(t *testing.T) {
@@ -15,13 +16,21 @@ func TestGetClusterHealthDegraded(t *testing.T) {
 			"node": {
 				"node-a": {
 					"status": {"agent": "v3.0.0", "is_leader": true, "frozen_at": "0001-01-01T00:00:00Z"},
-					"monitor": {"state": "idle"}
+					"monitor": {"state": "idle"},
+					"daemon": {"heartbeat": {"updated_at": "2026-07-14T10:00:00Z", "streams": [
+						{"id": "hb#1.rx", "state": "running", "peers": {"node-b": {"is_beating": true}}},
+						{"id": "hb#1.tx", "state": "running", "peers": {"node-b": {"is_beating": true}}}
+					]}}
 				},
 				"node-b": {
 					"config": {"min_avail_mem_pct": 2, "min_avail_swap_pct": 10},
 					"stats": {"mem_avail": 89, "mem_total": 3900, "swap_avail": 0, "swap_total": 0},
 					"status": {"agent": "v3.0.0", "is_overloaded": true, "frozen_at": "2026-07-14T10:00:00Z"},
-					"monitor": {"state": "maintenance"}
+					"monitor": {"state": "maintenance"},
+					"daemon": {"heartbeat": {"updated_at": "2026-07-14T10:00:00Z", "streams": [
+						{"id": "hb#1.rx", "state": "running", "peers": {"node-a": {"is_beating": true}}},
+						{"id": "hb#1.tx", "state": "running", "peers": {"node-a": {"is_beating": true}}}
+					]}}
 				}
 			},
 			"object": {
@@ -38,6 +47,7 @@ func TestGetClusterHealthDegraded(t *testing.T) {
 			}
 		}
 	}`})
+	service.now = func() time.Time { return time.Date(2026, 7, 14, 10, 0, 30, 0, time.UTC) }
 
 	health, err := service.GetClusterHealth(context.Background())
 	if err != nil {
@@ -51,6 +61,9 @@ func TestGetClusterHealthDegraded(t *testing.T) {
 	}
 	if health.NodeSummary.Total != 2 || health.NodeSummary.Healthy != 1 {
 		t.Errorf("got node summary %+v, want total=2 healthy=1", health.NodeSummary)
+	}
+	if health.Nodes[0].Heartbeat.State != "healthy" || health.Nodes[0].Heartbeat.LinksBeating != 2 {
+		t.Errorf("got node-a heartbeat %+v, want two beating links", health.Nodes[0].Heartbeat)
 	}
 	if health.NodeSummary.Frozen != 1 || health.NodeSummary.Overloaded != 1 || health.NodeSummary.NonIdle != 1 {
 		t.Errorf("got node summary %+v, want one frozen, overloaded, and non-idle node", health.NodeSummary)
@@ -136,6 +149,9 @@ func TestGetClusterHealthHealthy(t *testing.T) {
 	}
 	if !health.Healthy {
 		t.Fatalf("expected healthy cluster, got %+v", health)
+	}
+	if health.Nodes[0].Heartbeat.State != "not_applicable" {
+		t.Errorf("got single-node heartbeat state %q, want not_applicable", health.Nodes[0].Heartbeat.State)
 	}
 	if len(health.Cluster.Issues) != 0 || len(health.ProblemObjects) != 0 {
 		t.Fatalf("expected no issues, got %+v", health)

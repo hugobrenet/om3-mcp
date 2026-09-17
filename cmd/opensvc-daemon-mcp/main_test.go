@@ -318,6 +318,9 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	if !health.Healthy || health.ObjectSummary.Total != 1 || health.ObjectSummary.Up != 1 {
 		t.Errorf("got unexpected cluster health %#v", health)
 	}
+	if len(health.Nodes) != 1 || health.Nodes[0].Heartbeat.State != "not_applicable" || health.NodeSummary.HeartbeatUnknown != 0 {
+		t.Errorf("got unexpected single-node heartbeat health %#v", health.Nodes)
+	}
 	assertResultProvenance(t, health.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{

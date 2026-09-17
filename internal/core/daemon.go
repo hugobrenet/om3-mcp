@@ -82,6 +82,23 @@ type clusterNodeStats struct {
 	SwapTotalMB  uint64  `json:"swap_total"`
 }
 
+type clusterHeartbeat struct {
+	UpdatedAt string                   `json:"updated_at"`
+	Streams   []clusterHeartbeatStream `json:"streams"`
+}
+
+type clusterHeartbeatStream struct {
+	ID    string                          `json:"id"`
+	State string                          `json:"state"`
+	Peers map[string]clusterHeartbeatPeer `json:"peers"`
+}
+
+type clusterHeartbeatPeer struct {
+	IsBeating     bool   `json:"is_beating"`
+	ChangedAt     string `json:"changed_at"`
+	LastBeatingAt string `json:"last_beating_at"`
+}
+
 type clusterStatusResponse struct {
 	Cluster struct {
 		Config struct {
@@ -119,8 +136,9 @@ type clusterStatusResponse struct {
 				UpdatedAt           string `json:"updated_at"`
 			} `json:"monitor"`
 			Daemon struct {
-				PID       int    `json:"pid"`
-				StartedAt string `json:"started_at"`
+				PID       int               `json:"pid"`
+				StartedAt string            `json:"started_at"`
+				Heartbeat *clusterHeartbeat `json:"heartbeat"`
 			} `json:"daemon"`
 		} `json:"node"`
 		Object map[string]struct {

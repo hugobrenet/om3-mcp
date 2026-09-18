@@ -219,6 +219,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	expectedToolTitles := map[string]string{
 		"get_daemon_identity":     "Get daemon identity",
 		"get_cluster_health":      "Assess cluster health",
+		"get_node_status":         "Get node status",
 		"get_container_logs":      "Get container logs",
 		"get_instance_logs":       "Get instance logs",
 		"get_object_config":       "Get object configuration",
@@ -236,6 +237,19 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		}
 		if tool.Description == "" {
 			t.Errorf("tool %q has no description", tool.Name)
+		}
+		if tool.Name == "get_node_status" {
+			encoded, err := json.Marshal(tool.InputSchema)
+			if err != nil {
+				t.Errorf("get_node_status input schema marshal: %v", err)
+			} else {
+				var shape struct {
+					Required []string `json:"required"`
+				}
+				if err := json.Unmarshal(encoded, &shape); err != nil || !slices.Contains(shape.Required, "node") {
+					t.Errorf("get_node_status input schema must require node: schema=%s error=%v", encoded, err)
+				}
+			}
 		}
 		if tool.OutputSchema == nil {
 			t.Errorf("tool %q has no output schema", tool.Name)
@@ -322,6 +336,32 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Errorf("got unexpected single-node heartbeat health %#v", health.Nodes)
 	}
 	assertResultProvenance(t, health.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "get_node_status",
+		Arguments: mcptools.GetNodeStatusInput{Node: "node-a"},
+	})
+	if err != nil {
+		t.Fatalf("call get_node_status: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("get_node_status returned an MCP tool error: %#v", result.Content)
+	}
+	data, err = json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal node status structured content: %v", err)
+	}
+	var nodeStatus mcptools.GetNodeStatusOutput
+	if err := json.Unmarshal(data, &nodeStatus); err != nil {
+		t.Fatalf("decode node status structured content: %v", err)
+	}
+	if nodeStatus.Node != "node-a" || nodeStatus.Status.AgentVersion != "v3.0.0" || nodeStatus.Monitor.State != "idle" {
+		t.Errorf("got unexpected node status %#v", nodeStatus)
+	}
+	if nodeStatus.Heartbeat.State != "not_applicable" {
+		t.Errorf("got unexpected node heartbeat status %#v", nodeStatus.Heartbeat)
+	}
+	assertResultProvenance(t, nodeStatus.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_cluster_objects",

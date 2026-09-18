@@ -5,15 +5,12 @@ tools. Runtime names, descriptions, annotations, and JSON Schemas remain
 available through MCP `tools/list`; these documents explain how to select and
 combine the tools during operations.
 
-`get_cluster_health` provides a bounded heartbeat summary. A separate tool for
-full per-link details can be considered if the lab diagnostics require it.
-
 ## Domains
 
 | Domain | Tools | Documentation |
 |---|---|---|
 | Daemon | `get_daemon_identity` | [Daemon tools](daemon.md) |
-| Cluster | `get_cluster_health` | [Cluster tools](cluster.md) |
+| Cluster | `get_cluster_health`, `get_node_status` | [Cluster tools](cluster.md) |
 | Objects | `list_cluster_objects`, `get_object_status`, `get_object_config` | [Object tools](objects.md) |
 | Instances | `list_object_instances`, `get_instance_logs`, `refresh_instance_status` | [Instance tools](instances.md) |
 | Resources | `list_object_resources`, `get_container_logs` | [Resource tools](resources.md) |
@@ -25,6 +22,7 @@ Use the smallest tool that answers the current question:
 ```text
 get_daemon_identity
   -> get_cluster_health
+  -> get_node_status when one node needs closer inspection
   -> list_cluster_objects
   -> get_object_status
   -> get_object_config when declared settings matter
@@ -38,6 +36,8 @@ get_daemon_identity
 `get_daemon_identity` confirms the target node and cluster.
 `get_cluster_health` provides a bounded first assessment, including heartbeat
 stream and peer-link health from the daemon's last-known cluster view.
+`get_node_status` shows the reported state, monitor, capacity, policy, and
+heartbeat assessment for one exact node.
 The object, instance, and resource tools then narrow a diagnosis from cluster
 inventory to the exact failing resource.
 
@@ -106,6 +106,7 @@ are representative and will differ between calls.
 |---|---:|---:|---|
 | `get_daemon_identity` | Yes | No | `guest` or higher |
 | `get_cluster_health` | Yes | No | `guest` or higher |
+| `get_node_status` | Yes | No | `guest` or higher |
 | `list_cluster_objects` | Yes | No | Visible namespaces |
 | `get_object_status` | Yes | No | Visibility on the object namespace |
 | `get_object_config` | Yes | No | Visibility on the object namespace |

@@ -2,6 +2,7 @@
 domain: cluster
 tools:
   - get_cluster_health
+  - get_node_status
 stability: experimental
 ---
 
@@ -11,7 +12,7 @@ This document describes tools that assess the current OpenSVC cluster view.
 
 Implementation:
 
-- business logic: `internal/core/cluster.go`;
+- business logic: `internal/core/cluster.go` and `internal/core/node.go`;
 - MCP definitions: `internal/tools/cluster.go`.
 
 ## Tools
@@ -94,11 +95,10 @@ state is `not_applicable`.
 `heartbeat.updated_at` is written by OpenSVC when it publishes the heartbeat
 subsystem. OpenSVC normally refreshes it within 60 seconds; the MCP allows three
 minutes for propagation before classifying the view as `unknown`. A recent MCP
-`provenance.observed_at` does not make old heartbeat data fresh. The stream's
-own `updated_at` is currently zero on the lab build and is not used. The MCP
-uses OpenSVC's `is_beating` value rather than inventing an age threshold for
-`last_beating_at`. It does not treat every alert as a failure: OpenSVC also
-publishes informational alerts.
+`provenance.observed_at` does not make old heartbeat data fresh. The MCP does
+not use the stream's own `updated_at`. It uses OpenSVC's `is_beating` value
+rather than inventing an age threshold for `last_beating_at`. It does not treat
+every alert as a failure: OpenSVC also publishes informational alerts.
 
 Heartbeat issue codes provide the exact evidence:
 
@@ -121,33 +121,6 @@ its RX links are beating. One failed link with another RX link still beating is
 a degraded heartbeat, not proof that the peer is unreachable. A stale peer in
 this cached view does not by itself prove a node failure or cluster partition.
 Compare the local views on both nodes for a partition investigation.
-
-On the two-node lab after the 17 September 2026 update, a real authenticated
-call on `node1` reported the following heartbeat summary (the publication time
-is normalized here):
-
-```json
-{
-  "node_summary": {"heartbeat_degraded": 0, "heartbeat_unknown": 0},
-  "nodes": [
-    {"name": "node1", "heartbeat": {"state": "healthy", "updated_at": "2026-09-17T12:00:00Z", "streams_total": 2, "streams_running": 2, "links_total": 2, "links_beating": 2, "links_not_beating": 0, "rx_peers_beating": 1, "rx_peers_stale": 0, "issues_total": 0, "issues": [], "issues_truncated": false}},
-    {"name": "node2", "heartbeat": {"state": "healthy", "updated_at": "2026-09-17T12:00:00Z", "streams_total": 2, "streams_running": 2, "links_total": 2, "links_beating": 2, "links_not_beating": 0, "rx_peers_beating": 1, "rx_peers_stale": 0, "issues_total": 0, "issues": [], "issues_truncated": false}}
-  ]
-}
-```
-
-The same response had `healthy=false` because both nodes independently
-reported overload; the heartbeat counters were healthy. This excerpt shows
-only heartbeat-related fields from the full result.
-
-In a controlled lab test, stopping only `hb#1.tx` on `node2` made `node1`
-report `heartbeat.state=degraded`, `rx_peers_stale=1`, and the issues
-`heartbeat_peer_not_beating` (`hb#1.rx`, `node2`) and
-`heartbeat_peer_stale` (`node2`). The heartbeat view for `node2` became
-`unknown` from `node1`. After the sender restarted, both nodes again reported
-`heartbeat.state=healthy` with two beating links each. The global
-`healthy=false` value also existed before the test because of unrelated node
-overload; the heartbeat issues and recovery were observed directly.
 
 When a node reports overload, the MCP reproduces the daemon's deterministic
 checks using the node configuration and statistics:
@@ -275,7 +248,7 @@ but is kept distinct from a confirmed degraded heartbeat.
 }
 ```
 
-The real response also includes `cluster`, `object_summary`, `problem_objects`,
+A full response also includes `cluster`, `object_summary`, `problem_objects`,
 and `problem_objects_truncated`; they are omitted from this excerpt to keep the
 overload contract readable.
 
@@ -289,6 +262,133 @@ also sorted for deterministic output.
 | Invalid MCP JWT | MCP HTTP `401` |
 | Insufficient daemon grants | Tool error containing daemon HTTP `403` |
 | Daemon unavailable or malformed status | Tool error; no partial assessment |
+
+### `get_node_status`
+
+Returns the last-known status of one exact node after `get_cluster_health`
+identifies a node that needs closer inspection. It exposes the reported agent
+and compatibility versions, leader and overload flags, freeze and boot times,
+monitor state and targets, capacity statistics, memory and swap policy
+thresholds, and the bounded heartbeat assessment used by the cluster health
+tool. Use `get_cluster_health` for a cluster-wide health decision; this tool has
+no top-level `healthy` flag.
+
+#### OpenSVC API and freshness
+
+```text
+GET /api/cluster/status
+```
+
+The request has no query parameters. The MCP selects the exact `node` key from
+`cluster.node` after the daemon returns its last-known cluster view. The call
+does not contact the selected node directly or run status drivers. The endpoint
+accepts a global `guest` or higher grant; the delegated JWT and the daemon's
+authorization remain authoritative. The result excludes other nodes, objects,
+hooks, keys, and other node configuration fields.
+
+`provenance.observed_at` dates the MCP collection, while `monitor.updated_at`
+dates the monitor state and `heartbeat.updated_at` dates the published heartbeat
+view. The heartbeat state follows the rules documented above. `stats` or
+`policy` is `null` when that section is absent from the daemon response. An
+unreported scalar field in `status` or `monitor` appears as its JSON zero value;
+use `get_cluster_health` to diagnose missing status fields.
+
+#### Input and output
+
+`node` is required and must be one exact name of at most 255 characters.
+Leading or trailing spaces and wildcard/selector characters are rejected. No
+default node, selector, or pagination is used.
+
+| Output field | Meaning |
+|---|---|
+| `provenance` | Daemon API source and MCP collection time |
+| `node` | Selected OpenSVC node name |
+| `status` | Agent/API/compatibility versions, leader and overload flags, boot and freeze times |
+| `monitor` | State, global and local targets, orchestration ID/completion, and update time |
+| `stats` | Fifteen-minute load, available and total memory/swap, and OpenSVC capacity score; `null` if absent |
+| `policy` | Minimum available memory and swap percentages; `null` if absent; zero disables the corresponding check |
+| `heartbeat` | State, publication time, stream/link/RX-peer counts, and at most 50 structured issues with truncation metadata |
+
+#### MCP properties
+
+| Property | Value |
+|---|---|
+| Title | Get node status |
+| Read-only | Yes |
+| Destructive | No |
+| Open world | No; only the configured daemon is contacted |
+| Side effects | None |
+
+Annotations are client hints; OpenSVC enforces access using the delegated JWT.
+
+#### Example
+
+Input:
+
+```json
+{"node":"node1"}
+```
+
+Illustrative output using the two-node lab's confirmed healthy heartbeat and
+no-swap policy. Timestamps and capacity values are representative:
+
+```json
+{
+  "provenance": {"source": "opensvc_daemon", "observed_at": "2026-09-18T10:00:30Z"},
+  "node": "node1",
+  "status": {
+    "agent_version": "v3.0.0-rc30",
+    "api_version": 0,
+    "compat_version": 0,
+    "is_leader": true,
+    "is_overloaded": false,
+    "booted_at": "2026-09-18T09:00:00Z",
+    "frozen_at": "0001-01-01T00:00:00Z"
+  },
+  "monitor": {
+    "state": "idle",
+    "global_expect": "none",
+    "local_expect": "none",
+    "orchestration_id": "",
+    "orchestration_is_done": true,
+    "updated_at": "2026-09-18T10:00:00Z"
+  },
+  "stats": {
+    "load_15m": 0.4,
+    "mem_available_pct": 82,
+    "mem_total_mb": 4096,
+    "score": 67,
+    "swap_available_pct": 0,
+    "swap_total_mb": 0
+  },
+  "policy": {"min_avail_mem_pct": 5, "min_avail_swap_pct": 0},
+  "heartbeat": {
+    "state": "healthy",
+    "updated_at": "2026-09-18T10:00:00Z",
+    "streams_total": 2,
+    "streams_running": 2,
+    "links_total": 2,
+    "links_beating": 2,
+    "links_not_beating": 0,
+    "rx_peers_beating": 1,
+    "rx_peers_stale": 0,
+    "issues_total": 0,
+    "issues": [],
+    "issues_truncated": false
+  }
+}
+```
+
+#### Errors
+
+| Condition | Result |
+|---|---|
+| Invalid MCP JWT | MCP HTTP `401` |
+| Insufficient daemon grants | Tool error containing daemon HTTP `403` |
+| Empty, oversized, or non-exact `node` | Tool error before the daemon request |
+| Configured node with no published data | Tool error naming the node |
+| Unknown node | Tool error naming the node |
+| Daemon unavailable or malformed response | Tool error with transport or decoding context |
 
 ## Compatibility
 

@@ -78,6 +78,8 @@ internal/
     daemon_test.go
     cluster.go
     cluster_test.go
+    node.go
+    node_test.go
     object.go
     object_test.go
     object_config.go

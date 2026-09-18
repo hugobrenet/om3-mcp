@@ -17,6 +17,14 @@ type GetNodeStatusInput struct {
 
 type GetNodeStatusOutput = core.NodeStatus
 
+type GetNodeLogsInput struct {
+	Node      string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard or selector"`
+	Lines     int    `json:"lines,omitempty" jsonschema:"optional maximum number of recent log entries between 1 and 100; defaults to 50"`
+	Component string `json:"component,omitempty" jsonschema:"optional exact OpenSVC component such as daemon/hbctrl; filters the journal PKG field"`
+}
+
+type GetNodeLogsOutput = core.NodeLogList
+
 func RegisterClusterTools(registrar *Registrar, service *core.Service) error {
 	if err := addTool(
 		registrar,
@@ -52,6 +60,26 @@ func RegisterClusterTools(registrar *Registrar, service *core.Service) error {
 				return nil, GetNodeStatusOutput{}, err
 			}
 			return nil, status, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:        "get_node_logs",
+			Title:       "Get node logs",
+			Description: "Read bounded recent OpenSVC om journal entries on one exact node, optionally filtering by OpenSVC component. Includes the systemd unit when journald provides it. This finite read does not follow the stream, does not return systemd manager messages or workload stdout, and requires root access to the daemon endpoint.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input GetNodeLogsInput) (*mcp.CallToolResult, GetNodeLogsOutput, error) {
+			logs, err := service.GetNodeLogs(ctx, core.GetNodeLogsOptions{
+				Node: input.Node, Lines: input.Lines, Component: input.Component,
+			})
+			if err != nil {
+				return nil, GetNodeLogsOutput{}, err
+			}
+			return nil, logs, nil
 		},
 	); err != nil {
 		return err

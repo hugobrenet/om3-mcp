@@ -124,6 +124,31 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 			fmt.Fprint(response, "event: log\nid: 1\ndata: {\"JSON\":\"{\\\"time\\\":\\\"2026-07-15T10:00:00Z\\\",\\\"level\\\":\\\"info\\\",\\\"message\\\":\\\"old event omitted\\\",\\\"node\\\":\\\"node-a\\\",\\\"obj_path\\\":\\\"prod/svc/app\\\"}\",\"_SYSTEMD_UNIT\":\"opensvc-agent.service\",\"_UID\":\"0\"}\n\n")
 			fmt.Fprint(response, "event: log\nid: 2\ndata: {\"JSON\":\"{\\\"time\\\":\\\"2026-07-15T10:01:00Z\\\",\\\"level\\\":\\\"warn\\\",\\\"message\\\":\\\"resource check delayed\\\",\\\"node\\\":\\\"node-a\\\",\\\"obj_path\\\":\\\"prod/svc/app\\\",\\\"pkg\\\":\\\"daemon/imon\\\",\\\"rid\\\":\\\"app#1\\\",\\\"sid\\\":\\\"session-1\\\"}\",\"_MACHINE_ID\":\"must-not-survive\"}\n\n")
 			fmt.Fprint(response, "event: log\nid: 3\ndata: {\"JSON\":\"{\\\"time\\\":\\\"2026-07-15T10:02:00Z\\\",\\\"level\\\":\\\"error\\\",\\\"message\\\":\\\"instance monitor failed\\\",\\\"node\\\":\\\"node-a\\\",\\\"obj_path\\\":\\\"prod/svc/app\\\",\\\"pkg\\\":\\\"daemon/imon\\\",\\\"eid\\\":\\\"event-3\\\",\\\"request_uuid\\\":\\\"request-3\\\",\\\"orchestration_id\\\":\\\"orchestration-3\\\"}\",\"GRANT\":\"root\"}\n\n")
+		case "/api/node/name/node-a/log":
+			if got := request.URL.Query().Get("follow"); got != "false" {
+				t.Errorf("got node log follow %q, want false", got)
+			}
+			if got := request.URL.Query().Get("lines"); got != "3" {
+				t.Errorf("got node log lines %q, want 3", got)
+			}
+			if got := request.URL.Query().Get("filter"); got != "PKG=daemon/hbctrl" {
+				t.Errorf("got node log filter %q, want PKG=daemon/hbctrl", got)
+			}
+			if got := request.Header.Get("Accept"); got != "text/event-stream" {
+				t.Errorf("got node log Accept %q, want text/event-stream", got)
+			}
+			response.Header().Set("Content-Type", "text/event-stream")
+			for index, message := range []string{"old", "heartbeat lost", "heartbeat restored"} {
+				nested, _ := json.Marshal(map[string]string{
+					"time": "2026-09-18T12:00:00Z", "level": "info", "message": message,
+					"node": "node-a", "pkg": "daemon/hbctrl",
+				})
+				envelope, _ := json.Marshal(map[string]string{
+					"JSON": string(nested), "PRIORITY": "6", "_SYSTEMD_UNIT": "opensvc-server.service",
+					"_MACHINE_ID": "must-not-survive",
+				})
+				fmt.Fprintf(response, "event: log\nid: %d\ndata: %s\n\n", index+1, envelope)
+			}
 		case "/api/node/name/node-a/instance/path/prod/svc/app/container/log":
 			if request.Method != http.MethodGet {
 				t.Errorf("got container log method %q, want GET", request.Method)
@@ -220,6 +245,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		"get_daemon_identity":     "Get daemon identity",
 		"get_cluster_health":      "Assess cluster health",
 		"get_node_status":         "Get node status",
+		"get_node_logs":           "Get node logs",
 		"get_container_logs":      "Get container logs",
 		"get_instance_logs":       "Get instance logs",
 		"get_object_config":       "Get object configuration",
@@ -238,16 +264,16 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		if tool.Description == "" {
 			t.Errorf("tool %q has no description", tool.Name)
 		}
-		if tool.Name == "get_node_status" {
+		if tool.Name == "get_node_status" || tool.Name == "get_node_logs" {
 			encoded, err := json.Marshal(tool.InputSchema)
 			if err != nil {
-				t.Errorf("get_node_status input schema marshal: %v", err)
+				t.Errorf("%s input schema marshal: %v", tool.Name, err)
 			} else {
 				var shape struct {
 					Required []string `json:"required"`
 				}
 				if err := json.Unmarshal(encoded, &shape); err != nil || !slices.Contains(shape.Required, "node") {
-					t.Errorf("get_node_status input schema must require node: schema=%s error=%v", encoded, err)
+					t.Errorf("%s input schema must require node: schema=%s error=%v", tool.Name, encoded, err)
 				}
 			}
 		}
@@ -470,6 +496,28 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Errorf("instance log output exposes raw journald metadata: %s", data)
 	}
 	assertResultProvenance(t, logs.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "get_node_logs",
+		Arguments: mcptools.GetNodeLogsInput{
+			Node: "node-a", Lines: 2, Component: "daemon/hbctrl",
+		},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call get_node_logs: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var nodeLogs mcptools.GetNodeLogsOutput
+	if err := json.Unmarshal(data, &nodeLogs); err != nil {
+		t.Fatalf("decode node logs: %v", err)
+	}
+	if nodeLogs.Node != "node-a" || nodeLogs.Component != "daemon/hbctrl" || nodeLogs.Count != 2 || !nodeLogs.Truncated || nodeLogs.Entries[0].Message != "heartbeat lost" || nodeLogs.Entries[1].Message != "heartbeat restored" {
+		t.Errorf("unexpected node logs %#v", nodeLogs)
+	}
+	if nodeLogs.Entries[0].SystemdUnit != "opensvc-server.service" || strings.Contains(string(data), "_MACHINE_ID") || strings.Contains(string(data), "must-not-survive") {
+		t.Errorf("node logs lost unit or exposed raw metadata: %s", data)
+	}
+	assertResultProvenance(t, nodeLogs.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "refresh_instance_status",

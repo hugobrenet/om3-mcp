@@ -10,7 +10,7 @@ combine the tools during operations.
 | Domain | Tools | Documentation |
 |---|---|---|
 | Daemon | `get_daemon_identity` | [Daemon tools](daemon.md) |
-| Cluster | `get_cluster_health`, `get_node_status` | [Cluster tools](cluster.md) |
+| Cluster | `get_cluster_health`, `get_node_status`, `get_node_logs` | [Cluster tools](cluster.md) |
 | Objects | `list_cluster_objects`, `get_object_status`, `get_object_config` | [Object tools](objects.md) |
 | Instances | `list_object_instances`, `get_instance_logs`, `refresh_instance_status` | [Instance tools](instances.md) |
 | Resources | `list_object_resources`, `get_container_logs` | [Resource tools](resources.md) |
@@ -23,6 +23,7 @@ Use the smallest tool that answers the current question:
 get_daemon_identity
   -> get_cluster_health
   -> get_node_status when one node needs closer inspection
+  -> get_node_logs when recent daemon activity on that node matters
   -> list_cluster_objects
   -> get_object_status
   -> get_object_config when declared settings matter
@@ -38,6 +39,8 @@ get_daemon_identity
 stream and peer-link health from the daemon's last-known cluster view.
 `get_node_status` shows the reported state, monitor, capacity, policy, and
 heartbeat assessment for one exact node.
+`get_node_logs` shows recent OpenSVC journal entries on one exact node, with an
+optional component filter.
 The object, instance, and resource tools then narrow a diagnosis from cluster
 inventory to the exact failing resource.
 
@@ -107,6 +110,7 @@ are representative and will differ between calls.
 | `get_daemon_identity` | Yes | No | `guest` or higher |
 | `get_cluster_health` | Yes | No | `guest` or higher |
 | `get_node_status` | Yes | No | `guest` or higher |
+| `get_node_logs` | Yes | No | `root` |
 | `list_cluster_objects` | Yes | No | Visible namespaces |
 | `get_object_status` | Yes | No | Visibility on the object namespace |
 | `get_object_config` | Yes | No | Visibility on the object namespace |

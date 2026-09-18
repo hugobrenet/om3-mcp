@@ -3,19 +3,68 @@ domain: cluster
 tools:
   - get_cluster_health
   - get_node_status
+  - get_node_logs
 stability: experimental
 ---
 
 # Cluster Tools
 
-This document describes tools that assess the current OpenSVC cluster view.
+This document describes tools that assess the current OpenSVC cluster view and
+inspect recent node logs.
 
 Implementation:
 
-- business logic: `internal/core/cluster.go` and `internal/core/node.go`;
+- business logic: `internal/core/cluster.go`, `internal/core/node.go`, and
+  `internal/core/node_logs.go`;
 - MCP definitions: `internal/tools/cluster.go`.
 
 ## Tools
+
+### `get_node_logs`
+
+Returns a finite, bounded list of recent OpenSVC `om` journal entries for one
+exact node. Use it after `get_node_status` to inspect daemon activity around a
+reported node, heartbeat, listener, scheduler, or orchestration issue. The
+optional `component` selects one exact OpenSVC `PKG` value such as
+`daemon/hbctrl`.
+
+```text
+GET /api/node/name/<node>/log?follow=false&lines=<lines+1>[&filter=PKG=<component>]
+Accept: text/event-stream
+```
+
+The endpoint reads journald entries selected by `_COMM=om`. It does not filter
+by systemd unit: an entry may have `systemd_unit=opensvc-server.service`, or it
+may come from another `om` execution. It does not include messages emitted by
+the systemd manager about the service or workload stdout and stderr. OpenSVC
+requires the global `root` grant for this endpoint.
+
+| Input | Required | Default | Bounds | Meaning |
+|---|---:|---:|---:|---|
+| `node` | Yes | — | Exact hostname using letters, digits, `.`, `_`, or `-`; at most 255 characters | Node whose journal is read |
+| `lines` | No | 50 | 1..100 | Maximum entries returned |
+| `component` | No | — | Exact value, at most 255 characters | `PKG` filter |
+
+The MCP requests one extra entry to detect omission of older entries. It
+consumes the SSE stream to EOF, retains at most `lines` entries in chronological
+order, and returns ordinary JSON. `follow` is always `false`.
+
+The output contains `provenance`, `node`, the effective `lines`, `count`,
+`entries`, and `truncated`; `component` appears when requested. Each entry
+contains `timestamp`, `message`, `message_truncated`, and optional `level`,
+`priority`, `component`, `systemd_unit`, `object_path`, `resource_id`,
+`session_id`, `event_id`, `request_id`, and `orchestration_id`. OpenSVC may omit
+`level`; the journald `priority` is preserved separately when present. A raw
+journald microsecond timestamp is converted to RFC 3339 when the OpenSVC
+payload has no timestamp.
+
+Messages are limited to 2,048 Unicode code points each and 64 Ki code points
+across the response. Other fields are limited to 255 code points. Control and
+formatting characters are normalized. Raw journald metadata such as machine
+identifiers, command lines, and user IDs is omitted. `truncated` reports older
+entries omitted by the requested line limit or message content shortened by
+these bounds. Invalid inputs, malformed SSE or JSON, unexpected node or
+component values, oversized streams, and daemon errors become MCP tool errors.
 
 ### `get_cluster_health`
 

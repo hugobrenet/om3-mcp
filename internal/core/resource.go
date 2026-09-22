@@ -83,16 +83,17 @@ type daemonResourceList struct {
 				} `json:"restart"`
 			} `json:"monitor"`
 			Status *struct {
-				Type        string   `json:"type"`
-				Label       string   `json:"label"`
-				Status      string   `json:"status"`
-				Disable     bool     `json:"disable"`
-				Monitor     bool     `json:"monitor"`
-				Optional    bool     `json:"optional"`
-				Standby     bool     `json:"standby"`
-				Encap       bool     `json:"encap"`
-				Subset      string   `json:"subset"`
-				Tags        []string `json:"tags"`
+				Type        string         `json:"type"`
+				Label       string         `json:"label"`
+				Status      string         `json:"status"`
+				Disable     bool           `json:"disable"`
+				Monitor     bool           `json:"monitor"`
+				Optional    bool           `json:"optional"`
+				Standby     bool           `json:"standby"`
+				Encap       bool           `json:"encap"`
+				Subset      string         `json:"subset"`
+				Tags        []string       `json:"tags"`
+				Info        IPResourceInfo `json:"info"`
 				Provisioned struct {
 					State string `json:"state"`
 					Mtime string `json:"mtime"`

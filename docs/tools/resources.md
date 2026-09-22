@@ -2,14 +2,15 @@
 domain: resource
 tools:
   - get_container_logs
+  - list_cluster_ip_resources
   - list_object_resources
 stability: experimental
 ---
 
 # Resource Tools
 
-This document describes tools that inspect resource status and bounded
-container output for an OpenSVC object.
+This document describes tools that inventory cluster IP resources, inspect
+resource status, and read bounded container output for an OpenSVC object.
 
 Implementation:
 
@@ -128,6 +129,131 @@ headers before starting the local container-log command. A runtime failure
 after that point can therefore appear as empty or partial successful content;
 the MCP cannot reconstruct an HTTP error that the daemon did not send.
 
+### `list_cluster_ip_resources`
+
+Returns the visible OpenSVC IP resources from the daemon's last-known cluster
+resource status. Use it to answer which addresses are declared as resources,
+which object and instance own them, and what address facts the IP driver
+reported.
+
+The tool does not decide whether an address is floating, conflicting, reachable,
+or correctly attached. It does not read `/api/network/ip` or host interfaces.
+Those conclusions require other evidence and remain the agent's responsibility.
+
+#### OpenSVC API and filtering
+
+```text
+GET /api/resource?resource=ip#*
+  &path=*/svc/*,*/vol/*
+  [&node=<exact-node>]
+
+# When the caller supplies an exact object:
+GET /api/resource?resource=ip#*&path=<exact-path>[&node=<exact-node>]
+```
+
+The MCP asks the daemon to select `ip#*` resource identifiers and also retains
+only records whose daemon-reported type begins with `ip.`. Without an exact
+object filter, the internal path selector restricts the daemon scan to `svc`
+and `vol`, the OpenSVC object kinds that can own resources. It still covers
+root and namespaced objects across the cluster while excluding configuration
+objects that cannot own IP resources. OpenSVC applies delegated JWT namespace
+grants before returning the records.
+
+The endpoint reads last-known instance resource status. It does not execute an
+IP driver, inspect live host interfaces, or change state. The tool is annotated
+read-only, non-destructive, and closed-world; these annotations are client
+hints, while daemon authorization remains authoritative.
+
+#### Input
+
+| Field | Required | Default | Bounds | Meaning |
+|---|---:|---:|---:|---|
+| `path` | No | Empty | Exact path, 512 characters | Restrict results to one canonical object |
+| `node` | No | Empty | Exact name, 255 characters | Restrict results to one node |
+| `limit` | No | 100 | 1..200 | Maximum IP resources in this page |
+| `cursor` | No | Empty | 1024 characters | Previous `next_cursor` with unchanged filters |
+
+An empty `path` and `node` lists visible IP resources cluster-wide. Selectors
+and glob expressions are rejected for these optional filters.
+
+Lab input example:
+
+```json
+{
+  "path": "lab/svc/redis",
+  "node": "node1",
+  "limit": 100
+}
+```
+
+#### Lab output example
+
+```json
+{
+  "provenance": {
+    "source": "opensvc_daemon",
+    "observed_at": "2026-09-22T10:45:00Z"
+  },
+  "path_filter": "lab/svc/redis",
+  "node_filter": "node1",
+  "total": 1,
+  "count": 1,
+  "resources": [
+    {
+      "object": {
+        "path": "lab/svc/redis",
+        "namespace": "lab",
+        "kind": "svc",
+        "name": "redis"
+      },
+      "node": "node1",
+      "rid": "ip#0",
+      "type": "ip.host",
+      "label": "host 192.168.1.210/24 ens3",
+      "status": "up",
+      "info": {
+        "ipaddr": "192.168.1.210",
+        "dev": "ens3",
+        "netmask": 24,
+        "expose": []
+      }
+    }
+  ],
+  "truncated": false
+}
+```
+
+Each resource contains only facts copied or structurally normalized from
+`/api/resource`:
+
+| Field | Meaning |
+|---|---|
+| `object` | Canonical object owning the resource |
+| `node` | Instance node reported by OpenSVC |
+| `encap_node` | Encapsulated node when the daemon provides one |
+| `rid` | IP resource identifier |
+| `type` | IP driver type, such as `ip.host` or `ip.netns` |
+| `label` | Driver label reported by OpenSVC |
+| `status` | Last-known resource availability status |
+| `info.ipaddr` | Address reported by the IP driver |
+| `info.dev` | Device reported by the IP driver |
+| `info.netmask` | Prefix length reported by the IP driver |
+| `info.expose` | Exposure declarations reported by the IP driver |
+| `info.hostname` | Hostname when the driver reports one |
+
+Missing optional driver facts stay absent. An empty `expose` value is
+normalized to `[]`. The MCP does not add health, conflict, floating-address,
+network-membership, or reachability conclusions.
+
+Results are sorted by node, object path, encapsulated node, and RID before
+pagination. Pagination is not snapshot-based; callers must preserve `path`,
+`node`, and `limit` between pages.
+
+Invalid exact filters, limits, or cursors fail before daemon access. Malformed
+object paths returned by the daemon, authorization failures, transport
+failures, and malformed responses are MCP tool errors. Errors preserve bounded
+RFC 7807 details and never include the delegated JWT.
+
 ### `list_object_resources`
 
 Returns sorted, paginated resource status records for one exact object.
@@ -229,4 +355,9 @@ the delegated JWT.
 ## Compatibility
 
 Verified against OpenSVC `3.0.0-rc21` `GET /api/resource` and
-`GetInstanceContainerLog` behavior.
+`GetInstanceContainerLog` behavior. The cluster IP inventory contract was
+also validated against the lab's `ip.host` resource at `192.168.1.210`.
+OpenSVC `3.0.0-rc21` can panic in `GetResources` when no path selector is
+provided because configuration-only entries may have a nil resource config;
+the cluster-wide call therefore always supplies the resource-bearing object
+selector documented above.

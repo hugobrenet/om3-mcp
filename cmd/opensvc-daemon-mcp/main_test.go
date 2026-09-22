@@ -168,6 +168,16 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 			response.Header().Set("Content-Type", "text/event-stream")
 			fmt.Fprint(response, "application started\nready to accept connections\n")
 		case "/api/resource":
+			if request.URL.Query().Get("resource") == "ip#*" {
+				if got := request.URL.Query().Get("path"); got != "*/svc/*,*/vol/*" {
+					t.Errorf("got cluster IP resource path %q, want resource-bearing object selector", got)
+				}
+				if got := request.URL.Query().Get("node"); got != "" {
+					t.Errorf("got cluster IP resource node %q, want empty", got)
+				}
+				fmt.Fprint(response, `{"kind":"ResourceList","items":[{"kind":"ResourceItem","meta":{"node":"node-a","object":"prod/svc/app","rid":"ip#0"},"data":{"status":{"type":"ip.host","label":"192.0.2.10","status":"up","info":{"ipaddr":"192.0.2.10","dev":"ens3","netmask":24,"expose":[]}}}},{"kind":"ResourceItem","meta":{"node":"node-a","object":"prod/svc/app","rid":"container#app"},"data":{"status":{"type":"container.docker","status":"up"}}}]}`)
+				break
+			}
 			if got := request.URL.Query().Get("path"); got != "prod/svc/app" {
 				t.Errorf("got resource object path %q, want prod/svc/app", got)
 			}
@@ -242,18 +252,19 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Fatalf("list MCP tools: %v", err)
 	}
 	expectedToolTitles := map[string]string{
-		"get_daemon_identity":     "Get daemon identity",
-		"get_cluster_health":      "Assess cluster health",
-		"get_node_status":         "Get node status",
-		"get_node_logs":           "Get node logs",
-		"get_container_logs":      "Get container logs",
-		"get_instance_logs":       "Get instance logs",
-		"get_object_config":       "Get object configuration",
-		"get_object_status":       "Get object status",
-		"list_cluster_objects":    "List cluster objects",
-		"list_object_instances":   "List object instances",
-		"list_object_resources":   "List object resources",
-		"refresh_instance_status": "Refresh instance status",
+		"get_daemon_identity":       "Get daemon identity",
+		"get_cluster_health":        "Assess cluster health",
+		"get_node_status":           "Get node status",
+		"get_node_logs":             "Get node logs",
+		"get_container_logs":        "Get container logs",
+		"get_instance_logs":         "Get instance logs",
+		"get_object_config":         "Get object configuration",
+		"get_object_status":         "Get object status",
+		"list_cluster_ip_resources": "List cluster IP resources",
+		"list_cluster_objects":      "List cluster objects",
+		"list_object_instances":     "List object instances",
+		"list_object_resources":     "List object resources",
+		"refresh_instance_status":   "Refresh instance status",
 	}
 	toolNames := make(map[string]bool, len(availableTools.Tools))
 	for _, tool := range availableTools.Tools {
@@ -537,6 +548,24 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Errorf("got unexpected refresh result %#v", refreshed)
 	}
 	assertResultProvenance(t, refreshed.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "list_cluster_ip_resources",
+		Arguments: mcptools.ListClusterIPResourcesInput{},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call list_cluster_ip_resources: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var clusterIPResources mcptools.ListClusterIPResourcesOutput
+	if err := json.Unmarshal(data, &clusterIPResources); err != nil {
+		t.Fatalf("decode cluster IP resources: %v", err)
+	}
+	if clusterIPResources.Count != 1 || clusterIPResources.Resources[0].RID != "ip#0" ||
+		clusterIPResources.Resources[0].Info.IPAddr != "192.0.2.10" {
+		t.Errorf("got unexpected cluster IP resources %#v", clusterIPResources)
+	}
+	assertResultProvenance(t, clusterIPResources.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_object_resources",

@@ -13,7 +13,7 @@ combine the tools during operations.
 | Cluster | `get_cluster_health`, `get_node_status`, `get_node_logs` | [Cluster tools](cluster.md) |
 | Objects | `list_cluster_objects`, `get_object_status`, `get_object_config` | [Object tools](objects.md) |
 | Instances | `list_object_instances`, `get_instance_logs`, `refresh_instance_status` | [Instance tools](instances.md) |
-| Resources | `list_object_resources`, `get_container_logs` | [Resource tools](resources.md) |
+| Resources | `list_cluster_ip_resources`, `list_object_resources`, `get_container_logs` | [Resource tools](resources.md) |
 
 ## Diagnostic workflow
 
@@ -24,6 +24,7 @@ get_daemon_identity
   -> get_cluster_health
   -> get_node_status when one node needs closer inspection
   -> get_node_logs when recent daemon activity on that node matters
+  -> list_cluster_ip_resources when cluster service-address ownership matters
   -> list_cluster_objects
   -> get_object_status
   -> get_object_config when declared settings matter
@@ -117,6 +118,7 @@ are representative and will differ between calls.
 | `list_object_instances` | Yes | No | Visibility on the object namespace |
 | `get_instance_logs` | Yes | No | `root` in OpenSVC 3.0.0-rc21 |
 | `refresh_instance_status` | No | No | `operator`, `admin`, or `root` |
+| `list_cluster_ip_resources` | Yes | No | Visible namespaces |
 | `list_object_resources` | Yes | No | Visibility on the object namespace |
 | `get_container_logs` | Yes | No | `root` in OpenSVC 3.0.0-rc21 |
 

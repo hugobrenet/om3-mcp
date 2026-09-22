@@ -17,6 +17,15 @@ type ListObjectResourcesInput struct {
 
 type ListObjectResourcesOutput = core.ObjectResourceList
 
+type ListClusterIPResourcesInput struct {
+	Path   string `json:"path,omitempty" jsonschema:"optional exact canonical OpenSVC object path used to restrict the cluster inventory"`
+	Node   string `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name used to restrict the cluster inventory"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
+	Cursor string `json:"cursor,omitempty" jsonschema:"optional opaque next_cursor returned by a previous call with the same filters"`
+}
+
+type ListClusterIPResourcesOutput = core.ClusterIPResourceList
+
 type GetContainerLogsInput struct {
 	Path       string `json:"path" jsonschema:"the exact canonical OpenSVC object path returned by list_cluster_objects"`
 	Node       string `json:"node" jsonschema:"the exact node hosting the container resource"`
@@ -27,6 +36,30 @@ type GetContainerLogsInput struct {
 type GetContainerLogsOutput = core.ContainerLogs
 
 func RegisterResourceTools(registrar *Registrar, service *core.Service) error {
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:        "list_cluster_ip_resources",
+			Title:       "List cluster IP resources",
+			Description: "List visible OpenSVC IP resources across the cluster from last-known daemon status. Returns the daemon-reported address, device, netmask, exposure, resource status, and ownership facts without probing drivers or deriving a network diagnosis; optionally restrict to one exact object or node.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListClusterIPResourcesInput) (*mcp.CallToolResult, ListClusterIPResourcesOutput, error) {
+			resources, err := service.ListClusterIPResources(ctx, core.ListClusterIPResourcesOptions{
+				Path:   input.Path,
+				Node:   input.Node,
+				Limit:  input.Limit,
+				Cursor: input.Cursor,
+			})
+			if err != nil {
+				return nil, ListClusterIPResourcesOutput{}, err
+			}
+			return nil, resources, nil
+		},
+	); err != nil {
+		return err
+	}
+
 	if err := addTool(
 		registrar,
 		&mcp.Tool{

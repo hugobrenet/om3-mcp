@@ -92,6 +92,8 @@ internal/
     instance_logs_test.go
     container_logs.go
     container_logs_test.go
+    cluster_ip_resource.go
+    cluster_ip_resource_test.go
     resource.go
     resource_test.go
   tools/
@@ -473,6 +475,14 @@ not one MCP tool per daemon route and not a single unbounded
 operator question with bounded typed evidence, explicit provenance and
 documented freshness semantics, deterministic reusable behavior, and a stable
 contract.
+
+`list_cluster_ip_resources` is the reference contract for a factual inventory
+tool. It reads `GET /api/resource?resource=ip#*`, using the internal
+`*/svc/*,*/vol/*` path selector for a cluster-wide request, retains only daemon
+status types beginning with `ip.`, and returns the owning object, node, RID, type,
+label, status, and typed `info` address facts. Keep this output sorted,
+paginated, and bounded. Do not add synthetic health, conflict, floating-address,
+network-membership, or reachability conclusions to this tool.
 
 ## Configuration
 

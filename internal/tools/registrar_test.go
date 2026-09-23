@@ -85,6 +85,7 @@ func TestRegisterAllToolDomains(t *testing.T) {
 	for name, register := range map[string]func(*Registrar) error{
 		"daemon":   func(registrar *Registrar) error { return RegisterDaemonTools(registrar, nil) },
 		"cluster":  func(registrar *Registrar) error { return RegisterClusterTools(registrar, nil) },
+		"node":     func(registrar *Registrar) error { return RegisterNodeTools(registrar, nil) },
 		"object":   func(registrar *Registrar) error { return RegisterObjectTools(registrar, nil) },
 		"instance": func(registrar *Registrar) error { return RegisterInstanceTools(registrar, nil) },
 		"resource": func(registrar *Registrar) error { return RegisterResourceTools(registrar, nil) },

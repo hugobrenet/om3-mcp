@@ -10,7 +10,8 @@ combine the tools during operations.
 | Domain | Tools | Documentation |
 |---|---|---|
 | Daemon | `get_daemon_identity` | [Daemon tools](daemon.md) |
-| Cluster | `get_cluster_config`, `get_cluster_health`, `get_node_config`, `get_node_status`, `get_node_logs` | [Cluster tools](cluster.md) |
+| Cluster | `get_cluster_config`, `get_cluster_health` | [Cluster tools](cluster.md) |
+| Node | `get_node_config`, `get_node_status`, `get_node_logs` | [Node tools](node.md) |
 | Objects | `list_cluster_objects`, `get_object_status`, `get_object_config` | [Object tools](objects.md) |
 | Instances | `list_object_instances`, `get_instance_logs`, `refresh_instance_status` | [Instance tools](instances.md) |
 | Resources | `list_cluster_ip_resources`, `list_object_resources`, `get_container_logs` | [Resource tools](resources.md) |

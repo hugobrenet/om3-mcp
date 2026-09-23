@@ -18,6 +18,7 @@ are documented by domain in:
 - [Tool index and diagnostic workflow](docs/tools/README.md)
 - [Daemon tools](docs/tools/daemon.md)
 - [Cluster tools](docs/tools/cluster.md)
+- [Node tools](docs/tools/node.md)
 - [Object tools](docs/tools/objects.md)
 - [Instance tools](docs/tools/instances.md)
 - [Resource tools](docs/tools/resources.md)
@@ -48,6 +49,7 @@ docs/
     README.md
     daemon.md
     cluster.md
+    node.md
     objects.md
     instances.md
     resources.md
@@ -83,6 +85,7 @@ internal/
     config_file_test.go
     node.go
     node_test.go
+    node_logs_test.go
     object.go
     object_test.go
     object_config.go
@@ -103,6 +106,7 @@ internal/
     annotations.go
     daemon.go
     cluster.go
+    node.go
     object.go
     instance.go
     resource.go
@@ -256,6 +260,7 @@ Each domain file exposes one registration function using Go exported naming:
 ~~~go
 func RegisterDaemonTools(registrar *Registrar, service *core.Service) error
 func RegisterClusterTools(registrar *Registrar, service *core.Service) error
+func RegisterNodeTools(registrar *Registrar, service *core.Service) error
 func RegisterObjectTools(registrar *Registrar, service *core.Service) error
 func RegisterInstanceTools(registrar *Registrar, service *core.Service) error
 func RegisterResourceTools(registrar *Registrar, service *core.Service) error

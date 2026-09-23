@@ -68,6 +68,9 @@ func main() {
 	if err := tools.RegisterClusterTools(registrar, service); err != nil {
 		log.Fatal(err)
 	}
+	if err := tools.RegisterNodeTools(registrar, service); err != nil {
+		log.Fatal(err)
+	}
 	if err := tools.RegisterObjectTools(registrar, service); err != nil {
 		log.Fatal(err)
 	}

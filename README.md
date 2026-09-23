@@ -37,6 +37,7 @@ verified, normalized lab input/output examples:
 - [Tool index and diagnostic workflow](docs/tools/README.md)
 - [Daemon tools](docs/tools/daemon.md)
 - [Cluster tools](docs/tools/cluster.md)
+- [Node tools](docs/tools/node.md)
 - [Object tools](docs/tools/objects.md)
 - [Instance tools](docs/tools/instances.md)
 - [Resource tools](docs/tools/resources.md)

@@ -7,9 +7,14 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-type GetClusterHealthInput struct{}
+type GetClusterStatusInput struct {
+	NodeLimit    int    `json:"node_limit,omitempty" jsonschema:"optional node page size between 1 and 200; defaults to 100"`
+	NodeCursor   string `json:"node_cursor,omitempty" jsonschema:"optional nodes.next_cursor returned by a previous call"`
+	ObjectLimit  int    `json:"object_limit,omitempty" jsonschema:"optional actor object page size between 1 and 200; defaults to 100"`
+	ObjectCursor string `json:"object_cursor,omitempty" jsonschema:"optional objects.next_cursor returned by a previous call"`
+}
 
-type GetClusterHealthOutput = core.ClusterHealth
+type GetClusterStatusOutput = core.ClusterStatusSnapshot
 
 type GetClusterConfigInput struct{}
 
@@ -37,19 +42,22 @@ func RegisterClusterTools(registrar *Registrar, service *core.Service) error {
 	if err := addTool(
 		registrar,
 		&mcp.Tool{
-			Name:  "get_cluster_health",
-			Title: "Assess cluster health",
-			Description: "Compute a deterministic health assessment from the last-known OpenSVC cluster status for the cluster, nodes, heartbeat streams and peer links, and visible actor objects. " +
-				"Node issues include stable codes and bounded evidence; remediation options are conditional candidates and are never selected or applied by this read-only tool. " +
-				"Missing or stale heartbeat data is reported as unknown and prevents a healthy result. The call does not refresh instance drivers; healthy means no problem in the status currently published by the daemon, not a real-time probe.",
+			Name:  "get_cluster_status",
+			Title: "Get cluster status snapshot",
+			Description: "Read a factual, bounded snapshot of the last-known OpenSVC cluster, node, heartbeat, and visible actor object status. " +
+				"Exact daemon values, source timestamps, counts, and truncation metadata are preserved without MCP health verdicts, issue classification, or remediation advice. " +
+				"Use cursors to continue node or actor object pages; this read-only call does not refresh instance drivers.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, _ GetClusterHealthInput) (*mcp.CallToolResult, GetClusterHealthOutput, error) {
-			health, err := service.GetClusterHealth(ctx)
+		func(ctx context.Context, _ *mcp.CallToolRequest, input GetClusterStatusInput) (*mcp.CallToolResult, GetClusterStatusOutput, error) {
+			status, err := service.GetClusterStatus(ctx, core.GetClusterStatusOptions{
+				NodeLimit: input.NodeLimit, NodeCursor: input.NodeCursor,
+				ObjectLimit: input.ObjectLimit, ObjectCursor: input.ObjectCursor,
+			})
 			if err != nil {
-				return nil, GetClusterHealthOutput{}, err
+				return nil, GetClusterStatusOutput{}, err
 			}
-			return nil, health, nil
+			return nil, status, nil
 		},
 	); err != nil {
 		return err

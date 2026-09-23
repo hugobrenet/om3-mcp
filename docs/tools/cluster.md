@@ -2,19 +2,18 @@
 domain: cluster
 tools:
   - get_cluster_config
-  - get_cluster_health
+  - get_cluster_status
 stability: experimental
 ---
 
 # Cluster Tools
 
-This document describes tools that read bounded cluster configuration evidence
-and assess the current OpenSVC cluster view.
+These tools return bounded cluster configuration and last-known status facts.
+They do not produce a diagnostic verdict.
 
 Implementation:
 
-- business logic: `internal/core/config_file.go` and
-  `internal/core/cluster.go`;
+- business logic: `internal/core/config_file.go` and `internal/core/cluster.go`;
 - MCP definitions: `internal/tools/cluster.go`.
 
 ## Tools
@@ -108,243 +107,187 @@ Output:
 | Invalid UTF-8 or unexpected media type | Tool error; no partial configuration is returned |
 | Daemon unavailable | Tool error with transport context |
 
-### `get_cluster_health`
+### `get_cluster_status`
 
-Computes a deterministic, point-in-time health assessment for the cluster, its
-nodes, and actor objects visible to the delegated caller.
+Returns a factual, point-in-time projection of the cluster view currently held
+by the contacted daemon. Use it as the first cluster-wide observation before
+drilling into one node, object, instance, resource, configuration, or log tool.
 
-Use it for the first operational diagnosis: leadership, compatibility, frozen
-or missing nodes, non-idle monitors, overload, and a bounded list of problematic
-objects. It also summarizes heartbeat streams and peer links for each node.
-Continue with object and instance tools for a focused diagnosis.
+The tool deliberately has no `healthy` field, MCP-generated issue list,
+severity, remediation, or assumed set of valid OpenSVC states. Exact status
+strings and booleans are retained so the agent can correlate the evidence.
 
-This is an MCP-defined assessment derived from OpenSVC fields, not a canonical
-health flag returned by the daemon.
-
-#### OpenSVC API and freshness
+#### OpenSVC API, authorization, visibility, and freshness
 
 ```text
 GET /api/cluster/status
 ```
 
-The daemon serves a cached cluster view. Refreshing that cache does not execute
-resource status drivers. Consequently, `healthy=true` means no issue is present
-in the visible last-known OpenSVC state; it does not prove that every resource
-was probed during this call.
+The request has no daemon query parameters. The daemon returns its cached
+cluster view; this call does not execute resource status drivers or contact each
+reported node. `provenance.observed_at` dates MCP collection, not the underlying
+status. Node monitor, heartbeat, stream, object, boot, leave, and rejoin
+timestamps remain separate source facts.
 
-The endpoint accepts `guest` or a higher role. Without `selector` or
-`namespace`, OpenSVC can serve its prepared cluster JSON directly to global
-`guest`, `operator`, `admin`, or `root` callers. OpenSVC still filters the
-response for namespace-scoped grants. Object summaries cover only namespaces
-visible to the delegated JWT. A healthy result makes no assertion about
-inaccessible namespaces.
+The endpoint accepts a global `guest` or higher grant. OpenSVC applies the
+delegated JWT and filters objects according to namespace grants. Object totals,
+state counts, and pages therefore describe only the caller-visible view.
 
-#### Assessment rules
+#### Input and pagination
 
-Cluster issues include:
+All fields are optional:
 
-- incompatible nodes;
-- a frozen cluster;
-- no node reporting itself as leader;
-- more than one node reporting itself as leader.
+| Input field | Default | Validation | Meaning |
+|---|---:|---|---|
+| `node_limit` | `100` | `1..200` | Maximum configured-or-reported node records in this page |
+| `node_cursor` | empty | At most 1024 characters | Exact `nodes.next_cursor` from the preceding page |
+| `object_limit` | `100` | `1..200` | Maximum visible actor objects in this page |
+| `object_cursor` | empty | At most 1024 characters | Exact `objects.next_cursor` from the preceding page |
 
-Leader names are sorted lexicographically.
+Nodes and objects are independently paginated. A caller can continue one page
+while resetting or continuing the other. Each call obtains a new daemon
+snapshot, so compare source timestamps when state may have changed between
+pages.
 
-A node is unhealthy when it is missing, has no agent version or monitor state,
-has a non-empty monitor state other than `idle`, is frozen, reports overload, or
-has degraded or unavailable heartbeat status in a multi-node cluster.
-Node issues are structured objects with a stable `code` and a `message`.
-An unparseable non-empty `frozen_at` is treated conservatively as frozen. The
-evaluated node set is the union of configured and reported nodes.
+#### Cluster facts
 
-| Node issue code | Meaning |
-|---|---|
-| `node_status_missing` | A configured node has no published status |
-| `agent_version_missing` | The node publishes no agent version |
-| `monitor_state_missing` | The node publishes no monitor state |
-| `monitor_state_not_idle` | The node monitor state is not `idle` |
-| `node_frozen` | The node has a non-zero or invalid frozen timestamp |
-| `memory_below_threshold` | Available memory violates the configured policy |
-| `swap_below_threshold` | Available swap violates the configured policy |
-| `overload_cause_undetermined` | The overload flag cannot be explained from the bounded data |
-| `heartbeat_degraded` | A reported heartbeat stream is not running or a reported stream/peer link is not beating |
-| `heartbeat_status_unknown` | Heartbeat data is absent, too old, has an invalid timestamp, or lacks an RX view of a configured peer |
+`cluster` contains the exact identifier and name, configured quorum flag, and
+daemon-reported `is_compatible` and `is_frozen` flags. Configuration issues are
+OpenSVC-provided strings, not MCP conclusions. They are limited to 50 with
+`config_issues_total` and `config_issues_truncated`.
 
-Each reported node has a `heartbeat` object with `state`, OpenSVC
-`updated_at`, stream and link counts, RX peer counts, and a bounded issue list.
-`node_summary.heartbeat_degraded` and `node_summary.heartbeat_unknown` count
-nodes in those states. For a single-node cluster with no streams, heartbeat
-state is `not_applicable`.
+#### Node facts
 
-| Heartbeat state | Rule |
-|---|---|
-| `healthy` | Recent status; every reported stream is `running`, every reported link is beating, and each configured peer has an RX link |
-| `degraded` | A reported stream is not `running` or a reported link has `is_beating=false` |
-| `unknown` | Status or timestamp is missing/invalid, older than three minutes, more than 30 seconds in the future, or a configured peer has no reported RX link |
-| `not_applicable` | Single configured node and no heartbeat streams |
+`nodes` contains:
 
-`heartbeat.updated_at` is written by OpenSVC when it publishes the heartbeat
-subsystem. OpenSVC normally refreshes it within 60 seconds; the MCP allows three
-minutes for propagation before classifying the view as `unknown`. A recent MCP
-`provenance.observed_at` does not make old heartbeat data fresh. The MCP does
-not use the stream's own `updated_at`. It uses OpenSVC's `is_beating` value
-rather than inventing an age threshold for `last_beating_at`. It does not treat
-every alert as a failure: OpenSVC also publishes informational alerts.
+- `configured_total`, `reported_total`, and union `total` counts;
+- `count`, `items`, `next_cursor`, and `truncated` page metadata;
+- one record for each configured or reported name in the selected page.
 
-Heartbeat issue codes provide the exact evidence:
+Each record has explicit `configured` and `reported` booleans. When
+`reported=false`, `status`, `monitor`, `stats`, `policy`, `daemon`, and
+`heartbeat` are `null`; the MCP does not label this condition as unhealthy.
 
-| Heartbeat issue code | Meaning |
-|---|---|
-| `heartbeat_stream_not_running` | A stream reports a state other than `running`; `stream_id` and `stream_state` identify it |
-| `heartbeat_peer_not_beating` | A stream/peer link reports `is_beating=false`; `stream_id`, `peer`, `changed_at`, and `last_beating_at` identify it |
-| `heartbeat_peer_stale` | All reported RX links to a configured peer are not beating, from this node's view |
-| `heartbeat_rx_peer_missing` | No RX link to a configured peer is reported; reachability cannot be inferred |
-| `heartbeat_status_missing` | No heartbeat status is published for a reported node |
-| `heartbeat_timestamp_missing` | Publication time is absent, invalid, or the Go zero time |
-| `heartbeat_status_stale` | Publication time is older than three minutes |
-| `heartbeat_timestamp_in_future` | Publication time is more than 30 seconds ahead of the MCP clock |
+Reported node fields include:
 
-Stream/peer issues are sorted by stream ID and peer name. At most 50 heartbeat
-issues per node are returned; `issues_total` and `issues_truncated` disclose
-omissions. The link counters include RX and TX. `rx_peers_stale` follows
-OpenSVC's rule that a peer is stale from one node's point of view when none of
-its RX links are beating. One failed link with another RX link still beating is
-a degraded heartbeat, not proof that the peer is unreachable. A stale peer in
-this cached view does not by itself prove a node failure or cluster partition.
-Compare the local views on both nodes for a partition investigation.
+- agent, API and compatibility versions, leader and overload flags;
+- boot, freeze, leave, and rejoin timestamps;
+- the generation vector, sorted by node and limited to 200;
+- arbitrator name, URL, exact status, and weight, limited to 50;
+- exact monitor state and expectations, their timestamps, session and
+  orchestration identifiers, and completion flag;
+- load, memory, swap, score, memory/swap thresholds, and daemon PID/start time;
+- OpenSVC-provided node configuration issues, limited to 50.
 
-When a node reports overload, the MCP reproduces the daemon's deterministic
-checks using the node configuration and statistics:
+The MCP exposes `is_overloaded`, capacity values, and configured thresholds as
+separate facts. It does not reproduce the daemon policy, explain the overload,
+or suggest a configuration change.
 
-- `memory_below_threshold` when `node.min_avail_mem_pct > 0` and the available
-  memory percentage is below that threshold;
-- `swap_below_threshold` when `node.min_avail_swap_pct > 0` and the available
-  swap percentage is below that threshold;
-- `overload_cause_undetermined` when the node reports overload but the required
-  data is absent or the published values do not explain it.
+#### Heartbeat facts and bounds
 
-Memory and swap issues include the values used by the comparison, the exact
-configuration key, and conditional remediation options. These options describe
-operator choices; the MCP never selects or applies one. An exact configuration
-candidate is included only when a deterministic value exists for a clearly
-stated condition. For example, a node with no swap receives the candidate
-`node.min_avail_swap_pct=0` under the condition that the absence of swap is
-intentional; the caller still has to establish that intent.
+When heartbeat data exists, the output preserves its publication timestamp,
+last-message data, secret version numbers, streams, alerts, and peer links.
+Secret version numbers are counters; no heartbeat secret material is returned.
 
-Only objects with an `avail` field are treated as actors. An actor is
-problematic when at least one condition holds:
+| Collection | Limit | Ordering |
+|---|---:|---|
+| Last messages | 100 | Daemon-provided order |
+| Streams | 50 | Exact stream identifier |
+| Alerts per stream | 50 | Daemon-provided order |
+| Peers per stream | 100 | Exact peer name |
 
-- availability is not `up`, `stdby up`, or `n/a`;
-- overall status is `down`, `warn`, `undef`, or `stdby down`;
-- a non-empty placement state is neither `optimal` nor `n/a`;
-- a non-empty freeze state is not `unfrozen`;
-- provisioned state is `false`, `mixed`, or `undef`.
+Every bounded collection returns `total`, `count`, `items`, and `truncated`.
+Alert messages and peer descriptions are limited to 1024 Unicode characters
+and include an explicit truncation boolean.
 
-Availability counters use these normalized values:
+The MCP does not classify heartbeat as healthy, degraded, stale, unknown, or
+not applicable. It does not apply an age threshold, infer missing RX peers, or
+combine redundant links. The agent receives exact stream `state`, alert
+severity, peer `is_beating`, and timestamps.
 
-| Counter | Values |
-|---|---|
-| `up` | `up`, `stdby up` |
-| `down` | `down`, `stdby down` |
-| `warn` | `warn` |
-| `not_applicable` | `n/a` |
-| `other` | Any other value |
+#### Object facts
 
-Problem objects are sorted by path. At most 100 are returned and
-`problem_objects_truncated` indicates whether additional problems were omitted.
+`objects.reported_total` counts all visible entries in `cluster.object`.
+`actor_total` counts entries containing `avail`; non-actor configuration and
+secret objects are excluded from the detailed page because they have no actor
+status.
 
-The top-level `healthy` field is true only when the cluster has no issue, every
-evaluated node is healthy, and no visible actor object is problematic. Unknown
-heartbeat state on a reported multi-node cluster node prevents a healthy result,
-but is kept distinct from a confirmed degraded heartbeat.
+Actor records preserve path, availability, overall, provisioned, frozen,
+placement state and policy, orchestration mode, topology, priority, scope,
+up-instance count, and update timestamp. Paths and scope names are sorted only
+for stable output.
+
+`state_counts` groups all visible actors independently by their exact
+`availability`, `overall`, `provisioned`, `frozen`, and `placement_state`
+strings. Empty and previously unknown values remain separate entries. The MCP
+does not merge `up` with `stdby up`, create an `other` bucket, or select
+"problem" objects.
 
 #### MCP properties
 
 | Property | Value |
 |---|---|
-| Title | Assess cluster health |
+| Title | Get cluster status snapshot |
 | Read-only | Yes |
 | Destructive | No |
 | Open world | No; only the configured daemon is contacted |
 | Side effects | None |
 
-#### Input example
+Annotations are client hints; authentication, authorization, and visibility
+remain enforced by OpenSVC.
+
+#### Example
+
+Input:
 
 ```json
-{}
+{"node_limit":100,"object_limit":100}
 ```
 
-#### Overload output excerpt
+Abbreviated output using facts observed on the two-node lab:
 
 ```json
 {
-  "provenance": {
-    "source": "opensvc_daemon",
-    "observed_at": "2026-07-15T05:00:00Z"
+  "provenance": {"source":"opensvc_daemon","observed_at":"2026-09-23T15:00:33Z"},
+  "cluster": {
+    "id":"a9601756-8a8a-440c-a2bb-1721b73dd280",
+    "name":"lab-opensvc",
+    "quorum_enabled":false,
+    "is_compatible":true,
+    "is_frozen":false,
+    "config_issues_total":0,
+    "config_issues":[],
+    "config_issues_truncated":false
   },
-  "healthy": false,
-  "node_summary": {
-    "frozen": 0,
-    "healthy": 0,
-    "missing": 0,
-    "non_idle": 0,
-    "overloaded": 1,
-    "total": 1
+  "nodes": {
+    "configured_total":2,
+    "reported_total":2,
+    "total":2,
+    "count":2,
+    "items":[{
+      "name":"node1",
+      "configured":true,
+      "reported":true,
+      "status":{"is_leader":true,"is_overloaded":true},
+      "stats":{"mem_available_pct":74,"mem_total_mb":3902,"swap_available_pct":0,"swap_total_mb":0},
+      "policy":{"min_avail_mem_pct":2,"min_avail_swap_pct":10},
+      "heartbeat":{"updated_at":"2026-09-23T15:00:32.259435971+02:00","streams":{"total":2,"count":2,"items":[],"truncated":false}}
+    }],
+    "truncated":false
   },
-  "nodes": [
-    {
-      "healthy": false,
-      "is_frozen": false,
-      "is_leader": true,
-      "is_overloaded": true,
-      "issues": [
-        {
-          "code": "swap_below_threshold",
-          "message": "node has no swap while a minimum available swap threshold is enabled",
-          "evidence": {
-            "swap_total_mb": 0,
-            "swap_available_pct": 0,
-            "minimum_swap_available_pct": 10
-          },
-          "policy": {
-            "config_key": "node.min_avail_swap_pct",
-            "current_value": 10,
-            "unit": "percent",
-            "overloaded_when": "swap_available_pct < minimum_swap_available_pct",
-            "disabled_when_value_is": 0
-          },
-          "remediation_options": [
-            {
-              "id": "provide_swap",
-              "applies_when": "swap is expected on this node",
-              "description": "configure swap capacity so OpenSVC can evaluate available swap against the threshold"
-            },
-            {
-              "id": "disable_swap_threshold",
-              "applies_when": "the absence of swap is intentional",
-              "description": "disable the OpenSVC available swap check for this node",
-              "configuration": {
-                "key": "node.min_avail_swap_pct",
-                "value": 0
-              }
-            }
-          ]
-        }
-      ],
-      "monitor_state": "idle",
-      "name": "lab-node-01",
-      "reported": true
-    }
-  ]
+  "objects": {
+    "reported_total":5,
+    "actor_total":1,
+    "count":1,
+    "items":[{"path":"lab/svc/redis","availability":"up","overall":"up","provisioned":"n/a","placement_state":"optimal"}],
+    "state_counts":{"availability":[{"value":"up","count":1}]},
+    "truncated":false
+  }
 }
 ```
 
-A full response also includes `cluster`, `object_summary`, `problem_objects`,
-and `problem_objects_truncated`; they are omitted from this excerpt to keep the
-overload contract readable.
-
-`problem_objects` is sorted by canonical object path. Node and leader names are
-also sorted for deterministic output.
+The example abbreviates nested required structures for readability; the MCP
+output schema and implementation always return their complete typed shapes.
 
 #### Errors
 
@@ -352,11 +295,12 @@ also sorted for deterministic output.
 |---|---|
 | Invalid MCP JWT | MCP HTTP `401` |
 | Insufficient daemon grants | Tool error containing daemon HTTP `403` |
-| Daemon unavailable or malformed status | Tool error; no partial assessment |
+| Invalid page limit or oversized cursor | Tool error before the daemon request |
+| Daemon unavailable or malformed status | Tool error; no partial snapshot |
 
 ## Compatibility
 
-Cluster health behavior was verified against OpenSVC `3.0.0-rc30`. Cluster
-configuration redaction requires OpenSVC main including `opensvc/om3#1125`
-until that change is included in a tagged release. Health rules must be
-reviewed whenever OpenSVC adds or changes status values.
+The factual status projection was verified against the `node1` lab daemon on
+23 September 2026. Cluster configuration redaction requires OpenSVC main
+including `opensvc/om3#1125` until that change is included in a tagged release.
+Unknown future status strings are preserved rather than reclassified.

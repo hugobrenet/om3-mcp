@@ -102,13 +102,13 @@ Output:
 
 ### `get_node_status`
 
-Returns the last-known status of one exact node after `get_cluster_health`
-identifies a node that needs closer inspection. It exposes the reported agent
+Returns the last-known status of one exact node after `get_cluster_status`
+provides the cluster-wide facts. It exposes the reported agent
 and compatibility versions, leader and overload flags, freeze and boot times,
 monitor state and targets, capacity statistics, memory and swap policy
-thresholds, and the bounded heartbeat assessment used by the cluster health
-tool. Use `get_cluster_health` for a cluster-wide health decision; this tool has
-no top-level `healthy` flag.
+thresholds, and a bounded heartbeat assessment. Use `get_cluster_status` for a
+factual cluster-wide snapshot. This node tool still classifies heartbeat state;
+that contract is scheduled for the next refactor increment.
 
 #### OpenSVC API and freshness
 
@@ -128,7 +128,7 @@ dates the monitor state and `heartbeat.updated_at` dates the published heartbeat
 view. The heartbeat state follows the rules documented above. `stats` or
 `policy` is `null` when that section is absent from the daemon response. An
 unreported scalar field in `status` or `monitor` appears as its JSON zero value;
-use `get_cluster_health` to diagnose missing status fields.
+use `get_cluster_status` to inspect configured and reported node membership.
 
 #### Input and output
 

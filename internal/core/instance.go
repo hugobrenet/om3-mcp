@@ -211,6 +211,10 @@ func summarizeResourceStatuses(resources map[string]daemonResourceStatusData) Re
 	return summary
 }
 
+func normalizedState(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
 func (s *Service) RefreshInstanceStatus(ctx context.Context, options RefreshInstanceStatusOptions) (RefreshInstanceStatusResult, error) {
 	reference, err := validateExactObjectPath(options.Path)
 	if err != nil {

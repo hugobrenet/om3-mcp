@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -72,80 +71,6 @@ func TestClusterHeartbeatIssuesAreBounded(t *testing.T) {
 	}
 	if got.Issues[0].StreamID != "hb#00.rx" || got.Issues[len(got.Issues)-1].StreamID != "hb#49.rx" {
 		t.Errorf("issues are not sorted by stream: first=%+v last=%+v", got.Issues[0], got.Issues[len(got.Issues)-1])
-	}
-}
-
-func TestGetClusterHealthHeartbeatDegraded(t *testing.T) {
-	service := New(&fakeJSONGetter{t: t, payload: `{
-		"cluster": {
-			"config": {"id": "cluster-123", "nodes": ["node-a", "node-b"]},
-			"status": {"is_compat": true},
-			"node": {
-				"node-a": {
-					"status": {"agent": "v3", "is_leader": true}, "monitor": {"state": "idle"},
-					"daemon": {"heartbeat": {"updated_at": "2026-09-17T11:59:00Z", "streams": [
-						{"id": "hb#1.rx", "state": "running", "peers": {"node-b": {"is_beating": false, "changed_at": "2026-09-17T11:58:00Z", "last_beating_at": "2026-09-17T11:57:00Z"}}}
-					]}}
-				},
-				"node-b": {
-					"status": {"agent": "v3"}, "monitor": {"state": "idle"},
-					"daemon": {"heartbeat": {"updated_at": "2026-09-17T11:59:00Z", "streams": [
-						{"id": "hb#1.rx", "state": "running", "peers": {"node-a": {"is_beating": true}}}
-					]}}
-				}
-			}
-		}
-	}`})
-	service.now = func() time.Time { return time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC) }
-
-	health, err := service.GetClusterHealth(context.Background())
-	if err != nil {
-		t.Fatalf("get cluster health: %v", err)
-	}
-	if health.Healthy || health.NodeSummary.Healthy != 1 {
-		t.Fatalf("cluster health = %+v, want one healthy node and unhealthy cluster", health)
-	}
-	node := health.Nodes[0]
-	if node.Healthy || findNodeIssue(node.Issues, "heartbeat_degraded") == nil {
-		t.Fatalf("node issues = %+v, want heartbeat_degraded", node.Issues)
-	}
-	if node.Heartbeat.State != "degraded" || len(node.Heartbeat.Issues) != 2 || node.Heartbeat.RXPeersStale != 1 || health.NodeSummary.HeartbeatDegraded != 1 {
-		t.Fatalf("heartbeat = %+v, want one degraded link and one stale peer", node.Heartbeat)
-	}
-	issue := node.Heartbeat.Issues[0]
-	if issue.Code != "heartbeat_peer_not_beating" || issue.StreamID != "hb#1.rx" || issue.Peer != "node-b" || issue.LastBeatingAt != "2026-09-17T11:57:00Z" {
-		t.Errorf("heartbeat issue = %+v, want the stale RX link", issue)
-	}
-	if !hasHeartbeatIssue(node.Heartbeat.Issues, "heartbeat_peer_stale") {
-		t.Errorf("heartbeat issues = %+v, want aggregate peer_stale", node.Heartbeat.Issues)
-	}
-}
-
-func TestGetClusterHealthHeartbeatUnknownPreventsHealthy(t *testing.T) {
-	service := New(&fakeJSONGetter{t: t, payload: `{
-		"cluster": {
-			"config": {"id": "cluster-123", "nodes": ["node-a", "node-b"]},
-			"status": {"is_compat": true},
-			"node": {
-				"node-a": {"status": {"agent": "v3", "is_leader": true}, "monitor": {"state": "idle"}},
-				"node-b": {"status": {"agent": "v3"}, "monitor": {"state": "idle"},
-					"daemon": {"heartbeat": {"updated_at": "2026-09-17T11:59:00Z", "streams": [
-						{"id": "hb#1.rx", "state": "running", "peers": {"node-a": {"is_beating": true}}}
-					]}}
-				}
-			}
-		}
-	}`})
-	service.now = func() time.Time { return time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC) }
-	health, err := service.GetClusterHealth(context.Background())
-	if err != nil {
-		t.Fatalf("get cluster health: %v", err)
-	}
-	if health.Healthy || health.NodeSummary.HeartbeatUnknown != 1 || health.NodeSummary.HeartbeatDegraded != 0 {
-		t.Fatalf("cluster health = %+v, want one unknown heartbeat and unhealthy cluster", health)
-	}
-	if health.Nodes[0].Heartbeat.State != "unknown" || findNodeIssue(health.Nodes[0].Issues, "heartbeat_status_unknown") == nil {
-		t.Errorf("node-a health = %+v, want unknown heartbeat issue", health.Nodes[0])
 	}
 }
 

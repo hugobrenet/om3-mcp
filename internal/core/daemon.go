@@ -73,8 +73,9 @@ type ListenerIdentity struct {
 }
 
 type clusterNodeConfig struct {
-	MinAvailMemPct  int `json:"min_avail_mem_pct"`
-	MinAvailSwapPct int `json:"min_avail_swap_pct"`
+	MinAvailMemPct  int      `json:"min_avail_mem_pct"`
+	MinAvailSwapPct int      `json:"min_avail_swap_pct"`
+	Issues          []string `json:"issues"`
 }
 
 type clusterNodeStats struct {
@@ -87,20 +88,51 @@ type clusterNodeStats struct {
 }
 
 type clusterHeartbeat struct {
-	UpdatedAt string                   `json:"updated_at"`
-	Streams   []clusterHeartbeatStream `json:"streams"`
+	LastMessage   clusterHeartbeatLastMessage   `json:"last_message"`
+	LastMessages  []clusterHeartbeatLastMessage `json:"last_messages"`
+	SecretVersion clusterHeartbeatSecretVersion `json:"secret_version"`
+	UpdatedAt     string                        `json:"updated_at"`
+	Streams       []clusterHeartbeatStream      `json:"streams"`
+}
+
+type clusterHeartbeatLastMessage struct {
+	From        string `json:"from"`
+	PatchLength int    `json:"patch_length"`
+	Type        string `json:"type"`
+}
+
+type clusterHeartbeatSecretVersion struct {
+	Main      uint64 `json:"main"`
+	Alternate uint64 `json:"alt"`
 }
 
 type clusterHeartbeatStream struct {
-	ID    string                          `json:"id"`
-	State string                          `json:"state"`
-	Peers map[string]clusterHeartbeatPeer `json:"peers"`
+	ID           string                          `json:"id"`
+	Type         string                          `json:"type"`
+	State        string                          `json:"state"`
+	ConfiguredAt string                          `json:"configured_at"`
+	CreatedAt    string                          `json:"created_at"`
+	UpdatedAt    string                          `json:"updated_at"`
+	Alerts       []clusterHeartbeatAlert         `json:"alerts"`
+	Peers        map[string]clusterHeartbeatPeer `json:"peers"`
+}
+
+type clusterHeartbeatAlert struct {
+	Message  string `json:"message"`
+	Severity string `json:"severity"`
 }
 
 type clusterHeartbeatPeer struct {
+	Description   string `json:"desc"`
 	IsBeating     bool   `json:"is_beating"`
 	ChangedAt     string `json:"changed_at"`
 	LastBeatingAt string `json:"last_beating_at"`
+}
+
+type clusterNodeArbitrator struct {
+	URL    string `json:"url"`
+	Status string `json:"status"`
+	Weight int    `json:"weight"`
 }
 
 type clusterStatusResponse struct {
@@ -110,6 +142,7 @@ type clusterStatusResponse struct {
 			Name     string   `json:"name"`
 			Nodes    []string `json:"nodes"`
 			Quorum   bool     `json:"quorum"`
+			Issues   []string `json:"issues"`
 			Listener struct {
 				Address string `json:"addr"`
 				Port    int    `json:"port"`
@@ -123,21 +156,29 @@ type clusterStatusResponse struct {
 			Config *clusterNodeConfig `json:"config"`
 			Stats  *clusterNodeStats  `json:"stats"`
 			Status struct {
-				Agent        string `json:"agent"`
-				API          int    `json:"api"`
-				Compat       int    `json:"compat"`
-				IsLeader     bool   `json:"is_leader"`
-				IsOverloaded bool   `json:"is_overloaded"`
-				BootedAt     string `json:"booted_at"`
-				FrozenAt     string `json:"frozen_at"`
+				Agent        string                           `json:"agent"`
+				API          int                              `json:"api"`
+				Compat       int                              `json:"compat"`
+				Arbitrators  map[string]clusterNodeArbitrator `json:"arbitrators"`
+				Generation   map[string]uint64                `json:"gen"`
+				IsLeader     bool                             `json:"is_leader"`
+				IsOverloaded bool                             `json:"is_overloaded"`
+				BootedAt     string                           `json:"booted_at"`
+				FrozenAt     string                           `json:"frozen_at"`
+				LeftAt       string                           `json:"left_at"`
+				RejoinedAt   string                           `json:"rejoined_at"`
 			} `json:"status"`
 			Monitor struct {
-				State               string `json:"state"`
-				GlobalExpect        string `json:"global_expect"`
-				LocalExpect         string `json:"local_expect"`
-				OrchestrationID     string `json:"orchestration_id"`
-				OrchestrationIsDone bool   `json:"orchestration_is_done"`
-				UpdatedAt           string `json:"updated_at"`
+				State                 string `json:"state"`
+				StateUpdatedAt        string `json:"state_updated_at"`
+				GlobalExpect          string `json:"global_expect"`
+				GlobalExpectUpdatedAt string `json:"global_expect_updated_at"`
+				LocalExpect           string `json:"local_expect"`
+				LocalExpectUpdatedAt  string `json:"local_expect_updated_at"`
+				OrchestrationID       string `json:"orchestration_id"`
+				OrchestrationIsDone   bool   `json:"orchestration_is_done"`
+				SessionID             string `json:"session_id"`
+				UpdatedAt             string `json:"updated_at"`
 			} `json:"monitor"`
 			Daemon struct {
 				PID       int               `json:"pid"`
@@ -151,9 +192,13 @@ type clusterStatusResponse struct {
 			Provisioned      string   `json:"provisioned"`
 			Frozen           string   `json:"frozen"`
 			PlacementState   string   `json:"placement_state"`
+			PlacementPolicy  string   `json:"placement_policy"`
 			Orchestrate      string   `json:"orchestrate"`
+			Topology         string   `json:"topology"`
+			Priority         int      `json:"priority"`
 			UpInstancesCount int      `json:"up_instances_count"`
 			Scope            []string `json:"scope"`
+			UpdatedAt        string   `json:"updated_at"`
 		} `json:"object"`
 	} `json:"cluster"`
 	Daemon struct {

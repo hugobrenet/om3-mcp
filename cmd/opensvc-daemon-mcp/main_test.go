@@ -272,7 +272,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	expectedToolTitles := map[string]string{
 		"get_daemon_identity":       "Get daemon identity",
 		"get_cluster_config":        "Get cluster configuration",
-		"get_cluster_health":        "Assess cluster health",
+		"get_cluster_status":        "Get cluster status snapshot",
 		"get_node_config":           "Get node configuration",
 		"get_node_status":           "Get node status",
 		"get_node_logs":             "Get node logs",
@@ -386,30 +386,30 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	assertResultProvenance(t, clusterConfig.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "get_cluster_health",
-		Arguments: mcptools.GetClusterHealthInput{},
+		Name:      "get_cluster_status",
+		Arguments: mcptools.GetClusterStatusInput{},
 	})
 	if err != nil {
-		t.Fatalf("call get_cluster_health: %v", err)
+		t.Fatalf("call get_cluster_status: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("get_cluster_health returned an MCP tool error: %#v", result.Content)
+		t.Fatalf("get_cluster_status returned an MCP tool error: %#v", result.Content)
 	}
 	data, err = json.Marshal(result.StructuredContent)
 	if err != nil {
-		t.Fatalf("marshal cluster health structured content: %v", err)
+		t.Fatalf("marshal cluster status structured content: %v", err)
 	}
-	var health mcptools.GetClusterHealthOutput
-	if err := json.Unmarshal(data, &health); err != nil {
-		t.Fatalf("decode cluster health structured content: %v", err)
+	var clusterStatus mcptools.GetClusterStatusOutput
+	if err := json.Unmarshal(data, &clusterStatus); err != nil {
+		t.Fatalf("decode cluster status structured content: %v", err)
 	}
-	if !health.Healthy || health.ObjectSummary.Total != 1 || health.ObjectSummary.Up != 1 {
-		t.Errorf("got unexpected cluster health %#v", health)
+	if clusterStatus.Cluster.ID != "cluster-123" || clusterStatus.Nodes.Total != 1 || clusterStatus.Objects.ActorTotal != 1 {
+		t.Errorf("got unexpected cluster status %#v", clusterStatus)
 	}
-	if len(health.Nodes) != 1 || health.Nodes[0].Heartbeat.State != "not_applicable" || health.NodeSummary.HeartbeatUnknown != 0 {
-		t.Errorf("got unexpected single-node heartbeat health %#v", health.Nodes)
+	if len(clusterStatus.Nodes.Items) != 1 || clusterStatus.Nodes.Items[0].Status == nil || !clusterStatus.Nodes.Items[0].Status.IsLeader {
+		t.Errorf("got unexpected node status %#v", clusterStatus.Nodes)
 	}
-	assertResultProvenance(t, health.Provenance)
+	assertResultProvenance(t, clusterStatus.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "get_node_config",

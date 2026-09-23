@@ -23,6 +23,10 @@ type StreamGetter interface {
 	GetStream(context.Context, string, url.Values, func([]byte) error) error
 }
 
+type FileGetter interface {
+	GetFile(context.Context, string, url.Values) ([]byte, error)
+}
+
 type Service struct {
 	client JSONGetter
 	now    func() time.Time

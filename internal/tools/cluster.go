@@ -11,11 +11,21 @@ type GetClusterHealthInput struct{}
 
 type GetClusterHealthOutput = core.ClusterHealth
 
+type GetClusterConfigInput struct{}
+
+type GetClusterConfigOutput = core.ClusterConfig
+
 type GetNodeStatusInput struct {
 	Node string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard or selector"`
 }
 
 type GetNodeStatusOutput = core.NodeStatus
+
+type GetNodeConfigInput struct {
+	Node string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard or selector"`
+}
+
+type GetNodeConfigOutput = core.NodeConfig
 
 type GetNodeLogsInput struct {
 	Node      string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard or selector"`
@@ -26,6 +36,24 @@ type GetNodeLogsInput struct {
 type GetNodeLogsOutput = core.NodeLogList
 
 func RegisterClusterTools(registrar *Registrar, service *core.Service) error {
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:        "get_cluster_config",
+			Title:       "Get cluster configuration",
+			Description: "Read the bounded raw OpenSVC cluster configuration file for diagnostic context. The MCP always requests daemon-side secret redaction, returns at most 65536 bytes, and does not interpret the configuration. Requires root access to the daemon endpoint.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ GetClusterConfigInput) (*mcp.CallToolResult, GetClusterConfigOutput, error) {
+			config, err := service.GetClusterConfig(ctx)
+			if err != nil {
+				return nil, GetClusterConfigOutput{}, err
+			}
+			return nil, config, nil
+		},
+	); err != nil {
+		return err
+	}
 	if err := addTool(
 		registrar,
 		&mcp.Tool{
@@ -42,6 +70,24 @@ func RegisterClusterTools(registrar *Registrar, service *core.Service) error {
 				return nil, GetClusterHealthOutput{}, err
 			}
 			return nil, health, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:        "get_node_config",
+			Title:       "Get node configuration",
+			Description: "Read the bounded raw OpenSVC node configuration file for one exact node. The MCP always requests daemon-side secret redaction, returns at most 65536 bytes, and does not interpret the configuration. Requires root access to the daemon endpoint.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input GetNodeConfigInput) (*mcp.CallToolResult, GetNodeConfigOutput, error) {
+			config, err := service.GetNodeConfig(ctx, input.Node)
+			if err != nil {
+				return nil, GetNodeConfigOutput{}, err
+			}
+			return nil, config, nil
 		},
 	); err != nil {
 		return err

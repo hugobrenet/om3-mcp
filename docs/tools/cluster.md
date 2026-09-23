@@ -1,7 +1,9 @@
 ---
 domain: cluster
 tools:
+  - get_cluster_config
   - get_cluster_health
+  - get_node_config
   - get_node_status
   - get_node_logs
 stability: experimental
@@ -9,16 +11,185 @@ stability: experimental
 
 # Cluster Tools
 
-This document describes tools that assess the current OpenSVC cluster view and
-inspect recent node logs.
+This document describes tools that read bounded cluster and node configuration
+evidence, assess the current OpenSVC cluster view, and inspect recent node logs.
 
 Implementation:
 
-- business logic: `internal/core/cluster.go`, `internal/core/node.go`, and
-  `internal/core/node_logs.go`;
+- business logic: `internal/core/config_file.go`, `internal/core/cluster.go`,
+  `internal/core/node.go`, and `internal/core/node_logs.go`;
 - MCP definitions: `internal/tools/cluster.go`.
 
 ## Tools
+
+### `get_cluster_config`
+
+Returns the cluster configuration file as bounded UTF-8 text. Use it when a
+diagnosis depends on declared cluster settings such as node membership,
+heartbeat definitions, listener settings, quorum policy, or shared node
+defaults. It returns configuration evidence only; the MCP does not evaluate
+keywords or derive a diagnosis from the file.
+
+#### OpenSVC API, authorization, and freshness
+
+```text
+GET /api/cluster/config/file?redact-secrets=true
+Accept: application/octet-stream
+```
+
+The MCP always sends `redact-secrets=true`. This choice is fixed and is not an
+MCP input, so a model cannot request the unredacted form. The OpenSVC daemon
+performs the redaction and requires the global `root` grant. The delegated JWT
+therefore controls access at the daemon. The call reads the current
+`cluster.conf` file rather than the cluster status cache and does not refresh
+drivers or change daemon state.
+
+Cluster-side redaction requires an OpenSVC daemon containing the fix merged in
+`opensvc/om3#1125`. An older daemon can ignore this optional query parameter and
+return an unredacted file, so the daemon must be upgraded before enabling this
+tool against it.
+
+#### Input and output
+
+The input is an empty JSON object. There is no selector, pagination, node
+impersonation, or redaction switch.
+
+| Output field | Meaning |
+|---|---|
+| `provenance` | Daemon API source and MCP collection time |
+| `content` | Raw redacted configuration text, limited to 65,536 bytes and cut only at a valid UTF-8 boundary |
+| `size_bytes` | Complete file size received from the daemon before MCP output truncation |
+| `returned_bytes` | Number of bytes present in `content` |
+| `truncated` | Whether the MCP omitted bytes after its 65,536-byte output limit |
+| `redaction_requested` | Always `true`; confirms that the MCP sent `redact-secrets=true` |
+
+The HTTP client rejects file responses above 1 MiB, invalid UTF-8, and media
+types other than `application/octet-stream`. This transport ceiling is separate
+from the smaller MCP output limit.
+
+#### MCP properties
+
+| Property | Value |
+|---|---|
+| Title | Get cluster configuration |
+| Read-only | Yes |
+| Destructive | No |
+| Open world | No; only the configured daemon is contacted |
+| Side effects | None |
+
+Annotations are client hints; OpenSVC enforces access using the delegated JWT.
+
+#### Example
+
+Input:
+
+```json
+{}
+```
+
+Output:
+
+```json
+{
+  "provenance": {"source": "opensvc_daemon", "observed_at": "2026-09-23T10:00:00Z"},
+  "content": "[cluster]\nname = lab\nnodes = node1 node2\nsecret = ********\n",
+  "size_bytes": 65,
+  "returned_bytes": 65,
+  "truncated": false,
+  "redaction_requested": true
+}
+```
+
+#### Errors
+
+| Condition | Result |
+|---|---|
+| Invalid MCP JWT | MCP HTTP `401` |
+| Missing global `root` grant | Tool error containing daemon HTTP `403` |
+| Cluster configuration file missing | Tool error containing daemon HTTP `404` |
+| Response above 1 MiB | Tool error before any content is returned |
+| Invalid UTF-8 or unexpected media type | Tool error; no partial configuration is returned |
+| Daemon unavailable | Tool error with transport context |
+
+### `get_node_config`
+
+Returns the node configuration file for one exact node as bounded UTF-8 text.
+Use it when a diagnosis depends on node-local declarations such as listener,
+arbitrator, asset, or other node settings. Use `get_node_status` for runtime
+state; this tool does not compare the file with live status or interpret its
+keywords.
+
+#### OpenSVC API, authorization, and freshness
+
+```text
+GET /api/node/name/<node>/config/file?redact-secrets=true
+Accept: application/octet-stream
+```
+
+The MCP always sends `redact-secrets=true` and exposes no option to disable it.
+The daemon performs redaction and requires the global `root` grant. For the
+local node, the handler reads the current `node.conf` file. For another cluster
+node, the contacted daemon proxies the same request to that node. The call does
+not read the cluster status cache, refresh drivers, or change configuration.
+
+#### Input and output
+
+`node` is required and must be one exact OpenSVC node name of at most 255
+characters using letters, digits, dot, underscore, or hyphen. Leading and
+trailing whitespace, paths, wildcards, and selectors are rejected before any
+daemon request.
+
+The output has the same `provenance`, `content`, `size_bytes`,
+`returned_bytes`, `truncated`, and `redaction_requested` fields as
+`get_cluster_config`, plus `node` containing the requested node. The 65,536-byte
+MCP output limit, 1 MiB transport ceiling, UTF-8 requirement, and
+`application/octet-stream` check are identical.
+
+#### MCP properties
+
+| Property | Value |
+|---|---|
+| Title | Get node configuration |
+| Read-only | Yes |
+| Destructive | No |
+| Open world | No; only the configured daemon and its OpenSVC proxy path are used |
+| Side effects | None |
+
+Annotations are client hints; OpenSVC enforces access using the delegated JWT.
+
+#### Example
+
+Input:
+
+```json
+{"node":"node1"}
+```
+
+Output:
+
+```json
+{
+  "provenance": {"source": "opensvc_daemon", "observed_at": "2026-09-23T10:00:01Z"},
+  "node": "node1",
+  "content": "[node]\nsshkey = ********\n",
+  "size_bytes": 27,
+  "returned_bytes": 27,
+  "truncated": false,
+  "redaction_requested": true
+}
+```
+
+#### Errors
+
+| Condition | Result |
+|---|---|
+| Invalid MCP JWT | MCP HTTP `401` |
+| Missing global `root` grant | Tool error containing daemon HTTP `403` |
+| Empty, oversized, or non-exact `node` | Tool error before the daemon request |
+| Node or node configuration file missing | Tool error containing daemon HTTP `404` |
+| Response above 1 MiB | Tool error before any content is returned |
+| Invalid UTF-8 or unexpected media type | Tool error; no partial configuration is returned |
+| Daemon or remote-node proxy unavailable | Tool error with daemon transport context |
 
 ### `get_node_logs`
 
@@ -441,5 +612,7 @@ no-swap policy. Timestamps and capacity values are representative:
 
 ## Compatibility
 
-Verified against OpenSVC `3.0.0-rc30`. Health rules must be reviewed whenever
-OpenSVC adds or changes status values.
+Status and log behavior was verified against OpenSVC `3.0.0-rc30`. Cluster
+configuration redaction requires OpenSVC main including `opensvc/om3#1125`
+until that change is included in a tagged release. Health rules must be
+reviewed whenever OpenSVC adds or changes status values.

@@ -65,6 +65,7 @@ internal/
     client_test.go
     http.go
     http_test.go
+    file_test.go
     sse.go
     sse_test.go
     stream_test.go
@@ -78,6 +79,8 @@ internal/
     daemon_test.go
     cluster.go
     cluster_test.go
+    config_file.go
+    config_file_test.go
     node.go
     node_test.go
     object.go
@@ -164,7 +167,7 @@ internal/client is transport-only.
 
 Client.NewHTTPClient constructs the standard HTTP client, timeout, server trust roots, and optional development-only TLS verification bypass. It must fail fast on invalid TLS CA files.
 
-Client.GetJSON, Client.PostJSON, Client.GetSSE, and Client.GetStream are responsible for:
+Client.GetJSON, Client.PostJSON, Client.GetFile, Client.GetSSE, and Client.GetStream are responsible for:
 
 - resolving a path against the daemon base URL;
 - encoding query parameters;
@@ -174,6 +177,12 @@ Client.GetJSON, Client.PostJSON, Client.GetSSE, and Client.GetStream are respons
 
 Client.GetJSON and Client.PostJSON set JSON request headers and decode bounded
 JSON responses.
+
+Client.GetFile requests `application/octet-stream`, validates the response
+media type, and reads at most 1 MiB. The cluster and node configuration core
+use cases always send `redact-secrets=true`, reject invalid UTF-8, and expose at
+most 65,536 bytes with explicit size and truncation metadata. They do not offer
+an MCP argument that can disable daemon-side redaction.
 
 Client.GetSSE additionally validates `text/event-stream`, parses bounded SSE
 framing, and invokes a caller-provided event consumer. It does not reconnect or

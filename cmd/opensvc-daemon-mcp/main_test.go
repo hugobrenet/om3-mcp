@@ -47,6 +47,24 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		}
 		response.Header().Set("Content-Type", "application/json")
 		switch request.URL.Path {
+		case "/api/cluster/config/file":
+			if got := request.URL.Query().Get("redact-secrets"); got != "true" {
+				t.Errorf("got cluster config redact-secrets %q, want true", got)
+			}
+			if got := request.Header.Get("Accept"); got != "application/octet-stream" {
+				t.Errorf("got cluster config Accept %q, want application/octet-stream", got)
+			}
+			response.Header().Set("Content-Type", "application/octet-stream")
+			fmt.Fprint(response, "[cluster]\\nname = prod\\nsecret = ********\\n")
+		case "/api/node/name/node-a/config/file":
+			if got := request.URL.Query().Get("redact-secrets"); got != "true" {
+				t.Errorf("got node config redact-secrets %q, want true", got)
+			}
+			if got := request.Header.Get("Accept"); got != "application/octet-stream" {
+				t.Errorf("got node config Accept %q, want application/octet-stream", got)
+			}
+			response.Header().Set("Content-Type", "application/octet-stream")
+			fmt.Fprint(response, "[node]\\nsshkey = ********\\n")
 		case "/api/cluster/status":
 			if request.URL.RawQuery != "" {
 				t.Errorf("got cluster status query %q, want no parameters", request.URL.RawQuery)
@@ -253,7 +271,9 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	}
 	expectedToolTitles := map[string]string{
 		"get_daemon_identity":       "Get daemon identity",
+		"get_cluster_config":        "Get cluster configuration",
 		"get_cluster_health":        "Assess cluster health",
+		"get_node_config":           "Get node configuration",
 		"get_node_status":           "Get node status",
 		"get_node_logs":             "Get node logs",
 		"get_container_logs":        "Get container logs",
@@ -275,7 +295,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		if tool.Description == "" {
 			t.Errorf("tool %q has no description", tool.Name)
 		}
-		if tool.Name == "get_node_status" || tool.Name == "get_node_logs" {
+		if tool.Name == "get_node_config" || tool.Name == "get_node_status" || tool.Name == "get_node_logs" {
 			encoded, err := json.Marshal(tool.InputSchema)
 			if err != nil {
 				t.Errorf("%s input schema marshal: %v", tool.Name, err)
@@ -349,6 +369,23 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	assertResultProvenance(t, identity.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "get_cluster_config",
+		Arguments: mcptools.GetClusterConfigInput{},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call get_cluster_config: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var clusterConfig mcptools.GetClusterConfigOutput
+	if err := json.Unmarshal(data, &clusterConfig); err != nil {
+		t.Fatalf("decode cluster config: %v", err)
+	}
+	if clusterConfig.Content != "[cluster]\\nname = prod\\nsecret = ********\\n" || clusterConfig.Truncated || !clusterConfig.RedactionRequested {
+		t.Errorf("got unexpected cluster config %#v", clusterConfig)
+	}
+	assertResultProvenance(t, clusterConfig.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "get_cluster_health",
 		Arguments: mcptools.GetClusterHealthInput{},
 	})
@@ -373,6 +410,23 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Errorf("got unexpected single-node heartbeat health %#v", health.Nodes)
 	}
 	assertResultProvenance(t, health.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "get_node_config",
+		Arguments: mcptools.GetNodeConfigInput{Node: "node-a"},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call get_node_config: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var nodeConfig mcptools.GetNodeConfigOutput
+	if err := json.Unmarshal(data, &nodeConfig); err != nil {
+		t.Fatalf("decode node config: %v", err)
+	}
+	if nodeConfig.Node != "node-a" || nodeConfig.Content != "[node]\\nsshkey = ********\\n" || nodeConfig.Truncated || !nodeConfig.RedactionRequested {
+		t.Errorf("got unexpected node config %#v", nodeConfig)
+	}
+	assertResultProvenance(t, nodeConfig.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "get_node_status",

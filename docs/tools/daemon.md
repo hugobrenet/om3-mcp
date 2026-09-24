@@ -3,6 +3,7 @@ domain: daemon
 tools:
   - get_daemon_status
   - list_daemon_executions
+  - list_daemon_orchestrations
 stability: experimental
 ---
 
@@ -13,7 +14,8 @@ its factual subsystem status.
 
 Implementation:
 
-- business logic: `internal/core/daemon.go` and `internal/core/daemon_execution.go`;
+- business logic: `internal/core/daemon.go`, `internal/core/daemon_execution.go`,
+  and `internal/core/daemon_orchestration.go`;
 - MCP definitions: `internal/tools/daemon.go`.
 
 ## Tools
@@ -228,8 +230,109 @@ needed.
 | Malformed kind, ID, timestamp, or oversized identity field | Tool error; no partial list |
 | Daemon unavailable | Tool error with transport context |
 
+### `list_daemon_orchestrations`
+
+Returns target-state orchestrations currently running or recently retained by
+one OpenSVC daemon. An orchestration describes the intent accepted by a
+monitor and its overall outcome; individual commands run beneath it are
+returned by `list_daemon_executions` when filtered with the same
+`orchestration_id`.
+
+#### OpenSVC API
+
+```text
+GET /api/node/name/{node}/daemon/orchestration
+```
+
+When `node` is omitted, the request uses the local-node alias `_`, producing
+`GET /api/node/name/_/daemon/orchestration`. An exact node name addresses that
+node instead. The endpoint requires the OpenSVC `root` grant.
+
+The MCP forwards repeated `state` filters and an optional `selector` query.
+Although the API parameter is named `selector`, the daemon implementation
+matches it as one exact object path; the MCP therefore exposes it as
+`object_path` and rejects wildcard syntax.
+
+Ended orchestrations are retained by the daemon for approximately one hour,
+up to 1,000 records; running records are not removed by those retention
+limits. The MCP sorts the current result by `started_at` descending and then
+`orchestration_id`, applies a page size of 50 by default and 100 at most, and
+returns an opaque `next_cursor`. Reuse a cursor only with the same filters.
+
+Target-state text is limited to 512 runes, error text to 4096, and aggregate
+page text to 128 Ki runes. Truncated fields carry explicit flags.
+
+#### MCP properties
+
+| Property | Value |
+|---|---|
+| Title | List daemon orchestrations |
+| Read-only | Yes |
+| Destructive | No |
+| Open world | No; only the configured daemon is contacted |
+| Side effects | None |
+
+#### Input example
+
+```json
+{
+  "states": ["failed", "running"],
+  "object_path": "lab/svc/redis",
+  "limit": 20
+}
+```
+
+All fields are optional. At most 16 exact state values are accepted. The MCP
+does not restrict states to an enum: the daemon code can report `failed` even
+though the current OpenAPI description lists only `running`, `succeeded`,
+`aborted`, and `refused`. Unknown future values are also preserved verbatim.
+
+#### Output shape example
+
+```json
+{
+  "provenance": {"source": "opensvc_daemon", "observed_at": "2026-09-24T11:00:00Z"},
+  "total": 1,
+  "count": 1,
+  "orchestrations": [
+    {
+      "orchestration_id": "30000000-0000-0000-0000-000000000001",
+      "node": "node1",
+      "path": "lab/svc/redis",
+      "expect": "started",
+      "expect_truncated": false,
+      "state": "succeeded",
+      "error": null,
+      "error_truncated": false,
+      "started_at": "2026-09-24T10:59:30Z",
+      "ended_at": "2026-09-24T10:59:35Z"
+    }
+  ],
+  "truncated": false
+}
+```
+
+`path` is `null` for a node orchestration. `node` can be an empty string when
+the queried daemon learned about the orchestration through participating
+monitors but did not observe which node accepted it. `expect`, `error`, and
+`ended_at` also remain `null` when the daemon omits them; an absent `ended_at`
+commonly means that the orchestration is still running. The MCP neither infers
+an outcome nor checks whether the requested target state was operationally
+appropriate.
+
+#### Errors
+
+| Condition | Result |
+|---|---|
+| Invalid node, object path, state filter, page size, or cursor | Tool validation error before the daemon call |
+| Insufficient daemon grants | Tool error containing daemon HTTP `403` |
+| Cursor record no longer retained | Explicit stale-cursor tool error |
+| Malformed kind, UUID, path, timestamp, or oversized identity field | Tool error; no partial list |
+| Daemon unavailable | Tool error with transport context |
+
 ## Compatibility
 
 Verified against the OpenSVC development build identified by Git commit
 `481b933476ec79c3f647a78b934f3d10d6d3c1aa` using
-`GET /api/cluster/status` and `GET /api/node/name/{node}/daemon/exec`.
+`GET /api/cluster/status`, `GET /api/node/name/{node}/daemon/exec`, and
+`GET /api/node/name/{node}/daemon/orchestration`.

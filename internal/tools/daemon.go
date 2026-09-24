@@ -26,6 +26,16 @@ type ListDaemonExecutionsInput struct {
 
 type ListDaemonExecutionsOutput = core.DaemonExecutionList
 
+type ListDaemonOrchestrationsInput struct {
+	Node       string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node"`
+	States     []string `json:"states,omitempty" jsonschema:"optional exact orchestration states; at most 16 values; unknown states are accepted"`
+	ObjectPath string   `json:"object_path,omitempty" jsonschema:"optional exact canonical OpenSVC object path; the daemon calls this filter selector but matches one exact path"`
+	Limit      int      `json:"limit,omitempty" jsonschema:"optional page size between 1 and 100; defaults to 50"`
+	Cursor     string   `json:"cursor,omitempty" jsonschema:"optional opaque next_cursor returned by a previous call with the same filters"`
+}
+
+type ListDaemonOrchestrationsOutput = core.DaemonOrchestrationList
+
 func RegisterDaemonTools(registrar *Registrar, service *core.Service) error {
 	if err := addTool(
 		registrar,
@@ -74,6 +84,33 @@ func RegisterDaemonTools(registrar *Registrar, service *core.Service) error {
 				return nil, ListDaemonExecutionsOutput{}, err
 			}
 			return nil, executions, nil
+		},
+	); err != nil {
+		return err
+	}
+
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "list_daemon_orchestrations",
+			Title: "List daemon orchestrations",
+			Description: "List bounded, paginated orchestrations running or recently completed on one OpenSVC daemon. " +
+				"Use orchestration_id to correlate a requested target state and its exact outcome with list_daemon_executions. " +
+				"The tool preserves unknown states and errors without deriving a health verdict. It requires root access and makes no changes.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListDaemonOrchestrationsInput) (*mcp.CallToolResult, ListDaemonOrchestrationsOutput, error) {
+			orchestrations, err := service.ListDaemonOrchestrations(ctx, core.ListDaemonOrchestrationsOptions{
+				Node:       input.Node,
+				States:     input.States,
+				ObjectPath: input.ObjectPath,
+				Limit:      input.Limit,
+				Cursor:     input.Cursor,
+			})
+			if err != nil {
+				return nil, ListDaemonOrchestrationsOutput{}, err
+			}
+			return nil, orchestrations, nil
 		},
 	); err != nil {
 		return err

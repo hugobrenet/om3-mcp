@@ -96,6 +96,11 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 				t.Errorf("got daemon execution query %q, want no parameters", request.URL.RawQuery)
 			}
 			fmt.Fprint(response, `{"kind":"ExecList","items":[{"session_id":"10000000-0000-0000-0000-000000000001","exec_id":"20000000-0000-0000-0000-000000000001","node":"node-a","path":"prod/svc/app","origin":"scheduler","rid":"app#main","command":"om prod/svc/app status","state":"succeeded","exit_code":0,"started_at":"2026-09-24T10:01:00Z","ended_at":"2026-09-24T10:01:01Z"}]}`)
+		case "/api/node/name/node-a/daemon/orchestration":
+			if request.URL.RawQuery != "" {
+				t.Errorf("got daemon orchestration query %q, want no parameters", request.URL.RawQuery)
+			}
+			fmt.Fprint(response, `{"kind":"OrchestrationList","items":[{"orchestration_id":"30000000-0000-0000-0000-000000000001","node":"node-a","path":"prod/svc/app","expect":"started","state":"succeeded","started_at":"2026-09-24T10:00:00Z","ended_at":"2026-09-24T10:01:30Z"}]}`)
 		case "/api/object/path":
 			if got := request.URL.Query().Get("path"); got != "**" {
 				t.Errorf("got object selector %q, want **", got)
@@ -281,22 +286,23 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Fatalf("list MCP tools: %v", err)
 	}
 	expectedToolTitles := map[string]string{
-		"get_daemon_status":         "Get daemon status",
-		"list_daemon_executions":    "List daemon executions",
-		"get_cluster_config":        "Get cluster configuration",
-		"get_cluster_status":        "Get cluster status snapshot",
-		"get_node_config":           "Get node configuration",
-		"get_node_status":           "Get node status",
-		"get_node_logs":             "Get node logs",
-		"get_container_logs":        "Get container logs",
-		"get_instance_logs":         "Get instance logs",
-		"get_object_config":         "Get object configuration",
-		"get_object_status":         "Get object status",
-		"list_cluster_ip_resources": "List cluster IP resources",
-		"list_cluster_objects":      "List cluster objects",
-		"list_object_instances":     "List object instances",
-		"list_object_resources":     "List object resources",
-		"refresh_instance_status":   "Refresh instance status",
+		"get_daemon_status":          "Get daemon status",
+		"list_daemon_executions":     "List daemon executions",
+		"list_daemon_orchestrations": "List daemon orchestrations",
+		"get_cluster_config":         "Get cluster configuration",
+		"get_cluster_status":         "Get cluster status snapshot",
+		"get_node_config":            "Get node configuration",
+		"get_node_status":            "Get node status",
+		"get_node_logs":              "Get node logs",
+		"get_container_logs":         "Get container logs",
+		"get_instance_logs":          "Get instance logs",
+		"get_object_config":          "Get object configuration",
+		"get_object_status":          "Get object status",
+		"list_cluster_ip_resources":  "List cluster IP resources",
+		"list_cluster_objects":       "List cluster objects",
+		"list_object_instances":      "List object instances",
+		"list_object_resources":      "List object resources",
+		"refresh_instance_status":    "Refresh instance status",
 	}
 	toolNames := make(map[string]bool, len(availableTools.Tools))
 	for _, tool := range availableTools.Tools {
@@ -396,6 +402,23 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Errorf("got unexpected daemon executions %#v", daemonExecutions)
 	}
 	assertResultProvenance(t, daemonExecutions.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "list_daemon_orchestrations",
+		Arguments: mcptools.ListDaemonOrchestrationsInput{Node: "node-a"},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call list_daemon_orchestrations: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var daemonOrchestrations mcptools.ListDaemonOrchestrationsOutput
+	if err := json.Unmarshal(data, &daemonOrchestrations); err != nil {
+		t.Fatalf("decode daemon orchestrations: %v", err)
+	}
+	if daemonOrchestrations.Total != 1 || daemonOrchestrations.Count != 1 || daemonOrchestrations.Orchestrations[0].OrchestrationID != "30000000-0000-0000-0000-000000000001" || daemonOrchestrations.Orchestrations[0].State != "succeeded" {
+		t.Errorf("got unexpected daemon orchestrations %#v", daemonOrchestrations)
+	}
+	assertResultProvenance(t, daemonOrchestrations.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "get_cluster_config",

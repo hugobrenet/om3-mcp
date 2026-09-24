@@ -9,7 +9,7 @@ combine the tools during operations.
 
 | Domain | Tools | Documentation |
 |---|---|---|
-| Daemon | `get_daemon_status`, `list_daemon_executions` | [Daemon tools](daemon.md) |
+| Daemon | `get_daemon_status`, `list_daemon_executions`, `list_daemon_orchestrations` | [Daemon tools](daemon.md) |
 | Cluster | `get_cluster_config`, `get_cluster_status` | [Cluster tools](cluster.md) |
 | Node | `get_node_config`, `get_node_status`, `get_node_logs` | [Node tools](node.md) |
 | Objects | `list_cluster_objects`, `get_object_status`, `get_object_config` | [Object tools](objects.md) |
@@ -22,6 +22,7 @@ Use the smallest tool that answers the current question:
 
 ```text
 get_daemon_status
+  -> list_daemon_orchestrations when a requested target state matters
   -> list_daemon_executions when recent or running commands matter
   -> get_cluster_status
   -> get_cluster_config when declared cluster settings matter
@@ -45,6 +46,10 @@ verdict.
 `list_daemon_executions` exposes bounded running and recent command records on
 one exact node. It preserves the daemon's state, exit code, and error facts and
 requires `root` because command arguments can be sensitive.
+`list_daemon_orchestrations` exposes the requested target state and exact
+outcome of bounded running and recent orchestrations. Its `orchestration_id`
+can be passed to `list_daemon_executions` to inspect the commands run beneath
+that intent.
 `get_cluster_status` provides bounded cluster, node, heartbeat, and actor-object
 facts from the daemon's last-known cluster view without an MCP health verdict.
 `get_cluster_config` provides the current redacted cluster configuration when
@@ -123,6 +128,7 @@ are representative and will differ between calls.
 |---|---:|---:|---|
 | `get_daemon_status` | Yes | No | `guest` or higher |
 | `list_daemon_executions` | Yes | No | `root` |
+| `list_daemon_orchestrations` | Yes | No | `root` |
 | `get_cluster_config` | Yes | No | `root` |
 | `get_cluster_status` | Yes | No | `guest` or higher |
 | `get_node_config` | Yes | No | `root` |

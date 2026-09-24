@@ -40,8 +40,46 @@ func TestListObjectInstances(t *testing.T) {
 	if instance.Node != "node-a" || instance.Availability != "up" || !instance.IsHALeader {
 		t.Errorf("got unexpected instance %+v", instance)
 	}
-	if instance.ResourceSummary.Total != 2 || instance.ResourceSummary.Up != 1 || instance.ResourceSummary.NotApplicable != 1 {
+	if instance.ResourceSummary.Total != 2 || instance.ResourceSummary.DistinctTotal != 2 || !hasResourceStatusCount(instance.ResourceSummary, "up", 1) || !hasResourceStatusCount(instance.ResourceSummary, "n/a", 1) {
 		t.Errorf("got unexpected resource summary %+v", instance.ResourceSummary)
+	}
+}
+
+func TestSummarizeResourceStatusesPreservesExactValues(t *testing.T) {
+	resources := map[string]daemonResourceStatusData{
+		"r1": {Status: "up"},
+		"r2": {Status: "up"},
+		"r3": {Status: "stdby up"},
+		"r4": {Status: "UP"},
+		"r5": {Status: " up "},
+		"r6": {Status: "unexpected-state"},
+		"r7": {Status: ""},
+	}
+	summary := summarizeResourceStatuses(resources)
+	if summary.Total != 7 || summary.DistinctTotal != 6 || summary.Count != 6 || summary.Truncated {
+		t.Fatalf("summary metadata = %+v", summary)
+	}
+	for status, count := range map[string]int{"up": 2, "stdby up": 1, "UP": 1, " up ": 1, "unexpected-state": 1, "": 1} {
+		if !hasResourceStatusCount(summary, status, count) {
+			t.Errorf("summary %+v does not preserve %q=%d", summary, status, count)
+		}
+	}
+	if summary.StatusCounts[0].Status != "" || summary.StatusCounts[1].Status != " up " {
+		t.Errorf("status counters are not sorted by exact value: %+v", summary.StatusCounts)
+	}
+}
+
+func TestSummarizeResourceStatusesBoundsDistinctValues(t *testing.T) {
+	resources := make(map[string]daemonResourceStatusData, maxResourceStatusCounts+1)
+	for i := 0; i <= maxResourceStatusCounts; i++ {
+		resources[fmt.Sprintf("resource-%03d", i)] = daemonResourceStatusData{Status: fmt.Sprintf("status-%03d", i)}
+	}
+	summary := summarizeResourceStatuses(resources)
+	if summary.Total != maxResourceStatusCounts+1 || summary.DistinctTotal != maxResourceStatusCounts+1 || summary.Count != maxResourceStatusCounts || !summary.Truncated {
+		t.Fatalf("bounded summary = %+v", summary)
+	}
+	if summary.StatusCounts[0].Status != "status-000" || summary.StatusCounts[len(summary.StatusCounts)-1].Status != "status-099" {
+		t.Errorf("bounded statuses are not stable: first=%+v last=%+v", summary.StatusCounts[0], summary.StatusCounts[len(summary.StatusCounts)-1])
 	}
 }
 
@@ -111,9 +149,18 @@ func TestRefreshInstanceStatus(t *testing.T) {
 	if result.SessionID != "session-1" || result.PreviousUpdatedAt != "2026-07-15T10:00:00Z" || result.CurrentUpdatedAt != "2026-07-15T10:00:01Z" {
 		t.Errorf("got unexpected refresh metadata %+v", result)
 	}
-	if result.Instance.Availability != "down" || result.Instance.ResourceSummary.Down != 1 {
+	if result.Instance.Availability != "down" || !hasResourceStatusCount(result.Instance.ResourceSummary, "down", 1) {
 		t.Errorf("got unexpected refreshed instance %+v", result.Instance)
 	}
+}
+
+func hasResourceStatusCount(summary ResourceStatusSummary, status string, count int) bool {
+	for _, item := range summary.StatusCounts {
+		if item.Status == status && item.Count == count {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRefreshInstanceStatusReturnsStructuredTimeout(t *testing.T) {

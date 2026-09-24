@@ -225,12 +225,13 @@ Lab input example:
       "overall": "up",
       "provisioned": "n/a",
       "resource_summary": {
-        "down": 0,
-        "not_applicable": 0,
-        "other": 0,
         "total": 1,
-        "up": 1,
-        "warn": 0
+        "distinct_total": 1,
+        "count": 1,
+        "status_counts": [
+          {"status": "up", "count": 1}
+        ],
+        "truncated": false
       },
       "updated_at": "2026-07-15T14:31:02.747625761+09:00"
     }
@@ -247,10 +248,17 @@ Lab input example:
 }
 ```
 
-Instances are sorted by node. Resource status counters normalize `up`,
-`stdby up`, `down`, `stdby down`, `warn`, and `n/a`; other values increment
-`other`. Pagination is recalculated from current daemon inventory and is not a
-snapshot.
+Instances are sorted by node. `resource_summary` groups resources by the exact
+status string reported by OpenSVC. It does not merge `up` with `stdby up`,
+merge `down` with `stdby down`, normalize case or whitespace, or place unknown
+values in an `other` bucket. Empty and future status values remain distinct.
+
+`total` counts all resources in the daemon status map. `distinct_total` counts
+all distinct exact status values. `status_counts` is sorted by exact status and
+limited to 100 entries; `count` and `truncated` describe the returned counters.
+Use `list_object_resources` when resource identifiers and individual details
+are required. Instance pagination is recalculated from current daemon inventory
+and is not a snapshot.
 
 ### `refresh_instance_status`
 
@@ -330,12 +338,13 @@ monitor fields.
     "overall": "up",
     "provisioned": "n/a",
     "resource_summary": {
-      "down": 0,
-      "not_applicable": 0,
-      "other": 0,
       "total": 1,
-      "up": 1,
-      "warn": 0
+      "distinct_total": 1,
+      "count": 1,
+      "status_counts": [
+        {"status": "up", "count": 1}
+      ],
+      "truncated": false
     },
     "updated_at": "2026-07-15T14:35:58.608127647+09:00"
   },

@@ -13,6 +13,7 @@ import (
 const (
 	defaultListObjectInstancesLimit = 50
 	maxListObjectInstancesLimit     = 100
+	maxResourceStatusCounts         = 100
 	defaultRefreshInstanceTimeout   = 30 * time.Second
 	minRefreshInstanceTimeout       = 5 * time.Second
 	maxRefreshInstanceTimeout       = 120 * time.Second
@@ -51,16 +52,20 @@ type ObjectInstanceStatus struct {
 	OrchestrationIsDone bool                  `json:"orchestration_is_done" jsonschema:"whether the instance orchestration reports completion"`
 	IsLeader            bool                  `json:"is_leader" jsonschema:"whether this instance is the provisioning leader"`
 	IsHALeader          bool                  `json:"is_ha_leader" jsonschema:"whether this instance is an HA leader"`
-	ResourceSummary     ResourceStatusSummary `json:"resource_summary" jsonschema:"summary of resource statuses for this instance"`
+	ResourceSummary     ResourceStatusSummary `json:"resource_summary" jsonschema:"bounded counts grouped by exact resource status values for this instance"`
 }
 
 type ResourceStatusSummary struct {
-	Total         int `json:"total" jsonschema:"number of resources with reported status"`
-	Up            int `json:"up" jsonschema:"number of resources with status up or stdby up"`
-	Down          int `json:"down" jsonschema:"number of resources with status down or stdby down"`
-	Warn          int `json:"warn" jsonschema:"number of resources with status warn"`
-	NotApplicable int `json:"not_applicable" jsonschema:"number of resources with status n/a"`
-	Other         int `json:"other" jsonschema:"number of resources with any other status"`
+	Total         int                   `json:"total" jsonschema:"number of resources in the daemon status map"`
+	DistinctTotal int                   `json:"distinct_total" jsonschema:"number of distinct exact resource status values before limiting"`
+	Count         int                   `json:"count" jsonschema:"number of exact resource status counters returned"`
+	StatusCounts  []ResourceStatusCount `json:"status_counts" jsonschema:"resource counts grouped by exact daemon-reported status and sorted by status"`
+	Truncated     bool                  `json:"truncated" jsonschema:"whether exact status counters were omitted after the 100-entry limit"`
+}
+
+type ResourceStatusCount struct {
+	Status string `json:"status" jsonschema:"the exact resource status value reported by OpenSVC, including an empty or previously unknown value"`
+	Count  int    `json:"count" jsonschema:"number of resources reporting this exact status value"`
 }
 
 type RefreshInstanceStatusOptions struct {
@@ -192,27 +197,23 @@ func (s *Service) ListObjectInstances(ctx context.Context, options ListObjectIns
 }
 
 func summarizeResourceStatuses(resources map[string]daemonResourceStatusData) ResourceStatusSummary {
-	var summary ResourceStatusSummary
+	counts := make(map[string]int)
 	for _, resource := range resources {
-		summary.Total++
-		switch normalizedState(resource.Status) {
-		case "up", "stdby up":
-			summary.Up++
-		case "down", "stdby down":
-			summary.Down++
-		case "warn":
-			summary.Warn++
-		case "n/a":
-			summary.NotApplicable++
-		default:
-			summary.Other++
-		}
+		counts[resource.Status]++
 	}
-	return summary
-}
-
-func normalizedState(value string) string {
-	return strings.ToLower(strings.TrimSpace(value))
+	statuses := make([]string, 0, len(counts))
+	for status := range counts {
+		statuses = append(statuses, status)
+	}
+	sort.Strings(statuses)
+	end := min(len(statuses), maxResourceStatusCounts)
+	items := make([]ResourceStatusCount, 0, end)
+	for _, status := range statuses[:end] {
+		items = append(items, ResourceStatusCount{Status: status, Count: counts[status]})
+	}
+	return ResourceStatusSummary{
+		Total: len(resources), DistinctTotal: len(statuses), Count: len(items), StatusCounts: items, Truncated: end < len(statuses),
+	}
 }
 
 func (s *Service) RefreshInstanceStatus(ctx context.Context, options RefreshInstanceStatusOptions) (RefreshInstanceStatusResult, error) {

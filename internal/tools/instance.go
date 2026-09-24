@@ -85,7 +85,7 @@ func RegisterInstanceTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:        "list_object_instances",
 			Title:       "List object instances",
-			Description: "Inspect the last-known monitor state, target state, availability, and resource status counts for the instances of one exact OpenSVC object. This read-only call does not run a status refresh; compare updated_at with the current time before diagnosing a node instance.",
+			Description: "Inspect the last-known monitor state, target state, availability, and bounded counts of exact resource status values for the instances of one exact OpenSVC object. The MCP does not merge standby states or classify unknown values. This read-only call does not run a status refresh; compare updated_at with the current time before diagnosing a node instance.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input ListObjectInstancesInput) (*mcp.CallToolResult, ListObjectInstancesOutput, error) {

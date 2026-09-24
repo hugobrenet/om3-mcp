@@ -13,11 +13,6 @@ const (
 	maxClusterStatusIssues        = 50
 	maxClusterStatusGenerations   = 200
 	maxClusterStatusArbitrators   = 50
-	maxClusterStatusHBMessages    = 100
-	maxClusterStatusHBStreams     = 50
-	maxClusterStatusHBAlerts      = 50
-	maxClusterStatusHBPeers       = 100
-	maxClusterStatusTextRunes     = 1024
 )
 
 type GetClusterStatusOptions struct {
@@ -56,15 +51,15 @@ type ClusterStatusNodePage struct {
 }
 
 type ClusterStatusNode struct {
-	Name       string                      `json:"name" jsonschema:"the exact OpenSVC node name"`
-	Configured bool                        `json:"configured" jsonschema:"whether the node name is present in the cluster configuration"`
-	Reported   bool                        `json:"reported" jsonschema:"whether the daemon response contains status data for this node"`
-	Status     *ClusterStatusNodeReported  `json:"status" jsonschema:"status fields reported by OpenSVC, or null when status data is absent"`
-	Monitor    *ClusterStatusNodeMonitor   `json:"monitor" jsonschema:"monitor fields reported by OpenSVC, or null when status data is absent"`
-	Stats      *NodeCapacityStats          `json:"stats" jsonschema:"published node capacity statistics, or null when unavailable"`
-	Policy     *ClusterStatusNodePolicy    `json:"policy" jsonschema:"selected node configuration facts relevant to capacity, or null when unavailable"`
-	Daemon     *ClusterStatusNodeDaemon    `json:"daemon" jsonschema:"daemon process facts, or null when node status is absent"`
-	Heartbeat  *ClusterStatusNodeHeartbeat `json:"heartbeat" jsonschema:"bounded heartbeat facts reported by OpenSVC, or null when unavailable"`
+	Name       string                     `json:"name" jsonschema:"the exact OpenSVC node name"`
+	Configured bool                       `json:"configured" jsonschema:"whether the node name is present in the cluster configuration"`
+	Reported   bool                       `json:"reported" jsonschema:"whether the daemon response contains status data for this node"`
+	Status     *ClusterStatusNodeReported `json:"status" jsonschema:"status fields reported by OpenSVC, or null when status data is absent"`
+	Monitor    *ClusterStatusNodeMonitor  `json:"monitor" jsonschema:"monitor fields reported by OpenSVC, or null when status data is absent"`
+	Stats      *NodeCapacityStats         `json:"stats" jsonschema:"published node capacity statistics, or null when unavailable"`
+	Policy     *ClusterStatusNodePolicy   `json:"policy" jsonschema:"selected node configuration facts relevant to capacity, or null when unavailable"`
+	Daemon     *ClusterStatusNodeDaemon   `json:"daemon" jsonschema:"daemon process facts, or null when node status is absent"`
+	Heartbeat  *HeartbeatFacts            `json:"heartbeat" jsonschema:"bounded heartbeat facts reported by OpenSVC, or null when unavailable"`
 }
 
 type ClusterStatusNodeReported struct {
@@ -131,79 +126,6 @@ type ClusterStatusNodePolicy struct {
 type ClusterStatusNodeDaemon struct {
 	PID       int    `json:"pid" jsonschema:"the OpenSVC daemon process identifier reported for this node"`
 	StartedAt string `json:"started_at" jsonschema:"the daemon start timestamp reported for this node"`
-}
-
-type ClusterStatusNodeHeartbeat struct {
-	UpdatedAt     string                            `json:"updated_at" jsonschema:"the heartbeat publication timestamp reported by OpenSVC"`
-	LastMessage   ClusterStatusHeartbeatLastMessage `json:"last_message" jsonschema:"the last heartbeat message reported by OpenSVC"`
-	LastMessages  ClusterStatusHeartbeatMessageList `json:"last_messages" jsonschema:"bounded recent heartbeat messages reported by OpenSVC"`
-	SecretVersion ClusterStatusHeartbeatSecret      `json:"secret_version" jsonschema:"heartbeat secret version numbers; no secret material is returned"`
-	Streams       ClusterStatusHeartbeatStreamList  `json:"streams" jsonschema:"bounded heartbeat streams reported by OpenSVC without health classification"`
-}
-
-type ClusterStatusHeartbeatLastMessage struct {
-	From        string `json:"from" jsonschema:"the node name carried by the heartbeat message"`
-	PatchLength int    `json:"patch_length" jsonschema:"the patch queue length reported by OpenSVC"`
-	Type        string `json:"type" jsonschema:"the exact heartbeat message type reported by OpenSVC"`
-}
-
-type ClusterStatusHeartbeatMessageList struct {
-	Total     int                                 `json:"total" jsonschema:"number of heartbeat messages before limiting"`
-	Count     int                                 `json:"count" jsonschema:"number of heartbeat messages returned"`
-	Items     []ClusterStatusHeartbeatLastMessage `json:"items" jsonschema:"heartbeat messages in daemon-provided order"`
-	Truncated bool                                `json:"truncated" jsonschema:"whether heartbeat messages were omitted after the 100-entry limit"`
-}
-
-type ClusterStatusHeartbeatSecret struct {
-	Main      uint64 `json:"main" jsonschema:"the main heartbeat secret version number"`
-	Alternate uint64 `json:"alternate" jsonschema:"the alternate heartbeat secret version number"`
-}
-
-type ClusterStatusHeartbeatStreamList struct {
-	Total     int                            `json:"total" jsonschema:"number of heartbeat streams before limiting"`
-	Count     int                            `json:"count" jsonschema:"number of heartbeat streams returned"`
-	Items     []ClusterStatusHeartbeatStream `json:"items" jsonschema:"heartbeat streams sorted by exact stream identifier"`
-	Truncated bool                           `json:"truncated" jsonschema:"whether heartbeat streams were omitted after the 50-entry limit"`
-}
-
-type ClusterStatusHeartbeatStream struct {
-	ID           string                          `json:"id" jsonschema:"the exact heartbeat stream identifier"`
-	Type         string                          `json:"type" jsonschema:"the exact heartbeat transport type reported by OpenSVC"`
-	State        string                          `json:"state" jsonschema:"the exact heartbeat stream state reported by OpenSVC"`
-	ConfiguredAt string                          `json:"configured_at" jsonschema:"the stream configuration timestamp reported by OpenSVC"`
-	CreatedAt    string                          `json:"created_at" jsonschema:"the stream creation timestamp reported by OpenSVC"`
-	UpdatedAt    string                          `json:"updated_at" jsonschema:"the stream update timestamp reported by OpenSVC"`
-	Alerts       ClusterStatusHeartbeatAlertList `json:"alerts" jsonschema:"bounded alerts reported for this stream"`
-	Peers        ClusterStatusHeartbeatPeerList  `json:"peers" jsonschema:"bounded peer links reported for this stream"`
-}
-
-type ClusterStatusHeartbeatAlertList struct {
-	Total     int                           `json:"total" jsonschema:"number of stream alerts before limiting"`
-	Count     int                           `json:"count" jsonschema:"number of stream alerts returned"`
-	Items     []ClusterStatusHeartbeatAlert `json:"items" jsonschema:"stream alerts in daemon-provided order"`
-	Truncated bool                          `json:"truncated" jsonschema:"whether alerts were omitted after the 50-entry limit"`
-}
-
-type ClusterStatusHeartbeatAlert struct {
-	Severity         string `json:"severity" jsonschema:"the exact alert severity reported by OpenSVC"`
-	Message          string `json:"message" jsonschema:"the bounded alert message reported by OpenSVC"`
-	MessageTruncated bool   `json:"message_truncated" jsonschema:"whether the alert message was shortened after 1024 Unicode characters"`
-}
-
-type ClusterStatusHeartbeatPeerList struct {
-	Total     int                          `json:"total" jsonschema:"number of stream peer links before limiting"`
-	Count     int                          `json:"count" jsonschema:"number of stream peer links returned"`
-	Items     []ClusterStatusHeartbeatPeer `json:"items" jsonschema:"peer links sorted by exact peer node name"`
-	Truncated bool                         `json:"truncated" jsonschema:"whether peer links were omitted after the 100-entry limit"`
-}
-
-type ClusterStatusHeartbeatPeer struct {
-	Name                 string `json:"name" jsonschema:"the exact peer node name"`
-	Description          string `json:"description" jsonschema:"the bounded heartbeat link description reported by OpenSVC"`
-	DescriptionTruncated bool   `json:"description_truncated" jsonschema:"whether the description was shortened after 1024 Unicode characters"`
-	IsBeating            bool   `json:"is_beating" jsonschema:"the peer link beating flag reported by OpenSVC"`
-	ChangedAt            string `json:"changed_at" jsonschema:"the timestamp when is_beating last changed, as reported by OpenSVC"`
-	LastBeatingAt        string `json:"last_beating_at" jsonschema:"the last beating timestamp reported by OpenSVC"`
 }
 
 type ClusterStatusObjectPage struct {
@@ -329,9 +251,7 @@ func clusterStatusNodes(status clusterStatusResponse, cursor string, limit int) 
 				issues, truncated := boundedStrings(node.Config.Issues, maxClusterStatusIssues)
 				item.Policy = &ClusterStatusNodePolicy{MinAvailMemPct: node.Config.MinAvailMemPct, MinAvailSwapPct: node.Config.MinAvailSwapPct, IssuesTotal: len(node.Config.Issues), Issues: issues, IssuesTruncated: truncated}
 			}
-			if node.Daemon.Heartbeat != nil {
-				item.Heartbeat = clusterStatusHeartbeat(node.Daemon.Heartbeat)
-			}
+			item.Heartbeat = heartbeatFacts(node.Daemon.Heartbeat)
 		}
 		items = append(items, item)
 	}
@@ -377,57 +297,6 @@ func clusterStatusArbitrators(values map[string]clusterNodeArbitrator) ClusterSt
 		items = append(items, ClusterStatusArbitrator{Name: name, URL: value.URL, Status: value.Status, Weight: value.Weight})
 	}
 	return ClusterStatusArbitratorList{Total: len(names), Count: len(items), Items: items, Truncated: end < len(names)}
-}
-
-func clusterStatusHeartbeat(value *clusterHeartbeat) *ClusterStatusNodeHeartbeat {
-	messagesEnd := min(len(value.LastMessages), maxClusterStatusHBMessages)
-	messages := make([]ClusterStatusHeartbeatLastMessage, 0, messagesEnd)
-	for _, message := range value.LastMessages[:messagesEnd] {
-		messages = append(messages, clusterStatusHeartbeatMessage(message))
-	}
-	streams := append([]clusterHeartbeatStream(nil), value.Streams...)
-	sort.Slice(streams, func(i, j int) bool { return streams[i].ID < streams[j].ID })
-	streamsEnd := min(len(streams), maxClusterStatusHBStreams)
-	streamItems := make([]ClusterStatusHeartbeatStream, 0, streamsEnd)
-	for _, stream := range streams[:streamsEnd] {
-		streamItems = append(streamItems, clusterStatusHeartbeatStreamFacts(stream))
-	}
-	return &ClusterStatusNodeHeartbeat{
-		UpdatedAt: value.UpdatedAt, LastMessage: clusterStatusHeartbeatMessage(value.LastMessage),
-		LastMessages:  ClusterStatusHeartbeatMessageList{Total: len(value.LastMessages), Count: len(messages), Items: messages, Truncated: messagesEnd < len(value.LastMessages)},
-		SecretVersion: ClusterStatusHeartbeatSecret{Main: value.SecretVersion.Main, Alternate: value.SecretVersion.Alternate},
-		Streams:       ClusterStatusHeartbeatStreamList{Total: len(streams), Count: len(streamItems), Items: streamItems, Truncated: streamsEnd < len(streams)},
-	}
-}
-
-func clusterStatusHeartbeatMessage(value clusterHeartbeatLastMessage) ClusterStatusHeartbeatLastMessage {
-	return ClusterStatusHeartbeatLastMessage{From: value.From, PatchLength: value.PatchLength, Type: value.Type}
-}
-
-func clusterStatusHeartbeatStreamFacts(stream clusterHeartbeatStream) ClusterStatusHeartbeatStream {
-	alertsEnd := min(len(stream.Alerts), maxClusterStatusHBAlerts)
-	alerts := make([]ClusterStatusHeartbeatAlert, 0, alertsEnd)
-	for _, alert := range stream.Alerts[:alertsEnd] {
-		message, truncated := boundedRunes(alert.Message, maxClusterStatusTextRunes)
-		alerts = append(alerts, ClusterStatusHeartbeatAlert{Severity: alert.Severity, Message: message, MessageTruncated: truncated})
-	}
-	peerNames := make([]string, 0, len(stream.Peers))
-	for name := range stream.Peers {
-		peerNames = append(peerNames, name)
-	}
-	sort.Strings(peerNames)
-	peersEnd := min(len(peerNames), maxClusterStatusHBPeers)
-	peers := make([]ClusterStatusHeartbeatPeer, 0, peersEnd)
-	for _, name := range peerNames[:peersEnd] {
-		peer := stream.Peers[name]
-		description, truncated := boundedRunes(peer.Description, maxClusterStatusTextRunes)
-		peers = append(peers, ClusterStatusHeartbeatPeer{Name: name, Description: description, DescriptionTruncated: truncated, IsBeating: peer.IsBeating, ChangedAt: peer.ChangedAt, LastBeatingAt: peer.LastBeatingAt})
-	}
-	return ClusterStatusHeartbeatStream{
-		ID: stream.ID, Type: stream.Type, State: stream.State, ConfiguredAt: stream.ConfiguredAt, CreatedAt: stream.CreatedAt, UpdatedAt: stream.UpdatedAt,
-		Alerts: ClusterStatusHeartbeatAlertList{Total: len(stream.Alerts), Count: len(alerts), Items: alerts, Truncated: alertsEnd < len(stream.Alerts)},
-		Peers:  ClusterStatusHeartbeatPeerList{Total: len(peerNames), Count: len(peers), Items: peers, Truncated: peersEnd < len(peerNames)},
-	}
 }
 
 func clusterStatusObjects(status clusterStatusResponse, cursor string, limit int) ClusterStatusObjectPage {

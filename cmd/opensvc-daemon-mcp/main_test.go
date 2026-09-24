@@ -449,8 +449,8 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	if nodeStatus.Node != "node-a" || nodeStatus.Status.AgentVersion != "v3.0.0" || nodeStatus.Monitor.State != "idle" {
 		t.Errorf("got unexpected node status %#v", nodeStatus)
 	}
-	if nodeStatus.Heartbeat.State != "not_applicable" {
-		t.Errorf("got unexpected node heartbeat status %#v", nodeStatus.Heartbeat)
+	if nodeStatus.Heartbeat != nil || !nodeStatus.Membership.IsConfigured || nodeStatus.Membership.ConfiguredPeers.Total != 0 {
+		t.Errorf("got unexpected node heartbeat or membership facts %#v", nodeStatus)
 	}
 	assertResultProvenance(t, nodeStatus.Provenance)
 

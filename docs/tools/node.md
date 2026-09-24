@@ -106,9 +106,9 @@ Returns the last-known status of one exact node after `get_cluster_status`
 provides the cluster-wide facts. It exposes the reported agent
 and compatibility versions, leader and overload flags, freeze and boot times,
 monitor state and targets, capacity statistics, memory and swap policy
-thresholds, and a bounded heartbeat assessment. Use `get_cluster_status` for a
-factual cluster-wide snapshot. This node tool still classifies heartbeat state;
-that contract is scheduled for the next refactor increment.
+thresholds, factual membership context, and bounded heartbeat data. Use
+`get_cluster_status` for a factual cluster-wide snapshot. This node-focused
+tool does not classify heartbeat health or freshness.
 
 #### OpenSVC API and freshness
 
@@ -124,11 +124,11 @@ authorization remain authoritative. The result excludes other nodes, objects,
 hooks, keys, and other node configuration fields.
 
 `provenance.observed_at` dates the MCP collection, while `monitor.updated_at`
-dates the monitor state and `heartbeat.updated_at` dates the published heartbeat
-view. The heartbeat state follows the rules documented above. `stats` or
-`policy` is `null` when that section is absent from the daemon response. An
-unreported scalar field in `status` or `monitor` appears as its JSON zero value;
-use `get_cluster_status` to inspect configured and reported node membership.
+dates the monitor state and `heartbeat.updated_at` preserves the published
+heartbeat timestamp. The MCP does not compare those values or apply an age
+threshold. `stats`, `policy`, or `heartbeat` is `null` when that section is
+absent from the daemon response. An unreported scalar field in `status` or
+`monitor` appears as its JSON zero value.
 
 #### Input and output
 
@@ -140,11 +140,34 @@ default node, selector, or pagination is used.
 |---|---|
 | `provenance` | Daemon API source and MCP collection time |
 | `node` | Selected OpenSVC node name |
+| `membership` | Whether the node is configured and a bounded list of distinct configured peer names |
 | `status` | Agent/API/compatibility versions, leader and overload flags, boot and freeze times |
 | `monitor` | State, global and local targets, orchestration ID/completion, and update time |
 | `stats` | Fifteen-minute load, available and total memory/swap, and OpenSVC capacity score; `null` if absent |
 | `policy` | Minimum available memory and swap percentages; `null` if absent; zero disables the corresponding check |
-| `heartbeat` | State, publication time, stream/link/RX-peer counts, and at most 50 structured issues with truncation metadata |
+| `heartbeat` | Publication time, messages, secret version numbers, streams, alerts, peers, and their exact values; `null` if absent |
+
+`membership.configured_peers` contains distinct configured node names other
+than the selected node, sorted by exact name and limited to 200. It returns
+`total`, `count`, `items`, and `truncated`. This context lets the agent compare
+configured peers with reported heartbeat links without the MCP declaring a
+peer missing or stale.
+
+The heartbeat projection is shared with `get_cluster_status`:
+
+| Collection | Limit | Ordering |
+|---|---:|---|
+| Last messages | 100 | Daemon-provided order |
+| Streams | 50 | Exact stream identifier |
+| Alerts per stream | 50 | Daemon-provided order |
+| Peers per stream | 100 | Exact peer name |
+
+Every bounded heartbeat collection returns `total`, `count`, `items`, and
+`truncated`. Alert messages and peer descriptions are limited to 1024 Unicode
+characters with an explicit truncation boolean. Unknown states, zero or old
+timestamps, `is_beating=false`, and daemon-provided alerts remain source facts.
+The MCP does not emit `healthy`, `degraded`, `unknown`, `not_applicable`, or
+synthetic heartbeat issues.
 
 #### MCP properties
 
@@ -166,13 +189,22 @@ Input:
 {"node":"node1"}
 ```
 
-Illustrative output using the two-node lab's confirmed healthy heartbeat and
-no-swap policy. Timestamps and capacity values are representative:
+Illustrative output using the two-node lab. Timestamps and capacity values are
+representative:
 
 ```json
 {
   "provenance": {"source": "opensvc_daemon", "observed_at": "2026-09-18T10:00:30Z"},
   "node": "node1",
+  "membership": {
+    "is_configured": true,
+    "configured_peers": {
+      "total": 1,
+      "count": 1,
+      "items": ["node2"],
+      "truncated": false
+    }
+  },
   "status": {
     "agent_version": "v3.0.0-rc30",
     "api_version": 0,
@@ -200,18 +232,69 @@ no-swap policy. Timestamps and capacity values are representative:
   },
   "policy": {"min_avail_mem_pct": 5, "min_avail_swap_pct": 0},
   "heartbeat": {
-    "state": "healthy",
     "updated_at": "2026-09-18T10:00:00Z",
-    "streams_total": 2,
-    "streams_running": 2,
-    "links_total": 2,
-    "links_beating": 2,
-    "links_not_beating": 0,
-    "rx_peers_beating": 1,
-    "rx_peers_stale": 0,
-    "issues_total": 0,
-    "issues": [],
-    "issues_truncated": false
+    "last_message": {"from": "node1", "patch_length": 0, "type": "patch"},
+    "last_messages": {
+      "total": 2,
+      "count": 2,
+      "items": [
+        {"from": "node1", "patch_length": 0, "type": "patch"},
+        {"from": "node2", "patch_length": 0, "type": "patch"}
+      ],
+      "truncated": false
+    },
+    "secret_version": {"main": 0, "alternate": 0},
+    "streams": {
+      "total": 2,
+      "count": 2,
+      "items": [
+        {
+          "id": "hb#1.rx",
+          "type": "unicast",
+          "state": "running",
+          "configured_at": "2026-09-18T09:00:00Z",
+          "created_at": "2026-09-18T09:00:00Z",
+          "updated_at": "0001-01-01T00:00:00Z",
+          "alerts": {"total": 0, "count": 0, "items": [], "truncated": false},
+          "peers": {
+            "total": 1,
+            "count": 1,
+            "items": [{
+              "name": "node2",
+              "description": ":10000 ← node2",
+              "description_truncated": false,
+              "is_beating": true,
+              "changed_at": "2026-09-18T09:00:01Z",
+              "last_beating_at": "2026-09-18T10:00:00Z"
+            }],
+            "truncated": false
+          }
+        },
+        {
+          "id": "hb#1.tx",
+          "type": "unicast",
+          "state": "running",
+          "configured_at": "2026-09-18T09:00:00Z",
+          "created_at": "2026-09-18T09:00:00Z",
+          "updated_at": "0001-01-01T00:00:00Z",
+          "alerts": {"total": 0, "count": 0, "items": [], "truncated": false},
+          "peers": {
+            "total": 1,
+            "count": 1,
+            "items": [{
+              "name": "node2",
+              "description": "→ node2:10000",
+              "description_truncated": false,
+              "is_beating": true,
+              "changed_at": "2026-09-18T09:00:01Z",
+              "last_beating_at": "2026-09-18T10:00:00Z"
+            }],
+            "truncated": false
+          }
+        }
+      ],
+      "truncated": false
+    }
   }
 }
 ```

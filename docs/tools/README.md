@@ -43,8 +43,8 @@ get_daemon_identity
 facts from the daemon's last-known cluster view without an MCP health verdict.
 `get_cluster_config` provides the current redacted cluster configuration when
 declared settings matter.
-`get_node_status` shows the reported state, monitor, capacity, policy, and
-heartbeat assessment for one exact node.
+`get_node_status` shows the reported state, membership context, monitor,
+capacity, policy, and bounded heartbeat facts for one exact node.
 `get_node_config` provides the current redacted configuration for one exact
 node.
 `get_node_logs` shows recent OpenSVC journal entries on one exact node, with an

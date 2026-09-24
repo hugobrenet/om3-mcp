@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +12,7 @@ import (
 func TestGetNodeStatusFiltersClusterView(t *testing.T) {
 	service := New(&fakeJSONGetter{t: t, payload: `{
 		"cluster": {
-			"config": {"nodes": ["node-a", "node-b"]},
+			"config": {"nodes": ["node-b", "node-a", "node-a"]},
 			"node": {
 				"node-a": {"status": {"agent": "other-node"}},
 				"node-b": {
@@ -21,10 +22,17 @@ func TestGetNodeStatusFiltersClusterView(t *testing.T) {
 						"is_overloaded": false, "booted_at": "2026-09-18T09:00:00Z", "frozen_at": "0001-01-01T00:00:00Z"},
 					"monitor": {"state": "idle", "global_expect": "none", "local_expect": "none",
 						"orchestration_id": "", "orchestration_is_done": true, "updated_at": "2026-09-18T10:00:00Z"},
-					"daemon": {"heartbeat": {"updated_at": "2026-09-18T10:00:00Z", "streams": [
-						{"id": "hb#1.rx", "state": "running", "peers": {"node-a": {"is_beating": true}}},
-						{"id": "hb#1.tx", "state": "running", "peers": {"node-a": {"is_beating": true}}}
-					]}}
+					"daemon": {"heartbeat": {
+						"updated_at": "2026-09-18T09:00:00Z",
+						"last_message": {"from":"node-a","patch_length":3,"type":"patch"},
+						"last_messages": [{"from":"node-a","patch_length":4,"type":"full"}],
+						"secret_version": {"main":5,"alt":4},
+						"streams": [
+							{"id":"hb#2.tx","type":"unicast","state":"unexpected-state","configured_at":"c2","created_at":"r2","updated_at":"u2",
+							 "alerts":[{"severity":"warning","message":"raw alert"}],"peers":{"node-a":{"desc":"to node-a","is_beating":false,"changed_at":"x","last_beating_at":"y"}}},
+							{"id":"hb#1.rx","type":"unicast","state":"running","configured_at":"c1","created_at":"r1","updated_at":"0001-01-01T00:00:00Z","peers":{}}
+						]
+					}}
 				}
 			}
 		}
@@ -47,8 +55,17 @@ func TestGetNodeStatusFiltersClusterView(t *testing.T) {
 	if status.Policy == nil || status.Policy.MinAvailMemPct != 5 || status.Policy.MinAvailSwapPct != 0 {
 		t.Errorf("unexpected node policy %+v", status.Policy)
 	}
-	if status.Heartbeat.State != "healthy" || status.Heartbeat.LinksBeating != 2 {
+	if !status.Membership.IsConfigured || status.Membership.ConfiguredPeers.Total != 1 || status.Membership.ConfiguredPeers.Items[0] != "node-a" {
+		t.Errorf("unexpected node membership %+v", status.Membership)
+	}
+	if status.Heartbeat == nil || status.Heartbeat.UpdatedAt != "2026-09-18T09:00:00Z" || status.Heartbeat.Streams.Count != 2 {
 		t.Errorf("unexpected node heartbeat %+v", status.Heartbeat)
+	} else {
+		first := status.Heartbeat.Streams.Items[0]
+		second := status.Heartbeat.Streams.Items[1]
+		if first.ID != "hb#1.rx" || first.UpdatedAt != "0001-01-01T00:00:00Z" || second.State != "unexpected-state" || second.Peers.Items[0].IsBeating || second.Alerts.Items[0].Message != "raw alert" {
+			t.Errorf("heartbeat facts were changed: %+v", status.Heartbeat)
+		}
 	}
 	if status.Provenance.Source != provenanceSourceOpenSVCDaemon || status.Provenance.ObservedAt != "2026-09-18T10:00:30Z" {
 		t.Errorf("unexpected provenance %+v", status.Provenance)
@@ -59,6 +76,45 @@ func TestGetNodeStatusFiltersClusterView(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "private-key-must-not-leak") || strings.Contains(string(encoded), "other-node") {
 		t.Errorf("result includes unrelated or private node data: %s", encoded)
+	}
+	for _, forbidden := range []string{`"healthy"`, `"degraded"`, `"heartbeat_status_stale"`, `"heartbeat_peer_not_beating"`} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Errorf("factual result contains deterministic diagnosis %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestGetNodeStatusKeepsMissingHeartbeatNull(t *testing.T) {
+	service := New(&fakeJSONGetter{t: t, payload: `{
+		"cluster": {
+			"config": {"nodes": ["node-a"]},
+			"node": {"node-a": {"status": {"agent": "v3.0.0"}}}
+		}
+	}`})
+	status, err := service.GetNodeStatus(context.Background(), "node-a")
+	if err != nil {
+		t.Fatalf("get node status: %v", err)
+	}
+	if status.Heartbeat != nil {
+		t.Errorf("heartbeat = %+v, want null", status.Heartbeat)
+	}
+	if !status.Membership.IsConfigured || status.Membership.ConfiguredPeers.Total != 0 || status.Membership.ConfiguredPeers.Items == nil {
+		t.Errorf("membership = %+v", status.Membership)
+	}
+}
+
+func TestNodeMembershipFactsAreDistinctSortedAndBounded(t *testing.T) {
+	nodes := make([]string, 0, maxNodeStatusConfiguredPeers+3)
+	nodes = append(nodes, "selected", "peer-999", "peer-999")
+	for i := 0; i <= maxNodeStatusConfiguredPeers; i++ {
+		nodes = append(nodes, fmt.Sprintf("peer-%03d", i))
+	}
+	result := nodeMembershipFacts("selected", nodes)
+	if !result.IsConfigured || result.ConfiguredPeers.Total != maxNodeStatusConfiguredPeers+2 || result.ConfiguredPeers.Count != maxNodeStatusConfiguredPeers || !result.ConfiguredPeers.Truncated {
+		t.Fatalf("membership = %+v", result)
+	}
+	if result.ConfiguredPeers.Items[0] != "peer-000" || result.ConfiguredPeers.Items[len(result.ConfiguredPeers.Items)-1] != "peer-199" {
+		t.Errorf("configured peers are not sorted and bounded: first=%q last=%q", result.ConfiguredPeers.Items[0], result.ConfiguredPeers.Items[len(result.ConfiguredPeers.Items)-1])
 	}
 }
 

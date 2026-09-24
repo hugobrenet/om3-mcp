@@ -51,7 +51,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:        "get_node_status",
 			Title:       "Get node status",
-			Description: "Read the last-known OpenSVC status, monitor state, capacity statistics, overload thresholds, and bounded heartbeat assessment for one exact node. Uses the cluster status cache; it does not probe the node or refresh drivers.",
+			Description: "Read the last-known OpenSVC status, membership context, monitor state, capacity statistics, overload thresholds, and bounded heartbeat facts for one exact node. Preserves exact stream, alert, peer, and timestamp values without an MCP health or freshness verdict. Uses the cluster status cache; it does not probe the node or refresh drivers.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input GetNodeStatusInput) (*mcp.CallToolResult, GetNodeStatusOutput, error) {

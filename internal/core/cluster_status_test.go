@@ -126,31 +126,31 @@ func TestGetClusterStatusRejectsInvalidBoundsBeforeDaemonCall(t *testing.T) {
 
 func TestClusterStatusNestedCollectionsAreBounded(t *testing.T) {
 	heartbeat := &clusterHeartbeat{
-		LastMessages: make([]clusterHeartbeatLastMessage, maxClusterStatusHBMessages+1),
-		Streams:      make([]clusterHeartbeatStream, maxClusterStatusHBStreams+1),
+		LastMessages: make([]clusterHeartbeatLastMessage, maxHeartbeatMessages+1),
+		Streams:      make([]clusterHeartbeatStream, maxHeartbeatStreams+1),
 	}
 	for i := range heartbeat.Streams {
 		heartbeat.Streams[i].ID = fmt.Sprintf("hb#%03d.rx", i)
 	}
-	heartbeat.Streams[0].Alerts = make([]clusterHeartbeatAlert, maxClusterStatusHBAlerts+1)
-	heartbeat.Streams[0].Alerts[0].Message = strings.Repeat("é", maxClusterStatusTextRunes+1)
-	heartbeat.Streams[0].Peers = make(map[string]clusterHeartbeatPeer, maxClusterStatusHBPeers+1)
-	for i := 0; i <= maxClusterStatusHBPeers; i++ {
+	heartbeat.Streams[0].Alerts = make([]clusterHeartbeatAlert, maxHeartbeatAlerts+1)
+	heartbeat.Streams[0].Alerts[0].Message = strings.Repeat("é", maxHeartbeatTextRunes+1)
+	heartbeat.Streams[0].Peers = make(map[string]clusterHeartbeatPeer, maxHeartbeatPeers+1)
+	for i := 0; i <= maxHeartbeatPeers; i++ {
 		heartbeat.Streams[0].Peers[fmt.Sprintf("node-%03d", i)] = clusterHeartbeatPeer{}
 	}
 
-	result := clusterStatusHeartbeat(heartbeat)
-	if !result.LastMessages.Truncated || result.LastMessages.Count != maxClusterStatusHBMessages {
+	result := heartbeatFacts(heartbeat)
+	if !result.LastMessages.Truncated || result.LastMessages.Count != maxHeartbeatMessages {
 		t.Errorf("last messages bounds = %+v", result.LastMessages)
 	}
-	if !result.Streams.Truncated || result.Streams.Count != maxClusterStatusHBStreams {
+	if !result.Streams.Truncated || result.Streams.Count != maxHeartbeatStreams {
 		t.Errorf("stream bounds = %+v", result.Streams)
 	}
 	stream := result.Streams.Items[0]
-	if !stream.Alerts.Truncated || stream.Alerts.Count != maxClusterStatusHBAlerts || !stream.Alerts.Items[0].MessageTruncated || len([]rune(stream.Alerts.Items[0].Message)) != maxClusterStatusTextRunes {
+	if !stream.Alerts.Truncated || stream.Alerts.Count != maxHeartbeatAlerts || !stream.Alerts.Items[0].MessageTruncated || len([]rune(stream.Alerts.Items[0].Message)) != maxHeartbeatTextRunes {
 		t.Errorf("alert bounds = %+v", stream.Alerts)
 	}
-	if !stream.Peers.Truncated || stream.Peers.Count != maxClusterStatusHBPeers {
+	if !stream.Peers.Truncated || stream.Peers.Count != maxHeartbeatPeers {
 		t.Errorf("peer bounds = %+v", stream.Peers)
 	}
 }

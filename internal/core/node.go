@@ -11,14 +11,29 @@ import (
 	"time"
 )
 
+const maxNodeStatusConfiguredPeers = 200
+
 type NodeStatus struct {
-	Provenance Provenance                 `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
-	Node       string                     `json:"node" jsonschema:"the exact OpenSVC node name selected from the cluster status"`
-	Status     NodeReportedStatus         `json:"status" jsonschema:"the node status last published by OpenSVC"`
-	Monitor    NodeMonitorStatus          `json:"monitor" jsonschema:"the node monitor state last published by OpenSVC"`
-	Stats      *NodeCapacityStats         `json:"stats" jsonschema:"published node capacity statistics, or null when unavailable"`
-	Policy     *NodeCapacityPolicy        `json:"policy" jsonschema:"configured memory and swap availability thresholds, or null when unavailable"`
-	Heartbeat  ClusterNodeHeartbeatHealth `json:"heartbeat" jsonschema:"bounded assessment of the node's published heartbeat streams and peers"`
+	Provenance Provenance          `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
+	Node       string              `json:"node" jsonschema:"the exact OpenSVC node name selected from the cluster status"`
+	Membership NodeMembershipFacts `json:"membership" jsonschema:"factual cluster configuration context for the selected node and its configured peers"`
+	Status     NodeReportedStatus  `json:"status" jsonschema:"the node status last published by OpenSVC"`
+	Monitor    NodeMonitorStatus   `json:"monitor" jsonschema:"the node monitor state last published by OpenSVC"`
+	Stats      *NodeCapacityStats  `json:"stats" jsonschema:"published node capacity statistics, or null when unavailable"`
+	Policy     *NodeCapacityPolicy `json:"policy" jsonschema:"configured memory and swap availability thresholds, or null when unavailable"`
+	Heartbeat  *HeartbeatFacts     `json:"heartbeat" jsonschema:"bounded heartbeat facts reported by OpenSVC, or null when unavailable"`
+}
+
+type NodeMembershipFacts struct {
+	IsConfigured    bool         `json:"is_configured" jsonschema:"whether the selected node name is present in the cluster configuration"`
+	ConfiguredPeers NodeNameList `json:"configured_peers" jsonschema:"bounded distinct configured node names other than the selected node"`
+}
+
+type NodeNameList struct {
+	Total     int      `json:"total" jsonschema:"number of distinct configured peer node names before limiting"`
+	Count     int      `json:"count" jsonschema:"number of configured peer node names returned"`
+	Items     []string `json:"items" jsonschema:"configured peer node names sorted by exact name"`
+	Truncated bool     `json:"truncated" jsonschema:"whether configured peer node names were omitted after the 200-entry limit"`
 }
 
 type NodeReportedStatus struct {
@@ -120,7 +135,8 @@ func (s *Service) GetNodeStatus(ctx context.Context, nodeName string) (NodeStatu
 	}
 
 	result := NodeStatus{
-		Node: nodeName,
+		Node:       nodeName,
+		Membership: nodeMembershipFacts(nodeName, clusterStatus.Cluster.Config.Nodes),
 		Status: NodeReportedStatus{
 			AgentVersion: node.Status.Agent,
 			APIVersion:   node.Status.API,
@@ -138,7 +154,7 @@ func (s *Service) GetNodeStatus(ctx context.Context, nodeName string) (NodeStatu
 			OrchestrationIsDone: node.Monitor.OrchestrationIsDone,
 			UpdatedAt:           node.Monitor.UpdatedAt,
 		},
-		Heartbeat: clusterHeartbeatHealth(node.Daemon.Heartbeat, nodeName, clusterStatus.Cluster.Config.Nodes, s.now()),
+		Heartbeat: heartbeatFacts(node.Daemon.Heartbeat),
 	}
 	if node.Stats != nil {
 		result.Stats = &NodeCapacityStats{
@@ -158,6 +174,27 @@ func (s *Service) GetNodeStatus(ctx context.Context, nodeName string) (NodeStatu
 	}
 	result.Provenance = s.newProvenance()
 	return result, nil
+}
+
+func nodeMembershipFacts(nodeName string, configuredNodes []string) NodeMembershipFacts {
+	peers := make(map[string]struct{}, len(configuredNodes))
+	isConfigured := false
+	for _, name := range configuredNodes {
+		if name == nodeName {
+			isConfigured = true
+			continue
+		}
+		peers[name] = struct{}{}
+	}
+	names := sortedSetKeys(peers)
+	end := min(len(names), maxNodeStatusConfiguredPeers)
+	items := append([]string{}, names[:end]...)
+	return NodeMembershipFacts{
+		IsConfigured: isConfigured,
+		ConfiguredPeers: NodeNameList{
+			Total: len(names), Count: len(items), Items: items, Truncated: end < len(names),
+		},
+	}
 }
 
 func (s *Service) GetNodeConfig(ctx context.Context, node string) (NodeConfig, error) {

@@ -317,11 +317,11 @@ Lab input example:
   },
   "resources": [
     {
-      "is_disabled": false,
-      "is_encap": false,
-      "is_monitored": false,
-      "is_optional": false,
-      "is_standby": false,
+      "config_flags": {
+        "is_disabled": false,
+        "is_monitored": true,
+        "is_standby": false
+      },
       "label": "docker redis:7-alpine",
       "logs": [],
       "logs_truncated": false,
@@ -331,6 +331,13 @@ Lab input example:
       "restart_remaining": 0,
       "rid": "container#redis",
       "status": "up",
+      "status_flags": {
+        "disable": false,
+        "monitor": true,
+        "optional": false,
+        "standby": false,
+        "encap": false
+      },
       "tags": ["mcp-test"],
       "type": "container.docker"
     }
@@ -344,6 +351,14 @@ Resources are sorted by node, encapsulated node, and resource id. At most 20
 status messages are returned per resource; `logs_truncated=true` signals that
 additional messages were omitted. Pagination is not snapshot-based, so callers
 must preserve all filters between pages.
+
+`config_flags` preserves `is_disabled`, `is_monitored`, and `is_standby` from
+the daemon resource `config` section. `status_flags` separately preserves
+`disable`, `monitor`, `optional`, `standby`, and `encap` from the daemon
+resource `status` section. Either object is `null` when its source section is
+absent. The MCP does not combine these values with a logical OR and does not
+let a status value overwrite configuration intent. A difference between the
+two sources remains visible for agent analysis.
 
 #### Errors
 

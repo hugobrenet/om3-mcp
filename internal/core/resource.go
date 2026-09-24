@@ -36,25 +36,36 @@ type ObjectResourceList struct {
 }
 
 type ObjectResourceStatus struct {
-	Node             string             `json:"node" jsonschema:"the instance node name"`
-	EncapNode        string             `json:"encap_node,omitempty" jsonschema:"the encapsulated node name when the resource status comes from an encapsulated instance"`
-	RID              string             `json:"rid" jsonschema:"the OpenSVC resource identifier"`
-	Type             string             `json:"type" jsonschema:"the OpenSVC resource driver type"`
-	Label            string             `json:"label" jsonschema:"the resource label reported by OpenSVC"`
-	Status           string             `json:"status" jsonschema:"the resource availability status reported by OpenSVC"`
-	Provisioned      string             `json:"provisioned" jsonschema:"the resource provisioned state reported by OpenSVC"`
-	ProvisionedAt    string             `json:"provisioned_at,omitempty" jsonschema:"the timestamp associated with the resource provisioned state"`
-	IsDisabled       bool               `json:"is_disabled" jsonschema:"whether the resource is disabled in instance configuration or status"`
-	IsMonitored      bool               `json:"is_monitored" jsonschema:"whether the resource is monitored"`
-	IsOptional       bool               `json:"is_optional" jsonschema:"whether the resource is excluded from instance availability aggregation"`
-	IsStandby        bool               `json:"is_standby" jsonschema:"whether the resource is configured as standby"`
-	IsEncap          bool               `json:"is_encap" jsonschema:"whether the resource is handled by an encapsulated agent"`
-	Subset           string             `json:"subset,omitempty" jsonschema:"the resource subset name"`
-	Tags             []string           `json:"tags" jsonschema:"the resource tags reported by OpenSVC"`
-	RestartRemaining int                `json:"restart_remaining" jsonschema:"the remaining automatic restart attempts"`
-	RestartLastAt    string             `json:"restart_last_at,omitempty" jsonschema:"the timestamp of the last automatic restart attempt"`
-	Logs             []ResourceLogEntry `json:"logs" jsonschema:"the bounded resource status messages reported by OpenSVC"`
-	LogsTruncated    bool               `json:"logs_truncated" jsonschema:"whether additional resource status messages were omitted"`
+	Node             string               `json:"node" jsonschema:"the instance node name"`
+	EncapNode        string               `json:"encap_node,omitempty" jsonschema:"the encapsulated node name when the resource status comes from an encapsulated instance"`
+	RID              string               `json:"rid" jsonschema:"the OpenSVC resource identifier"`
+	Type             string               `json:"type" jsonschema:"the OpenSVC resource driver type"`
+	Label            string               `json:"label" jsonschema:"the resource label reported by OpenSVC"`
+	Status           string               `json:"status" jsonschema:"the resource availability status reported by OpenSVC"`
+	Provisioned      string               `json:"provisioned" jsonschema:"the resource provisioned state reported by OpenSVC"`
+	ProvisionedAt    string               `json:"provisioned_at,omitempty" jsonschema:"the timestamp associated with the resource provisioned state"`
+	ConfigFlags      *ResourceConfigFlags `json:"config_flags" jsonschema:"resource flags from the daemon config section, or null when that section is absent"`
+	StatusFlags      *ResourceStatusFlags `json:"status_flags" jsonschema:"resource flags from the daemon status section, or null when that section is absent"`
+	Subset           string               `json:"subset,omitempty" jsonschema:"the resource subset name"`
+	Tags             []string             `json:"tags" jsonschema:"the resource tags reported by OpenSVC"`
+	RestartRemaining int                  `json:"restart_remaining" jsonschema:"the remaining automatic restart attempts"`
+	RestartLastAt    string               `json:"restart_last_at,omitempty" jsonschema:"the timestamp of the last automatic restart attempt"`
+	Logs             []ResourceLogEntry   `json:"logs" jsonschema:"the bounded resource status messages reported by OpenSVC"`
+	LogsTruncated    bool                 `json:"logs_truncated" jsonschema:"whether additional resource status messages were omitted"`
+}
+
+type ResourceConfigFlags struct {
+	IsDisabled  bool `json:"is_disabled" jsonschema:"the exact disabled flag reported in the resource config section"`
+	IsMonitored bool `json:"is_monitored" jsonschema:"the exact monitored flag reported in the resource config section"`
+	IsStandby   bool `json:"is_standby" jsonschema:"the exact standby flag reported in the resource config section"`
+}
+
+type ResourceStatusFlags struct {
+	Disable  bool `json:"disable" jsonschema:"the exact disable flag reported in the resource status section"`
+	Monitor  bool `json:"monitor" jsonschema:"the exact monitor flag reported in the resource status section"`
+	Optional bool `json:"optional" jsonschema:"the exact optional flag reported in the resource status section"`
+	Standby  bool `json:"standby" jsonschema:"the exact standby flag reported in the resource status section"`
+	Encap    bool `json:"encap" jsonschema:"the exact encapsulation flag reported in the resource status section"`
 }
 
 type ResourceLogEntry struct {
@@ -152,9 +163,9 @@ func (s *Service) ListObjectResources(ctx context.Context, options ListObjectRes
 			Logs:      []ResourceLogEntry{},
 		}
 		if item.Data.Config != nil {
-			resource.IsDisabled = item.Data.Config.IsDisabled
-			resource.IsMonitored = item.Data.Config.IsMonitored
-			resource.IsStandby = item.Data.Config.IsStandby
+			resource.ConfigFlags = &ResourceConfigFlags{
+				IsDisabled: item.Data.Config.IsDisabled, IsMonitored: item.Data.Config.IsMonitored, IsStandby: item.Data.Config.IsStandby,
+			}
 		}
 		if item.Data.Monitor != nil && item.Data.Monitor.Restart != nil {
 			resource.RestartRemaining = item.Data.Monitor.Restart.Remaining
@@ -166,11 +177,10 @@ func (s *Service) ListObjectResources(ctx context.Context, options ListObjectRes
 			resource.Status = item.Data.Status.Status
 			resource.Provisioned = item.Data.Status.Provisioned.State
 			resource.ProvisionedAt = item.Data.Status.Provisioned.Mtime
-			resource.IsDisabled = resource.IsDisabled || item.Data.Status.Disable
-			resource.IsMonitored = item.Data.Status.Monitor
-			resource.IsOptional = item.Data.Status.Optional
-			resource.IsStandby = resource.IsStandby || item.Data.Status.Standby
-			resource.IsEncap = item.Data.Status.Encap
+			resource.StatusFlags = &ResourceStatusFlags{
+				Disable: item.Data.Status.Disable, Monitor: item.Data.Status.Monitor, Optional: item.Data.Status.Optional,
+				Standby: item.Data.Status.Standby, Encap: item.Data.Status.Encap,
+			}
 			resource.Subset = item.Data.Status.Subset
 			resource.Tags = append([]string{}, item.Data.Status.Tags...)
 			logs := item.Data.Status.Log

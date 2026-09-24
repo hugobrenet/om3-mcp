@@ -89,7 +89,7 @@ func RegisterResourceTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:        "list_object_resources",
 			Title:       "List object resources",
-			Description: "Inspect the last-known resource status, provisioning, monitoring flags, restart state, and bounded status messages for one exact OpenSVC object. This read-only call does not probe drivers; filter by node or resource id after checking the parent instance updated_at.",
+			Description: "Inspect the last-known resource status, provisioning, separate configuration and status flags, restart state, and bounded status messages for one exact OpenSVC object. The MCP preserves flag provenance and does not merge configuration intent with reported status. This read-only call does not probe drivers; filter by node or resource id after checking the parent instance updated_at.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input ListObjectResourcesInput) (*mcp.CallToolResult, ListObjectResourcesOutput, error) {

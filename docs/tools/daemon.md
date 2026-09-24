@@ -1,14 +1,14 @@
 ---
 domain: daemon
 tools:
-  - get_daemon_identity
+  - get_daemon_status
 stability: experimental
 ---
 
 # Daemon Tools
 
-This document describes tools that identify the local OpenSVC daemon and its
-cluster context.
+This document describes tools that identify the local OpenSVC daemon and expose
+its factual subsystem status.
 
 Implementation:
 
@@ -17,14 +17,15 @@ Implementation:
 
 ## Tools
 
-### `get_daemon_identity`
+### `get_daemon_status`
 
-Returns a bounded identity and compatibility view for the local daemon, its
-node, and its cluster.
+Returns a bounded identity, compatibility, process, and subsystem view for the
+local daemon, its node, and its cluster.
 
 Use this tool first to confirm which daemon an agent is connected to and which
-OpenSVC agent/API versions it exposes. Do not use it for health assessment,
-object inventory, configuration, or resource state.
+OpenSVC agent/API versions it exposes. The tool preserves the exact subsystem
+states reported by OpenSVC and does not derive a global health verdict. Do not
+use it for object inventory, resource state, or heartbeat diagnosis.
 
 #### OpenSVC API
 
@@ -35,19 +36,24 @@ GET /api/cluster/status
 The tool selects the local node using `daemon.nodename`. It rejects a response
 that does not contain the local node or its agent version. The large object,
 instance, resource, heartbeat, and private configuration portions of the daemon
-response are discarded.
+response are discarded. The local `daemondata`, `listener`, `dns`, `collector`,
+`scheduler`, and `runner_imon` sections are selected and typed.
 
 The endpoint accepts `guest` or a higher operational role. Omitting `selector`
 and `namespace` lets OpenSVC serve its prepared cluster JSON directly to a
 caller with a global `guest`, `operator`, `admin`, or `root` grant. OpenSVC still
-filters the response for namespace-scoped grants. This tool returns only
-identity and compatibility fields.
+filters the response for namespace-scoped grants.
+
+The collector URL is not returned verbatim. Its scheme and host are exposed,
+while user information, non-root paths, queries, and fragments are omitted and
+reported through redaction flags. Cluster nodes and DNS nameservers have
+explicit output limits and truncation metadata.
 
 #### MCP properties
 
 | Property | Value |
 |---|---|
-| Title | Get daemon identity |
+| Title | Get daemon status |
 | Read-only | Yes |
 | Destructive | No |
 | Open world | No; only the configured daemon is contacted |
@@ -63,46 +69,47 @@ The tool has no input fields:
 
 Unknown properties are rejected by the generated input schema.
 
-#### Lab output example
+#### Output shape example
 
 ```json
 {
-  "provenance": {
-    "source": "opensvc_daemon",
-    "observed_at": "2026-07-10T17:24:00Z"
-  },
+  "provenance": {"source": "opensvc_daemon", "observed_at": "2026-09-24T10:00:00Z"},
+  "daemon": {"nodename": "node1", "pid": 98045, "started_at": "2026-09-23T09:14:28+02:00", "routines": 135},
   "cluster": {
     "id": "11111111-2222-3333-4444-555555555555",
     "name": "lab-cluster",
-    "nodes": ["lab-node-01"],
-    "quorum_enabled": false
-  },
-  "daemon": {
-    "nodename": "lab-node-01",
-    "pid": 2610,
-    "routines": 135,
-    "started_at": "2026-07-10T17:23:35.844939787+09:00"
-  },
-  "listener": {
-    "address": "",
-    "port": 1215
+    "nodes_total": 2,
+    "nodes": ["node1", "node2"],
+    "nodes_truncated": false,
+    "quorum_enabled": true
   },
   "node": {
-    "agent_version": "v3.0.0-rc21-0-gc979e4c01",
+    "agent_version": "481b933476ec79c3f647a78b934f3d10d6d3c1aa",
     "api_version": 0,
-    "booted_at": "2026-07-10T17:23:14+09:00",
     "compat_version": 0,
     "is_leader": true,
-    "is_overloaded": false
+    "is_overloaded": false,
+    "booted_at": "2026-09-23T09:14:07+02:00"
+  },
+  "listener_config": {"address": "::", "port": 1215},
+  "subsystems": {
+    "daemon_data": {"id": "daemondata", "state": "running", "configured_at": "2026-09-23T09:14:28+02:00", "created_at": "2026-09-23T09:14:28+02:00", "updated_at": "2026-09-24T09:59:59+02:00", "queue_size": 0},
+    "listener": {"id": "", "state": "running", "configured_at": "2026-09-23T09:14:28+02:00", "created_at": "2026-09-23T09:14:28+02:00", "updated_at": "2026-09-24T09:59:59+02:00", "address": "::", "port": "1215", "rate_limiter": {"rate": 20, "burst": 100, "expires_ns": 60000000000}},
+    "dns": {"id": "dns", "state": "running", "configured_at": "2026-09-23T09:14:28+02:00", "created_at": "2026-09-23T09:14:28+02:00", "updated_at": "2026-09-24T09:59:59+02:00", "nameservers_total": 0, "nameservers": [], "nameservers_truncated": false},
+    "collector": {"id": "collector", "state": "disabled", "configured_at": "2026-09-23T09:14:28+02:00", "created_at": "2026-09-23T09:14:28+02:00", "updated_at": "2026-09-24T09:59:59+02:00", "endpoint": {"configured": false, "valid": false, "scheme": "", "host": "", "userinfo_redacted": false, "path_redacted": false, "query_redacted": false, "fragment_redacted": false, "components_truncated": false}},
+    "scheduler": {"id": "scheduler", "state": "running", "configured_at": "2026-09-23T09:14:28+02:00", "created_at": "2026-09-23T09:14:28+02:00", "updated_at": "2026-09-24T09:59:59+02:00", "count": 0, "max_running": 10},
+    "runner_imon": {"id": "runner_imon", "state": "running", "configured_at": "2026-09-23T09:14:28+02:00", "created_at": "2026-09-23T09:14:28+02:00", "updated_at": "2026-09-24T09:59:59+02:00", "max_running": 10}
   }
 }
 ```
 
-`listener.address` can be empty when OpenSVC uses its default bind behavior.
-Identity and boot timestamp values are reported by the daemon; only
-`provenance.observed_at` is generated by the MCP. `cluster.quorum_enabled`
-reports whether the quorum feature is configured; it does not report whether
-the cluster currently attains quorum.
+`listener_config.address` can be empty when OpenSVC uses its default bind
+behavior. Identity, state, and timestamp values are reported by the daemon;
+only `provenance.observed_at` is generated by the MCP.
+`cluster.quorum_enabled` reports whether the quorum feature is configured; it
+does not report whether the cluster currently attains quorum. A subsystem value
+of `null` means its section was absent from the daemon response; it is not
+reclassified as stopped or unhealthy.
 
 #### Errors
 
@@ -111,10 +118,12 @@ the cluster currently attains quorum.
 | Invalid MCP JWT | MCP HTTP `401` |
 | Insufficient daemon grants | Tool error containing daemon HTTP `403` |
 | Daemon unavailable or malformed response | Tool error with transport or decoding context |
-| Missing local nodename, node status, or agent version | Tool error; no partial identity |
+| Missing local nodename, node status, or agent version | Tool error; no partial status |
 
 Errors never include the delegated JWT.
 
 ## Compatibility
 
-Verified against OpenSVC `3.0.0-rc30` `GET /api/cluster/status` behavior.
+Verified against the OpenSVC development build identified by Git commit
+`481b933476ec79c3f647a78b934f3d10d6d3c1aa` using
+`GET /api/cluster/status`.

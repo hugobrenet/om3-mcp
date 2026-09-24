@@ -7,26 +7,26 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-type GetDaemonIdentityInput struct{}
+type GetDaemonStatusInput struct{}
 
-type GetDaemonIdentityOutput = core.DaemonIdentity
+type GetDaemonStatusOutput = core.DaemonStatus
 
 func RegisterDaemonTools(registrar *Registrar, service *core.Service) error {
 	if err := addTool(
 		registrar,
 		&mcp.Tool{
-			Name:  "get_daemon_identity",
-			Title: "Get daemon identity",
-			Description: "Inspect identity and compatibility metadata for the local OpenSVC daemon, node, and cluster. " +
-				"Use this first to confirm the target environment; it returns no object configuration and makes no changes.",
+			Name:  "get_daemon_status",
+			Title: "Get daemon status",
+			Description: "Inspect the local OpenSVC daemon process, target identity, compatibility metadata, and exact subsystem states. " +
+				"Use this first to confirm the target and inspect daemon services; it returns no health verdict and makes no changes.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, _ GetDaemonIdentityInput) (*mcp.CallToolResult, GetDaemonIdentityOutput, error) {
-			identity, err := service.GetDaemonIdentity(ctx)
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ GetDaemonStatusInput) (*mcp.CallToolResult, GetDaemonStatusOutput, error) {
+			status, err := service.GetDaemonStatus(ctx)
 			if err != nil {
-				return nil, GetDaemonIdentityOutput{}, err
+				return nil, GetDaemonStatusOutput{}, err
 			}
-			return nil, identity, nil
+			return nil, status, nil
 		},
 	); err != nil {
 		return err

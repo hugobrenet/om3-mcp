@@ -75,7 +75,13 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 				"status": {"is_compat": true, "is_frozen": false},
 				"node": {"node-a": {
 					"status": {"agent": "v3.0.0", "is_leader": true, "frozen_at": "0001-01-01T00:00:00Z"},
-					"monitor": {"state": "idle"}
+					"monitor": {"state": "idle"},
+					"daemon": {
+						"pid": 2610,
+						"started_at": "2026-07-10T17:23:35Z",
+						"daemondata": {"id":"daemondata","state":"running","updated_at":"2026-07-10T17:23:36Z","queue_size":0},
+						"scheduler": {"id":"scheduler","state":"running","updated_at":"2026-07-10T17:23:37Z","count":0,"max_running":10}
+					}
 				}},
 				"object": {"prod/svc/app": {
 					"avail": "up", "overall": "up", "provisioned": "true",
@@ -83,7 +89,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 					"scope": ["node-a"]
 				}}
 			},
-			"daemon": {"nodename": "node-a"}
+			"daemon": {"nodename": "node-a", "routines": 121}
 		}`)
 		case "/api/object/path":
 			if got := request.URL.Query().Get("path"); got != "**" {
@@ -270,7 +276,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Fatalf("list MCP tools: %v", err)
 	}
 	expectedToolTitles := map[string]string{
-		"get_daemon_identity":       "Get daemon identity",
+		"get_daemon_status":         "Get daemon status",
 		"get_cluster_config":        "Get cluster configuration",
 		"get_cluster_status":        "Get cluster status snapshot",
 		"get_node_config":           "Get node configuration",
@@ -345,28 +351,28 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	}
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "get_daemon_identity",
-		Arguments: mcptools.GetDaemonIdentityInput{},
+		Name:      "get_daemon_status",
+		Arguments: mcptools.GetDaemonStatusInput{},
 	})
 	if err != nil {
-		t.Fatalf("call get_daemon_identity: %v", err)
+		t.Fatalf("call get_daemon_status: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("get_daemon_identity returned an MCP tool error: %#v", result.Content)
+		t.Fatalf("get_daemon_status returned an MCP tool error: %#v", result.Content)
 	}
 
 	data, err := json.Marshal(result.StructuredContent)
 	if err != nil {
 		t.Fatalf("marshal structured content: %v", err)
 	}
-	var identity mcptools.GetDaemonIdentityOutput
-	if err := json.Unmarshal(data, &identity); err != nil {
+	var daemonStatus mcptools.GetDaemonStatusOutput
+	if err := json.Unmarshal(data, &daemonStatus); err != nil {
 		t.Fatalf("decode structured content: %v", err)
 	}
-	if identity.Daemon.NodeName != "node-a" || identity.Cluster.ID != "cluster-123" || identity.Node.AgentVersion != "v3.0.0" {
-		t.Errorf("got unexpected identity %#v", identity)
+	if daemonStatus.Daemon.NodeName != "node-a" || daemonStatus.Cluster.ID != "cluster-123" || daemonStatus.Node.AgentVersion != "v3.0.0" || daemonStatus.Subsystems.DaemonData == nil || daemonStatus.Subsystems.DaemonData.State != "running" {
+		t.Errorf("got unexpected daemon status %#v", daemonStatus)
 	}
-	assertResultProvenance(t, identity.Provenance)
+	assertResultProvenance(t, daemonStatus.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "get_cluster_config",

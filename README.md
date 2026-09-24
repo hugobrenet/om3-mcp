@@ -161,6 +161,23 @@ Run static analysis:
 go vet ./...
 ~~~
 
+### Isolated lab-node smoke test
+
+`scripts/smoke-node.sh` automates a short development loop against `node1`:
+focused tests, Linux build, temporary copy, isolated MCP startup on another
+Unix socket, short-lived in-memory `guest` JWT creation, and a direct
+`tools/call`. It does not stop or replace the installed MCP service.
+
+~~~bash
+scripts/smoke-node.sh
+scripts/smoke-node.sh --tool get_node_status --arguments '{"node":"node1"}'
+~~~
+
+Use `--target USER@HOST` or `MCP_SMOKE_TARGET` for another lab node. The remote
+node must provide passwordless `sudo`, `om`, `curl`, `jq`, and `systemd-run`.
+The script enables insecure TLS verification only for the candidate's loopback
+connection to the lab daemon; it does not change the installed service.
+
 Build without writing a binary into the repository root:
 
 ~~~bash

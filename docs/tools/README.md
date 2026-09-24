@@ -9,7 +9,7 @@ combine the tools during operations.
 
 | Domain | Tools | Documentation |
 |---|---|---|
-| Daemon | `get_daemon_identity` | [Daemon tools](daemon.md) |
+| Daemon | `get_daemon_status` | [Daemon tools](daemon.md) |
 | Cluster | `get_cluster_config`, `get_cluster_status` | [Cluster tools](cluster.md) |
 | Node | `get_node_config`, `get_node_status`, `get_node_logs` | [Node tools](node.md) |
 | Objects | `list_cluster_objects`, `get_object_status`, `get_object_config` | [Object tools](objects.md) |
@@ -21,7 +21,7 @@ combine the tools during operations.
 Use the smallest tool that answers the current question:
 
 ```text
-get_daemon_identity
+get_daemon_status
   -> get_cluster_status
   -> get_cluster_config when declared cluster settings matter
   -> get_node_status when one node needs closer inspection
@@ -38,7 +38,9 @@ get_daemon_identity
   -> get_container_logs when workload stdout or stderr matters
 ```
 
-`get_daemon_identity` confirms the target node and cluster.
+`get_daemon_status` confirms the target node and cluster, then exposes the
+local daemon process and exact subsystem states without adding a health
+verdict.
 `get_cluster_status` provides bounded cluster, node, heartbeat, and actor-object
 facts from the daemon's last-known cluster view without an MCP health verdict.
 `get_cluster_config` provides the current redacted cluster configuration when
@@ -115,7 +117,7 @@ are representative and will differ between calls.
 
 | Tool | Read-only | Destructive | Required OpenSVC access |
 |---|---:|---:|---|
-| `get_daemon_identity` | Yes | No | `guest` or higher |
+| `get_daemon_status` | Yes | No | `guest` or higher |
 | `get_cluster_config` | Yes | No | `root` |
 | `get_cluster_status` | Yes | No | `guest` or higher |
 | `get_node_config` | Yes | No | `root` |

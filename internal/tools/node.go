@@ -14,7 +14,7 @@ type GetNodeStatusInput struct {
 type GetNodeStatusOutput = core.NodeStatus
 
 type GetNodeConfigInput struct {
-	Node string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard or selector"`
+	Node string `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
 }
 
 type GetNodeConfigOutput = core.NodeConfig
@@ -59,7 +59,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:        "get_node_config",
 			Title:       "Get node configuration",
-			Description: "Read the bounded raw OpenSVC node configuration file for one exact node. The MCP always requests daemon-side secret redaction, returns at most 65536 bytes, and does not interpret the configuration. Requires root access to the daemon endpoint.",
+			Description: "Read the bounded raw OpenSVC node configuration file for one exact node, defaulting to the local daemon node through the underscore alias. The MCP always requests daemon-side secret redaction, returns at most 65536 bytes, and does not interpret the configuration. Requires root access to the daemon endpoint.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input GetNodeConfigInput) (*mcp.CallToolResult, GetNodeConfigOutput, error) {

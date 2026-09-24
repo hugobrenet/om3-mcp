@@ -71,7 +71,7 @@ type NodeCapacityPolicy struct {
 
 type NodeConfig struct {
 	Provenance         Provenance `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
-	Node               string     `json:"node" jsonschema:"the exact OpenSVC node whose configuration file was requested"`
+	Node               string     `json:"node" jsonschema:"the exact requested OpenSVC node name or the underscore alias for the local daemon node"`
 	Content            string     `json:"content" jsonschema:"bounded OpenSVC node configuration file content returned by the daemon"`
 	SizeBytes          int        `json:"size_bytes" jsonschema:"complete redacted configuration file size in bytes before MCP output truncation"`
 	ReturnedBytes      int        `json:"returned_bytes" jsonschema:"number of configuration content bytes included in this result"`
@@ -198,7 +198,9 @@ func nodeMembershipFacts(nodeName string, configuredNodes []string) NodeMembersh
 }
 
 func (s *Service) GetNodeConfig(ctx context.Context, node string) (NodeConfig, error) {
-	if node == "" || len(node) > 255 || node != strings.TrimSpace(node) || strings.IndexFunc(node, func(r rune) bool {
+	if node == "" {
+		node = localDaemonNodeAlias
+	} else if len(node) > 255 || node != strings.TrimSpace(node) || strings.IndexFunc(node, func(r rune) bool {
 		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || strings.ContainsRune("_.-", r))
 	}) >= 0 {
 		return NodeConfig{}, fmt.Errorf("node must be one exact OpenSVC node name of at most 255 characters")

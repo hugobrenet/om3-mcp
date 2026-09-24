@@ -47,15 +47,16 @@ not read the cluster status cache, refresh drivers, or change configuration.
 
 #### Input and output
 
-`node` is required and must be one exact OpenSVC node name of at most 255
+`node` is optional and defaults to `_`, the daemon API alias for the local
+node. A supplied value must be one exact OpenSVC node name of at most 255
 characters using letters, digits, dot, underscore, or hyphen. Leading and
 trailing whitespace, paths, wildcards, and selectors are rejected before any
 daemon request.
 
 The output has the same `provenance`, `content`, `size_bytes`,
 `returned_bytes`, `truncated`, and `redaction_requested` fields as
-`get_cluster_config`, plus `node` containing the requested node. The 65,536-byte
-MCP output limit, 1 MiB transport ceiling, UTF-8 requirement, and
+`get_cluster_config`, plus `node` containing the requested node or `_` when the
+local default was used. The 65,536-byte MCP output limit, 1 MiB transport ceiling, UTF-8 requirement, and
 `application/octet-stream` check are identical.
 
 #### MCP properties
@@ -75,7 +76,7 @@ Annotations are client hints; OpenSVC enforces access using the delegated JWT.
 Input:
 
 ```json
-{"node":"node1"}
+{}
 ```
 
 Output:
@@ -83,7 +84,7 @@ Output:
 ```json
 {
   "provenance": {"source": "opensvc_daemon", "observed_at": "2026-09-23T10:00:01Z"},
-  "node": "node1",
+  "node": "_",
   "content": "[node]\nsshkey = ********\n",
   "size_bytes": 27,
   "returned_bytes": 27,
@@ -98,7 +99,7 @@ Output:
 |---|---|
 | Invalid MCP JWT | MCP HTTP `401` |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
-| Empty, oversized, or non-exact `node` | Tool error before the daemon request |
+| Oversized or non-exact non-empty `node` | Tool error before the daemon request |
 | Node or node configuration file missing | Tool error containing daemon HTTP `404` |
 | Response above 1 MiB | Tool error before any content is returned |
 | Invalid UTF-8 or unexpected media type | Tool error; no partial configuration is returned |

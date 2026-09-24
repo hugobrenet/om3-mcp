@@ -65,6 +65,21 @@ func TestGetNodeConfigRequestsRedaction(t *testing.T) {
 	}
 }
 
+func TestGetNodeConfigDefaultsToLocalAlias(t *testing.T) {
+	payload := []byte("[node]\nsshkey = ********\n")
+	client := &configFileClient{
+		t: t, path: "/api/node/name/_/config/file",
+		query: url.Values{"redact-secrets": {"true"}}, payload: payload,
+	}
+	result, err := New(client).GetNodeConfig(context.Background(), "")
+	if err != nil {
+		t.Fatalf("get local node config: %v", err)
+	}
+	if result.Node != localDaemonNodeAlias || result.Content != string(payload) || !result.RedactionRequested {
+		t.Fatalf("unexpected local node config: %+v", result)
+	}
+}
+
 func TestGetConfigBoundsUTF8Content(t *testing.T) {
 	payload := []byte(strings.Repeat("x", maxConfigFileOutputBytes-1) + "é" + "tail")
 	client := &configFileClient{
@@ -94,7 +109,7 @@ func TestGetConfigRejectsInvalidUTF8(t *testing.T) {
 }
 
 func TestGetNodeConfigRejectsInvalidNodeBeforeDaemonCall(t *testing.T) {
-	for _, node := range []string{"", " node-a", "node/a", strings.Repeat("x", 256)} {
+	for _, node := range []string{" node-a", "node/a", strings.Repeat("x", 256)} {
 		client := &configFileClient{t: t}
 		if _, err := New(client).GetNodeConfig(context.Background(), node); err == nil {
 			t.Errorf("node %q succeeded", node)

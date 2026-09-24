@@ -56,7 +56,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 			}
 			response.Header().Set("Content-Type", "application/octet-stream")
 			fmt.Fprint(response, "[cluster]\\nname = prod\\nsecret = ********\\n")
-		case "/api/node/name/node-a/config/file":
+		case "/api/node/name/_/config/file":
 			if got := request.URL.Query().Get("redact-secrets"); got != "true" {
 				t.Errorf("got node config redact-secrets %q, want true", got)
 			}
@@ -335,7 +335,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		if tool.Description == "" {
 			t.Errorf("tool %q has no description", tool.Name)
 		}
-		if tool.Name == "get_node_config" || tool.Name == "get_node_status" || tool.Name == "get_node_logs" {
+		if tool.Name == "get_node_status" || tool.Name == "get_node_logs" {
 			encoded, err := json.Marshal(tool.InputSchema)
 			if err != nil {
 				t.Errorf("%s input schema marshal: %v", tool.Name, err)
@@ -487,7 +487,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "get_node_config",
-		Arguments: mcptools.GetNodeConfigInput{Node: "node-a"},
+		Arguments: mcptools.GetNodeConfigInput{},
 	})
 	if err != nil || result.IsError {
 		t.Fatalf("call get_node_config: err=%v result=%#v", err, result)
@@ -497,7 +497,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	if err := json.Unmarshal(data, &nodeConfig); err != nil {
 		t.Fatalf("decode node config: %v", err)
 	}
-	if nodeConfig.Node != "node-a" || nodeConfig.Content != "[node]\\nsshkey = ********\\n" || nodeConfig.Truncated || !nodeConfig.RedactionRequested {
+	if nodeConfig.Node != "_" || nodeConfig.Content != "[node]\\nsshkey = ********\\n" || nodeConfig.Truncated || !nodeConfig.RedactionRequested {
 		t.Errorf("got unexpected node config %#v", nodeConfig)
 	}
 	assertResultProvenance(t, nodeConfig.Provenance)

@@ -5,6 +5,7 @@ tools:
   - get_node_status
   - get_node_logs
   - list_node_capabilities
+  - list_node_drivers
 stability: experimental
 ---
 
@@ -16,7 +17,8 @@ read its recent OpenSVC journal entries.
 
 Implementation:
 
-- business logic: `internal/core/node.go` and `internal/core/node_capability.go`;
+- business logic: `internal/core/node.go`, `internal/core/node_capability.go`, and
+  `internal/core/node_driver.go`;
 - MCP definitions: `internal/tools/node.go`.
 
 ## Tools
@@ -410,6 +412,105 @@ The MCP does not translate these markers into availability or health verdicts.
 | Unexpected list/item kind, node, or capability name | Tool error; no partial list |
 | Daemon or remote-node proxy unavailable | Tool error with transport context |
 
+### `list_node_drivers`
+
+Returns the exact driver names registered in one running OpenSVC daemon. Use
+it to establish whether that daemon knows how to parse and operate a driver
+type before checking its detected capabilities, configuration, or resource
+status.
+
+#### OpenSVC API and authorization
+
+```text
+GET /api/node/name/_/drivers
+```
+
+The endpoint requires the global `root` grant. It reads the in-memory driver
+registry of the local daemon by default. When the optional `node` input is
+set, `_` is replaced with that exact node name and OpenSVC proxies the request
+when necessary. This read does not execute drivers, scan capabilities, probe
+dependencies, or change daemon state.
+
+The registry includes drivers compiled or loaded into the running process.
+Registration alone does not prove that required commands or operating-system
+features exist, that a driver is configured or used, or that it is healthy.
+Use `list_node_capabilities` separately when the last detected runtime support
+matters. The MCP deliberately does not merge both sources into an
+`available` verdict.
+
+#### Input and pagination
+
+| Input | Required | Default | Bounds | Meaning |
+|---|---:|---:|---:|---|
+| `node` | No | Local node (`_`) | Exact hostname using letters, digits, `.`, `_`, or `-`; at most 255 characters | Node whose running driver registry is read |
+| `limit` | No | 100 | 1..200 | Maximum distinct driver names returned |
+| `cursor` | No | — | At most 1024 characters | Exact `next_cursor` from the preceding page for the same node |
+
+The MCP validates the live response shape observed from OpenSVC:
+`DriverList` containing `DriverItem` entries. With an explicit node,
+`meta.node` must match it. With the local `_` alias, all entries must report
+one consistent exact node, which is returned in the output `node` field. An
+empty local result keeps `node` set to `_`. Names are preserved exactly; only
+exact duplicates are removed before lexicographic sorting. `reported_total`
+is the raw number of entries returned by OpenSVC; `total` is the number of
+distinct names. A page is additionally bounded to 64 Ki Unicode code points,
+and each name to 1024.
+
+The current OpenAPI schema spells the item enum `DriversItem`, while both the
+daemon handler and the live response use `DriverItem`. The MCP follows the
+actual daemon contract and rejects the schema-only spelling.
+
+#### MCP properties
+
+| Property | Value |
+|---|---|
+| Title | List node drivers |
+| Read-only | Yes |
+| Destructive | No |
+| Open world | No; only the configured daemon and its OpenSVC proxy path are used |
+| Side effects | None; no driver execution or capability scan |
+
+#### Example
+
+Input:
+
+```json
+{"limit":5}
+```
+
+Output based on the real node1 registry:
+
+```json
+{
+  "provenance": {"source":"opensvc_daemon","observed_at":"2026-09-24T15:30:00Z"},
+  "node": "node1",
+  "reported_total": 122,
+  "total": 122,
+  "count": 5,
+  "drivers": [
+    "app.forking",
+    "app.simple",
+    "array.freenas",
+    "array.hds",
+    "array.hoc"
+  ],
+  "next_cursor": "array.hoc",
+  "truncated": true
+}
+```
+
+#### Errors
+
+| Condition | Result |
+|---|---|
+| Invalid MCP JWT | MCP HTTP `401` |
+| Missing global `root` grant | Tool error containing daemon HTTP `403` |
+| Oversized or non-exact non-empty `node` | Tool error before the daemon request |
+| Invalid page size or cursor | Tool validation error |
+| Cursor no longer present after a registry change | Explicit stale-cursor tool error |
+| Unexpected list/item kind, node, or driver name | Tool error; no partial list |
+| Daemon or remote-node proxy unavailable | Tool error with transport context |
+
 ### `get_node_logs`
 
 Returns a finite, bounded list of recent OpenSVC `om` journal entries for one
@@ -458,7 +559,7 @@ component values, oversized streams, and daemon errors become MCP tool errors.
 
 ## Compatibility
 
-Node status, capability, and log behavior was verified against the OpenSVC
+Node status, capability, driver, and log behavior was verified against the OpenSVC
 development branch used by the two-node lab. Node configuration redaction
 requires OpenSVC main including `opensvc/om3#1125` until that change is
 included in a tagged release.

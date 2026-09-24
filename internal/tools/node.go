@@ -35,6 +35,14 @@ type ListNodeCapabilitiesInput struct {
 
 type ListNodeCapabilitiesOutput = core.NodeCapabilityList
 
+type ListNodeDriversInput struct {
+	Node   string `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
+	Cursor string `json:"cursor,omitempty" jsonschema:"optional next_cursor returned by a previous call for the same node"`
+}
+
+type ListNodeDriversOutput = core.NodeDriverList
+
 func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 	if err := addTool(
 		registrar,
@@ -110,6 +118,28 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 				return nil, ListNodeCapabilitiesOutput{}, err
 			}
 			return nil, capabilities, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "list_node_drivers",
+			Title: "List node drivers",
+			Description: "List the exact driver names registered in one running OpenSVC daemon, defaulting to the local node, with bounded pagination. " +
+				"Registration means the daemon knows the driver; it does not prove that runtime dependencies are available, that the driver is configured or used, or that it is healthy. " +
+				"This root-only read does not scan capabilities, execute drivers, or make changes.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListNodeDriversInput) (*mcp.CallToolResult, ListNodeDriversOutput, error) {
+			drivers, err := service.ListNodeDrivers(ctx, core.ListNodeDriversOptions{
+				Node: input.Node, Limit: input.Limit, Cursor: input.Cursor,
+			})
+			if err != nil {
+				return nil, ListNodeDriversOutput{}, err
+			}
+			return nil, drivers, nil
 		},
 	); err != nil {
 		return err

@@ -54,7 +54,7 @@ func TestGetObjectStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get object status: %v", err)
 	}
-	if !result.IsActor || result.Availability != "down" || result.InstanceCount != 2 {
+	if result.Availability != "down" || result.InstanceCount != 2 {
 		t.Fatalf("got unexpected object status %+v", result)
 	}
 	if !reflect.DeepEqual(result.Scope, []string{"node-a", "node-b"}) || !reflect.DeepEqual(result.InstanceNodes, []string{"node-a", "node-b"}) {

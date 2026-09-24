@@ -362,10 +362,12 @@ monitor fields.
 }
 ```
 
-`refresh_observed=true` means a newer timestamp was read. If the accepted action
-does not become visible before the deadline, the tool returns structured
-success with `timed_out=true`, the accepted `session_id`, and the latest
-observed instance. The action may still complete later.
+`refresh_observed=true` means a different non-empty `updated_at` was read. It
+does not assert that the instance is healthy and does not prove that this
+specific action caused the timestamp change. If no such change becomes visible
+before the deadline, the tool returns structured success with `timed_out=true`,
+the accepted `session_id`, and the latest observed instance. The action may
+still complete later.
 
 #### Authorization error example
 

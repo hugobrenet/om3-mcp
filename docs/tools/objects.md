@@ -163,7 +163,6 @@ Wildcard paths are intentionally unsupported.
   "frozen": "unfrozen",
   "instance_count": 1,
   "instance_nodes": ["lab-node-01"],
-  "is_actor": true,
   "object": {
     "kind": "svc",
     "name": "redis",
@@ -183,8 +182,9 @@ Wildcard paths are intentionally unsupported.
 }
 ```
 
-`is_actor` distinguishes svc and vol actors from support objects that do not
-publish availability. Scope and instance node names are sorted.
+`availability` is present only when the daemon publishes `avail` for the
+object. The MCP does not derive an actor classification from its presence or
+absence. Scope and instance node names are sorted.
 
 ### `get_object_config`
 

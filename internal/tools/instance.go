@@ -62,7 +62,7 @@ func RegisterInstanceTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:        "refresh_instance_status",
 			Title:       "Refresh instance status",
-			Description: "Actively run an OpenSVC status probe for one exact object instance, then poll until a newer status is observed or the bounded timeout expires. Requires operator access on the namespace; it is non-destructive but executes resource drivers and updates daemon state.",
+			Description: "Actively run an OpenSVC status probe for one exact object instance, then poll until a different non-empty updated_at is observed or the bounded timeout expires. A changed timestamp does not assert instance health or prove that this action caused the update. Requires operator access on the namespace; it is non-destructive but executes resource drivers and updates daemon state.",
 			Annotations: activeNonDestructiveClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input RefreshInstanceStatusInput) (*mcp.CallToolResult, RefreshInstanceStatusOutput, error) {

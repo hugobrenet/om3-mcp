@@ -79,8 +79,8 @@ type RefreshInstanceStatusResult struct {
 	Object            ClusterObjectReference `json:"object" jsonschema:"the canonical OpenSVC object reference"`
 	Node              string                 `json:"node" jsonschema:"the refreshed instance node name"`
 	SessionID         string                 `json:"session_id" jsonschema:"the OpenSVC session identifier returned when the status action was accepted"`
-	RefreshObserved   bool                   `json:"refresh_observed" jsonschema:"whether a newer instance status was observed before timeout"`
-	TimedOut          bool                   `json:"timed_out" jsonschema:"whether polling ended before a newer instance status was observed"`
+	RefreshObserved   bool                   `json:"refresh_observed" jsonschema:"whether a different non-empty instance updated_at was observed before timeout; this does not assert health or causation"`
+	TimedOut          bool                   `json:"timed_out" jsonschema:"whether polling ended before a different non-empty instance updated_at was observed"`
 	PreviousUpdatedAt string                 `json:"previous_updated_at" jsonschema:"the instance status timestamp captured before the refresh action"`
 	CurrentUpdatedAt  string                 `json:"current_updated_at" jsonschema:"the latest instance status timestamp observed while polling"`
 	DurationMS        int64                  `json:"duration_ms" jsonschema:"elapsed milliseconds from action acceptance to the final observation"`

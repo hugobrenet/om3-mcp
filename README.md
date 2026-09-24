@@ -165,16 +165,19 @@ go vet ./...
 
 `scripts/smoke-node.sh` automates a short development loop against `node1`:
 focused tests, Linux build, temporary copy, isolated MCP startup on another
-Unix socket, short-lived in-memory `guest` JWT creation, and a direct
+Unix socket, short-lived in-memory JWT creation, and a direct
 `tools/call`. It does not stop or replace the installed MCP service.
 
 ~~~bash
 scripts/smoke-node.sh
 scripts/smoke-node.sh --tool get_node_status --arguments '{"node":"node1"}'
+scripts/smoke-node.sh --role root --tool list_daemon_executions --arguments '{"node":"node1","limit":3}'
 ~~~
 
 Use `--target USER@HOST` or `MCP_SMOKE_TARGET` for another lab node. The remote
 node must provide passwordless `sudo`, `om`, `curl`, `jq`, and `systemd-run`.
+The temporary JWT uses the `guest` role by default; pass `--role root` only for
+a tool whose daemon endpoint requires it.
 The script enables insecure TLS verification only for the candidate's loopback
 connection to the lab daemon; it does not change the installed service.
 

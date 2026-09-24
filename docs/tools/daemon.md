@@ -2,6 +2,7 @@
 domain: daemon
 tools:
   - get_daemon_status
+  - list_daemon_executions
 stability: experimental
 ---
 
@@ -12,7 +13,7 @@ its factual subsystem status.
 
 Implementation:
 
-- business logic: `internal/core/daemon.go`;
+- business logic: `internal/core/daemon.go` and `internal/core/daemon_execution.go`;
 - MCP definitions: `internal/tools/daemon.go`.
 
 ## Tools
@@ -122,8 +123,113 @@ reclassified as stopped or unhealthy.
 
 Errors never include the delegated JWT.
 
+### `list_daemon_executions`
+
+Returns commands currently running or recently retained by the OpenSVC daemon
+on one exact node. Use it to correlate a diagnostic with a session,
+orchestration, object, resource, origin, exit code, or daemon-reported error.
+It preserves the exact execution state and does not infer success, failure, or
+cluster health.
+
+#### OpenSVC API
+
+```text
+GET /api/node/name/{node}/daemon/exec
+```
+
+When `node` is omitted, the tool uses the daemon's local-node alias `_`. The
+endpoint requires the OpenSVC `root` grant. The MCP forwards only the daemon's
+native filters: repeated `state` and `origin` values, `session_id`,
+`orchestration_id`, `exec_id`, `selector` for one exact object path, and `rid`.
+
+The daemon retains a bounded recent execution history; records can disappear
+between pages. The MCP sorts the current result by `started_at` descending and
+then `exec_id`, applies a page size of 50 by default and 100 at most, and emits
+an opaque `next_cursor`. Reuse a cursor only with the same filters. A cursor
+whose execution has left the daemon history produces an explicit tool error.
+
+Commands are limited to 2048 runes, titles to 512, errors to 4096, and the
+aggregate page text to 128 Ki runes. Each shortened field has a corresponding
+`*_truncated` flag. IDs and timestamps are validated before data is returned.
+
+#### MCP properties
+
+| Property | Value |
+|---|---|
+| Title | List daemon executions |
+| Read-only | Yes |
+| Destructive | No |
+| Open world | No; only the configured daemon is contacted |
+| Side effects | None |
+
+#### Input example
+
+```json
+{
+  "node": "node1",
+  "states": ["failed", "running"],
+  "origins": ["api", "scheduler"],
+  "object_path": "lab/svc/redis",
+  "limit": 20
+}
+```
+
+All filters are optional. `node` and `object_path` must be exact values, not
+selectors. `session_id`, `orchestration_id`, and `exec_id`, when present, must
+be canonical UUIDs. At most 16 exact state values and 16 exact origin values
+are accepted. Unknown state and origin strings are forwarded and preserved.
+
+#### Output shape example
+
+```json
+{
+  "provenance": {"source": "opensvc_daemon", "observed_at": "2026-09-24T10:02:00Z"},
+  "total": 1,
+  "count": 1,
+  "executions": [
+    {
+      "session_id": "10000000-0000-0000-0000-000000000001",
+      "exec_id": "20000000-0000-0000-0000-000000000001",
+      "orchestration_id": null,
+      "node": "node1",
+      "path": "lab/svc/redis",
+      "origin": "scheduler",
+      "rid": "container#redis",
+      "title": null,
+      "title_truncated": false,
+      "command": "om lab/svc/redis status",
+      "command_truncated": false,
+      "state": "succeeded",
+      "error": null,
+      "error_truncated": false,
+      "exit_code": 0,
+      "started_at": "2026-09-24T10:01:00Z",
+      "ended_at": "2026-09-24T10:01:01Z",
+      "pid": null
+    }
+  ],
+  "truncated": false
+}
+```
+
+Optional facts remain `null` when absent. In particular, a running execution
+can have no `exit_code` or `ended_at`; the MCP does not synthesize them. Command
+and error text can expose sensitive operational arguments, which is why this
+tool is root-only and should be requested only when execution history is
+needed.
+
+#### Errors
+
+| Condition | Result |
+|---|---|
+| Invalid input, page size, UUID, or cursor | Tool validation error before the daemon call |
+| Insufficient daemon grants | Tool error containing daemon HTTP `403` |
+| Cursor record no longer retained | Explicit stale-cursor tool error |
+| Malformed kind, ID, timestamp, or oversized identity field | Tool error; no partial list |
+| Daemon unavailable | Tool error with transport context |
+
 ## Compatibility
 
 Verified against the OpenSVC development build identified by Git commit
 `481b933476ec79c3f647a78b934f3d10d6d3c1aa` using
-`GET /api/cluster/status`.
+`GET /api/cluster/status` and `GET /api/node/name/{node}/daemon/exec`.

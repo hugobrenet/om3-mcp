@@ -6,6 +6,7 @@ repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 target=${MCP_SMOKE_TARGET:-brenet@192.168.1.203}
 tool_name=get_daemon_status
 tool_arguments='{}'
+token_role=guest
 run_tests=true
 
 usage() {
@@ -19,6 +20,7 @@ Options:
   --target USER@HOST    SSH target (default: brenet@192.168.1.203)
   --tool NAME           MCP tool to call (default: get_daemon_status)
   --arguments JSON      Tool arguments object (default: {})
+  --role ROLE           OpenSVC role for the temporary JWT (default: guest)
   --skip-tests          Skip the focused Go tests before building
   -h, --help            Show this help
 
@@ -47,6 +49,11 @@ while (($# > 0)); do
 		tool_arguments=$2
 		shift 2
 		;;
+	--role)
+		[[ $# -ge 2 ]] || { echo "missing value for --role" >&2; exit 2; }
+		token_role=$2
+		shift 2
+		;;
 	--skip-tests)
 		run_tests=false
 		shift
@@ -69,6 +76,10 @@ done
 }
 [[ $tool_name =~ ^[A-Za-z0-9_-]{1,128}$ ]] || {
 	echo "invalid MCP tool name: $tool_name" >&2
+	exit 2
+}
+[[ $token_role =~ ^[A-Za-z0-9:_-]{1,128}$ ]] || {
+	echo "invalid OpenSVC token role: $token_role" >&2
 	exit 2
 }
 command -v go >/dev/null || { echo "go is required" >&2; exit 1; }
@@ -97,6 +108,7 @@ trap cleanup EXIT
 binary=$local_tmp/opensvc-daemon-mcp
 printf '%s\n' "$tool_name" >"$local_tmp/tool-name"
 printf '%s\n' "$tool_arguments" >"$local_tmp/arguments.json"
+printf '%s\n' "$token_role" >"$local_tmp/token-role"
 
 if [[ $run_tests == true ]]; then
 	echo "==> focused Go tests"
@@ -124,7 +136,7 @@ remote_tmp=$(ssh "${ssh_options[@]}" "$target" 'mktemp -d /tmp/opensvc-mcp-smoke
 
 echo "==> stage candidate on $target:$remote_tmp"
 scp "${ssh_options[@]}" \
-	"$binary" "$local_tmp/tool-name" "$local_tmp/arguments.json" "$local_tmp/expected-sha256" \
+	"$binary" "$local_tmp/tool-name" "$local_tmp/arguments.json" "$local_tmp/token-role" "$local_tmp/expected-sha256" \
 	"$target:$remote_tmp/"
 
 echo "==> call $tool_name through an isolated MCP instance"
@@ -146,6 +158,11 @@ done
 sudo -n true
 jq -e 'type == "object"' "$remote_tmp/arguments.json" >/dev/null || {
 	echo "--arguments must be a valid JSON object" >&2
+	exit 2
+}
+token_role=$(<"$remote_tmp/token-role")
+[[ $token_role =~ ^[A-Za-z0-9:_-]{1,128}$ ]] || {
+	echo "invalid OpenSVC token role: $token_role" >&2
 	exit 2
 }
 
@@ -194,7 +211,7 @@ fi
 
 # The JWT remains only in this process memory. It is never written to a file,
 # passed as an MCP argument, or printed.
-token=$(sudo -n om daemon auth --role guest --duration 5m --output json | jq -er '.access_token')
+token=$(sudo -n om daemon auth --role "$token_role" --duration 5m --output json | jq -er '.access_token')
 
 mcp_post() {
 	local request_file=$1

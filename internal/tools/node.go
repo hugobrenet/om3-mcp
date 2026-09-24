@@ -43,6 +43,16 @@ type ListNodeDriversInput struct {
 
 type ListNodeDriversOutput = core.NodeDriverList
 
+type GetNodeDaemonMetricsInput struct {
+	Node     string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Names    []string `json:"names,omitempty" jsonschema:"optional exact Prometheus metric family names; combined with prefixes using OR; at most 32 entries"`
+	Prefixes []string `json:"prefixes,omitempty" jsonschema:"optional Prometheus metric family name prefixes; combined with names using OR; at most 32 entries"`
+	Limit    int      `json:"limit,omitempty" jsonschema:"optional page size in metric families between 1 and 200; defaults to 100"`
+	Cursor   string   `json:"cursor,omitempty" jsonschema:"optional next_cursor returned by a previous call with the same node and filters"`
+}
+
+type GetNodeDaemonMetricsOutput = core.NodeDaemonMetricList
+
 func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 	if err := addTool(
 		registrar,
@@ -140,6 +150,28 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 				return nil, ListNodeDriversOutput{}, err
 			}
 			return nil, drivers, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "get_node_daemon_metrics",
+			Title: "Get node daemon metrics",
+			Description: "Read bounded Prometheus metric families exposed by one OpenSVC daemon, defaulting to the local node, with optional exact-name or prefix filters and family pagination. " +
+				"Returns typed counters, gauges, summaries, histograms, labels, and values as source facts for advanced activity or performance diagnosis. " +
+				"It does not interpret health, calculate rates, expose workload metrics, or modify daemon state.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input GetNodeDaemonMetricsInput) (*mcp.CallToolResult, GetNodeDaemonMetricsOutput, error) {
+			metrics, err := service.GetNodeDaemonMetrics(ctx, core.GetNodeDaemonMetricsOptions{
+				Node: input.Node, Names: input.Names, Prefixes: input.Prefixes, Limit: input.Limit, Cursor: input.Cursor,
+			})
+			if err != nil {
+				return nil, GetNodeDaemonMetricsOutput{}, err
+			}
+			return nil, metrics, nil
 		},
 	); err != nil {
 		return err

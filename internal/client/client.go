@@ -17,12 +17,49 @@ import (
 const (
 	maxResponseBodySize       = 10 << 20
 	maxFileResponseBodySize   = 1 << 20
+	maxTextResponseBodySize   = 1 << 20
 	maxStreamResponseBodySize = 2 << 20
 )
 
 type Client struct {
 	baseURL    *url.URL
 	httpClient *http.Client
+}
+
+// GetText reads a bounded text/plain response from the OpenSVC daemon.
+func (c *Client) GetText(ctx context.Context, path string, query url.Values) ([]byte, error) {
+	endpoint := c.baseURL.JoinPath(strings.TrimPrefix(path, "/"))
+	endpoint.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create OpenSVC daemon GET request: %w", err)
+	}
+	request.Header.Set("Accept", "text/plain")
+	if err := auth.ApplyBearerFromContext(request); err != nil {
+		return nil, fmt.Errorf("authenticate OpenSVC daemon request: %w", err)
+	}
+
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("request OpenSVC daemon %s: %w", path, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, newAPIError(http.MethodGet, path, response)
+	}
+	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	if err != nil || mediaType != "text/plain" {
+		return nil, fmt.Errorf("OpenSVC daemon %s returned unexpected content type %q", path, response.Header.Get("Content-Type"))
+	}
+
+	payload, err := io.ReadAll(io.LimitReader(response.Body, maxTextResponseBodySize+1))
+	if err != nil {
+		return nil, fmt.Errorf("read OpenSVC daemon %s response: %w", path, err)
+	}
+	if len(payload) > maxTextResponseBodySize {
+		return nil, fmt.Errorf("OpenSVC daemon %s response exceeds %d bytes", path, maxTextResponseBodySize)
+	}
+	return payload, nil
 }
 
 func New(rawBaseURL string, httpClient *http.Client) (*Client, error) {

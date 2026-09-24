@@ -6,19 +6,20 @@ tools:
   - get_node_logs
   - list_node_capabilities
   - list_node_drivers
+  - get_node_daemon_metrics
 stability: experimental
 ---
 
 # Node Tools
 
 This document describes tools that read bounded node configuration evidence,
-inspect the last-known state and cached capabilities of one exact node, and
-read its recent OpenSVC journal entries.
+inspect the last-known state and cached capabilities of one exact node, read
+its recent OpenSVC journal entries, and expose advanced daemon-process metrics.
 
 Implementation:
 
-- business logic: `internal/core/node.go`, `internal/core/node_capability.go`, and
-  `internal/core/node_driver.go`;
+- business logic: `internal/core/node.go`, `internal/core/node_capability.go`,
+  `internal/core/node_driver.go`, and `internal/core/node_daemon_metric.go`;
 - MCP definitions: `internal/tools/node.go`.
 
 ## Tools
@@ -510,6 +511,113 @@ Output based on the real node1 registry:
 | Cursor no longer present after a registry change | Explicit stale-cursor tool error |
 | Unexpected list/item kind, node, or driver name | Tool error; no partial list |
 | Daemon or remote-node proxy unavailable | Tool error with transport context |
+
+### `get_node_daemon_metrics`
+
+Returns bounded Prometheus metric families exported by one running OpenSVC
+daemon. This is an advanced diagnostic tool for hypotheses about daemon
+activity, API latency or errors, scheduler activity, internal queues, Go
+runtime behavior, and process resource consumption. It is not the primary
+source for object, instance, resource, heartbeat, or cluster status.
+
+#### OpenSVC API and scope
+
+```text
+GET /api/node/name/_/metrics
+Accept: text/plain
+```
+
+The optional `node` input replaces `_` with one exact node name; OpenSVC may
+proxy the read to that node. The MCP delegates the request JWT and leaves the
+authorization decision to the daemon. The request does not probe resources or
+change daemon state.
+
+The endpoint exports metrics of the OpenSVC daemon process, including its Go
+runtime and process collector. It does not represent general host, workload,
+or cluster metrics. A counter is cumulative: one isolated value usually does
+not establish a current rate or an anomaly. The MCP deliberately does not
+calculate rates, compare thresholds, or emit a health conclusion.
+
+#### Input, filtering, and pagination
+
+| Input | Required | Default | Bounds | Meaning |
+|---|---:|---:|---:|---|
+| `node` | No | Local daemon (`_`) | Exact node name; at most 255 characters | Daemon whose metrics are read |
+| `names` | No | All | At most 32 | Exact metric family names |
+| `prefixes` | No | All | At most 32 | Metric family name prefixes |
+| `limit` | No | 100 | 1..200 | Maximum families in the page |
+| `cursor` | No | — | At most 1024 characters | Exact `next_cursor` from the preceding call with identical node and filters |
+
+`names` and `prefixes` are combined using OR. Filtering is performed after
+parsing the endpoint response. Families are sorted by exact name and paginated;
+the response reports totals before filtering, after filtering, and for samples.
+The source text is limited to 256 KiB, the filtered result to 5,000 samples,
+and one family to 1,000 samples. These bounds make accidental full metric dumps
+fail explicitly instead of silently dropping measurements.
+
+Each family preserves its `name`, `help`, and Prometheus `type`. Samples expose
+sorted labels and an optional source timestamp. Counter, gauge, and untyped
+values are strings; summaries expose count, sum, and quantiles; histograms
+expose count, sum, and cumulative buckets. Numeric strings preserve Prometheus
+special values such as `NaN` and `+Inf` in valid JSON.
+
+`target_node` is the requested node or `_`. Unlike JSON list endpoints, the
+Prometheus response contains no metadata that reliably resolves `_` to a node
+name, so the MCP does not invent one.
+
+#### MCP properties
+
+| Property | Value |
+|---|---|
+| Title | Get node daemon metrics |
+| Read-only | Yes |
+| Destructive | No |
+| Open world | No; only the configured daemon and its OpenSVC proxy path are used |
+| Side effects | None |
+
+#### Example
+
+Input:
+
+```json
+{"prefixes":["opensvc_api_"],"limit":20}
+```
+
+Abbreviated output:
+
+```json
+{
+  "target_node":"_",
+  "reported_total":59,
+  "total":2,
+  "sample_total":5,
+  "count":2,
+  "returned_sample_count":5,
+  "metrics":[{
+    "name":"opensvc_api_requests_total",
+    "help":"API requests.",
+    "type":"counter",
+    "sample_count":2,
+    "samples":[{
+      "labels":[{"name":"code","value":"200"},{"name":"method","value":"GET"}],
+      "value":"12"
+    }]
+  }],
+  "truncated":false
+}
+```
+
+#### Errors
+
+| Condition | Result |
+|---|---|
+| Invalid MCP JWT | MCP HTTP `401` |
+| Daemon refuses the delegated JWT | Tool error preserving the daemon status and bounded problem detail |
+| Invalid node, filter, page size, or cursor | Tool validation error |
+| Cursor no longer present with the same filters | Explicit stale-cursor tool error |
+| Unexpected media type or malformed Prometheus text | Tool error; no partial metrics are returned |
+| Source or filtered sample bounds exceeded | Explicit tool error suggesting narrower filters |
+| Daemon or remote-node proxy unavailable | Tool error with daemon transport context |
 
 ### `get_node_logs`
 

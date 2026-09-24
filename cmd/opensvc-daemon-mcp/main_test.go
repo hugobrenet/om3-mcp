@@ -193,6 +193,15 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 				t.Errorf("got node drivers query %q, want no parameters", request.URL.RawQuery)
 			}
 			fmt.Fprint(response, `{"kind":"DriverList","items":[{"kind":"DriverItem","meta":{"node":"node-a"},"data":{"name":"fs.zfs"}},{"kind":"DriverItem","meta":{"node":"node-a"},"data":{"name":"app.simple"}}]}`)
+		case "/api/node/name/_/metrics":
+			if request.URL.RawQuery != "" {
+				t.Errorf("got node daemon metrics query %q, want no parameters", request.URL.RawQuery)
+			}
+			if got := request.Header.Get("Accept"); got != "text/plain" {
+				t.Errorf("got node daemon metrics Accept %q, want text/plain", got)
+			}
+			response.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+			fmt.Fprint(response, "# HELP opensvc_api_requests_total API requests.\n# TYPE opensvc_api_requests_total counter\nopensvc_api_requests_total{code=\"200\",method=\"GET\"} 12\n# HELP process_cpu_seconds_total CPU seconds.\n# TYPE process_cpu_seconds_total counter\nprocess_cpu_seconds_total 3.5\n")
 		case "/api/node/name/node-a/instance/path/prod/svc/app/container/log":
 			if request.Method != http.MethodGet {
 				t.Errorf("got container log method %q, want GET", request.Method)
@@ -306,6 +315,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		"get_node_logs":              "Get node logs",
 		"list_node_capabilities":     "List node capabilities",
 		"list_node_drivers":          "List node drivers",
+		"get_node_daemon_metrics":    "Get node daemon metrics",
 		"get_container_logs":         "Get container logs",
 		"get_instance_logs":          "Get instance logs",
 		"get_object_config":          "Get object configuration",
@@ -551,6 +561,25 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Errorf("got unexpected node drivers %#v", nodeDrivers)
 	}
 	assertResultProvenance(t, nodeDrivers.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "get_node_daemon_metrics",
+		Arguments: mcptools.GetNodeDaemonMetricsInput{
+			Prefixes: []string{"opensvc_"},
+		},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call get_node_daemon_metrics: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var nodeDaemonMetrics mcptools.GetNodeDaemonMetricsOutput
+	if err := json.Unmarshal(data, &nodeDaemonMetrics); err != nil {
+		t.Fatalf("decode node daemon metrics: %v", err)
+	}
+	if nodeDaemonMetrics.TargetNode != "_" || nodeDaemonMetrics.ReportedTotal != 2 || nodeDaemonMetrics.Total != 1 || nodeDaemonMetrics.Count != 1 || nodeDaemonMetrics.Metrics[0].Name != "opensvc_api_requests_total" || nodeDaemonMetrics.Metrics[0].Samples[0].Value != "12" {
+		t.Errorf("got unexpected node daemon metrics %#v", nodeDaemonMetrics)
+	}
+	assertResultProvenance(t, nodeDaemonMetrics.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_cluster_objects",

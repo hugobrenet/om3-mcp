@@ -4,18 +4,19 @@ tools:
   - get_node_config
   - get_node_status
   - get_node_logs
+  - list_node_capabilities
 stability: experimental
 ---
 
 # Node Tools
 
 This document describes tools that read bounded node configuration evidence,
-inspect the last-known state of one exact node, and read its recent OpenSVC
-journal entries.
+inspect the last-known state and cached capabilities of one exact node, and
+read its recent OpenSVC journal entries.
 
 Implementation:
 
-- business logic: `internal/core/node.go`;
+- business logic: `internal/core/node.go` and `internal/core/node_capability.go`;
 - MCP definitions: `internal/tools/node.go`.
 
 ## Tools
@@ -310,6 +311,105 @@ representative:
 | Unknown node | Tool error naming the node |
 | Daemon unavailable or malformed response | Tool error with transport or decoding context |
 
+### `list_node_capabilities`
+
+Returns the exact capability markers stored in the OpenSVC capability cache of
+one node. The list can contain base driver capabilities, driver sub-features,
+and node-level environment detections. Use it to establish what OpenSVC last
+detected before investigating configuration, resources, or missing runtime
+dependencies.
+
+#### OpenSVC API, authorization, and freshness
+
+```text
+GET /api/node/name/_/capabilities
+```
+
+The endpoint requires the global `root` grant. It loads the capability cache
+of the local node by default. When the optional `node` input is set, `_` is
+replaced with that exact node name and OpenSVC proxies the request when
+necessary. This read does not execute scanners, probe dependencies, or modify
+the cache.
+
+The endpoint provides no scan timestamp. `provenance.observed_at` dates only
+the MCP read, not the capability scan. A missing marker can therefore mean
+that a dependency was absent during the last scan, that a scanner failed, or
+that the cache is stale. Conversely, a present marker does not prove that a
+feature is configured, used, reachable, or currently healthy. Some scanners
+report built-in support unconditionally, while others inspect commands or OS
+features.
+
+#### Input and pagination
+
+| Input | Required | Default | Bounds | Meaning |
+|---|---:|---:|---:|---|
+| `node` | No | Local node (`_`) | Exact hostname using letters, digits, `.`, `_`, or `-`; at most 255 characters | Node whose cache is read |
+| `limit` | No | 100 | 1..200 | Maximum distinct capability names returned |
+| `cursor` | No | — | At most 1024 characters | Exact `next_cursor` from the preceding page for the same node |
+
+The MCP validates every `CapabilityItem`. With an explicit node,
+`meta.node` must match it. With the local `_` alias, all entries must report
+one consistent exact node, which is returned in the output `node` field. An
+empty local result keeps `node` set to `_`, because no item can resolve the
+alias. Names are preserved exactly; only exact duplicates are removed before
+lexicographic sorting. `reported_total` is the raw number of entries returned
+by OpenSVC; `total` is the number of distinct names. A page is additionally
+bounded to 64 Ki Unicode code points, and each name to 1024.
+
+#### MCP properties
+
+| Property | Value |
+|---|---|
+| Title | List node capabilities |
+| Read-only | Yes |
+| Destructive | No |
+| Open world | No; only the configured daemon and its OpenSVC proxy path are used |
+| Side effects | None; no capability scan |
+
+#### Example
+
+Input:
+
+```json
+{"limit":3}
+```
+
+Output using the real node1 capability cache:
+
+```json
+{
+  "provenance": {"source":"opensvc_daemon","observed_at":"2026-09-24T11:30:00Z"},
+  "node": "node1",
+  "reported_total": 65,
+  "total": 65,
+  "count": 3,
+  "capabilities": [
+    "drivers.array.freenas",
+    "drivers.array.hds",
+    "drivers.array.hoc"
+  ],
+  "next_cursor": "drivers.array.hoc",
+  "truncated": true
+}
+```
+
+Examples of other marker classes observed on node1 include
+`drivers.resource.container.docker`,
+`drivers.resource.container.docker.registry_creds`, and `node.x.systemd`.
+The MCP does not translate these markers into availability or health verdicts.
+
+#### Errors
+
+| Condition | Result |
+|---|---|
+| Invalid MCP JWT | MCP HTTP `401` |
+| Missing global `root` grant | Tool error containing daemon HTTP `403` |
+| Oversized or non-exact non-empty `node` | Tool error before the daemon request |
+| Invalid page size or cursor | Tool validation error |
+| Cursor no longer present after a cache change | Explicit stale-cursor tool error |
+| Unexpected list/item kind, node, or capability name | Tool error; no partial list |
+| Daemon or remote-node proxy unavailable | Tool error with transport context |
+
 ### `get_node_logs`
 
 Returns a finite, bounded list of recent OpenSVC `om` journal entries for one
@@ -358,6 +458,7 @@ component values, oversized streams, and daemon errors become MCP tool errors.
 
 ## Compatibility
 
-Node status and log behavior was verified against OpenSVC `3.0.0-rc30`. Node
-configuration redaction requires OpenSVC main including `opensvc/om3#1125`
-until that change is included in a tagged release.
+Node status, capability, and log behavior was verified against the OpenSVC
+development branch used by the two-node lab. Node configuration redaction
+requires OpenSVC main including `opensvc/om3#1125` until that change is
+included in a tagged release.

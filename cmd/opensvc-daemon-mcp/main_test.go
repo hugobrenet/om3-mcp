@@ -183,6 +183,11 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 				})
 				fmt.Fprintf(response, "event: log\nid: %d\ndata: %s\n\n", index+1, envelope)
 			}
+		case "/api/node/name/_/capabilities":
+			if request.URL.RawQuery != "" {
+				t.Errorf("got node capabilities query %q, want no parameters", request.URL.RawQuery)
+			}
+			fmt.Fprint(response, `{"kind":"CapabilityList","items":[{"kind":"CapabilityItem","meta":{"node":"node-a"},"data":{"name":"node.x.systemd"}},{"kind":"CapabilityItem","meta":{"node":"node-a"},"data":{"name":"drivers.resource.container.docker"}}]}`)
 		case "/api/node/name/node-a/instance/path/prod/svc/app/container/log":
 			if request.Method != http.MethodGet {
 				t.Errorf("got container log method %q, want GET", request.Method)
@@ -294,6 +299,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		"get_node_config":            "Get node configuration",
 		"get_node_status":            "Get node status",
 		"get_node_logs":              "Get node logs",
+		"list_node_capabilities":     "List node capabilities",
 		"get_container_logs":         "Get container logs",
 		"get_instance_logs":          "Get instance logs",
 		"get_object_config":          "Get object configuration",
@@ -505,6 +511,23 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Errorf("got unexpected node heartbeat or membership facts %#v", nodeStatus)
 	}
 	assertResultProvenance(t, nodeStatus.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "list_node_capabilities",
+		Arguments: mcptools.ListNodeCapabilitiesInput{},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call list_node_capabilities: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var nodeCapabilities mcptools.ListNodeCapabilitiesOutput
+	if err := json.Unmarshal(data, &nodeCapabilities); err != nil {
+		t.Fatalf("decode node capabilities: %v", err)
+	}
+	if nodeCapabilities.Node != "node-a" || nodeCapabilities.ReportedTotal != 2 || nodeCapabilities.Total != 2 || nodeCapabilities.Count != 2 || nodeCapabilities.Capabilities[0] != "drivers.resource.container.docker" || nodeCapabilities.Capabilities[1] != "node.x.systemd" {
+		t.Errorf("got unexpected node capabilities %#v", nodeCapabilities)
+	}
+	assertResultProvenance(t, nodeCapabilities.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_cluster_objects",

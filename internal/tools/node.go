@@ -27,6 +27,14 @@ type GetNodeLogsInput struct {
 
 type GetNodeLogsOutput = core.NodeLogList
 
+type ListNodeCapabilitiesInput struct {
+	Node   string `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
+	Cursor string `json:"cursor,omitempty" jsonschema:"optional next_cursor returned by a previous call for the same node"`
+}
+
+type ListNodeCapabilitiesOutput = core.NodeCapabilityList
+
 func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 	if err := addTool(
 		registrar,
@@ -80,6 +88,28 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 				return nil, GetNodeLogsOutput{}, err
 			}
 			return nil, logs, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "list_node_capabilities",
+			Title: "List node capabilities",
+			Description: "List the exact capability markers cached by OpenSVC for one node, defaulting to the local daemon node, with bounded pagination. " +
+				"Capabilities can represent built-in support, environment detections, or driver sub-features; their presence does not prove configuration, use, reachability, or current health. " +
+				"This root-only read does not trigger a capability scan or make changes.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListNodeCapabilitiesInput) (*mcp.CallToolResult, ListNodeCapabilitiesOutput, error) {
+			capabilities, err := service.ListNodeCapabilities(ctx, core.ListNodeCapabilitiesOptions{
+				Node: input.Node, Limit: input.Limit, Cursor: input.Cursor,
+			})
+			if err != nil {
+				return nil, ListNodeCapabilitiesOutput{}, err
+			}
+			return nil, capabilities, nil
 		},
 	); err != nil {
 		return err

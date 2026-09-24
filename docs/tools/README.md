@@ -11,7 +11,7 @@ combine the tools during operations.
 |---|---|---|
 | Daemon | `get_daemon_status`, `list_daemon_executions`, `list_daemon_orchestrations` | [Daemon tools](daemon.md) |
 | Cluster | `get_cluster_config`, `get_cluster_status` | [Cluster tools](cluster.md) |
-| Node | `get_node_config`, `get_node_status`, `get_node_logs` | [Node tools](node.md) |
+| Node | `get_node_config`, `get_node_status`, `get_node_logs`, `list_node_capabilities` | [Node tools](node.md) |
 | Objects | `list_cluster_objects`, `get_object_status`, `get_object_config` | [Object tools](objects.md) |
 | Instances | `list_object_instances`, `get_instance_logs`, `refresh_instance_status` | [Instance tools](instances.md) |
 | Resources | `list_cluster_ip_resources`, `list_object_resources`, `get_container_logs` | [Resource tools](resources.md) |
@@ -27,6 +27,7 @@ get_daemon_status
   -> get_cluster_status
   -> get_cluster_config when declared cluster settings matter
   -> get_node_status when one node needs closer inspection
+  -> list_node_capabilities when detected runtime or driver support matters
   -> get_node_config when declared node settings matter
   -> get_node_logs when recent daemon activity on that node matters
   -> list_cluster_ip_resources when cluster service-address ownership matters
@@ -56,6 +57,9 @@ facts from the daemon's last-known cluster view without an MCP health verdict.
 declared settings matter.
 `get_node_status` shows the reported state, membership context, monitor,
 capacity, policy, and bounded heartbeat facts for one exact node.
+`list_node_capabilities` returns the exact capability markers stored by the
+last OpenSVC capability scan, defaulting to the local node through `_`, without
+treating presence as current health or configuration.
 `get_node_config` provides the current redacted configuration for one exact
 node.
 `get_node_logs` shows recent OpenSVC journal entries on one exact node, with an
@@ -133,6 +137,7 @@ are representative and will differ between calls.
 | `get_cluster_status` | Yes | No | `guest` or higher |
 | `get_node_config` | Yes | No | `root` |
 | `get_node_status` | Yes | No | `guest` or higher |
+| `list_node_capabilities` | Yes | No | `root` |
 | `get_node_logs` | Yes | No | `root` |
 | `list_cluster_objects` | Yes | No | Visible namespaces |
 | `get_object_status` | Yes | No | Visibility on the object namespace |

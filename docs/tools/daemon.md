@@ -77,12 +77,12 @@ Unknown properties are rejected by the generated input schema.
 ```json
 {
   "provenance": {"source": "opensvc_daemon", "observed_at": "2026-09-24T10:00:00Z"},
-  "daemon": {"nodename": "node1", "pid": 98045, "started_at": "2026-09-23T09:14:28+02:00", "routines": 135},
+  "daemon": {"nodename": "node-a", "pid": 98045, "started_at": "2026-09-23T09:14:28+02:00", "routines": 135},
   "cluster": {
     "id": "11111111-2222-3333-4444-555555555555",
-    "name": "lab-cluster",
+    "name": "cluster-a",
     "nodes_total": 2,
-    "nodes": ["node1", "node2"],
+    "nodes": ["node-a", "node-b"],
     "nodes_truncated": false,
     "quorum_enabled": true
   },
@@ -168,10 +168,10 @@ aggregate page text to 128 Ki runes. Each shortened field has a corresponding
 
 ```json
 {
-  "node": "node1",
+  "node": "node-a",
   "states": ["failed", "running"],
   "origins": ["api", "scheduler"],
-  "object_path": "lab/svc/redis",
+  "object_path": "prod/svc/redis",
   "limit": 20
 }
 ```
@@ -193,13 +193,13 @@ are accepted. Unknown state and origin strings are forwarded and preserved.
       "session_id": "10000000-0000-0000-0000-000000000001",
       "exec_id": "20000000-0000-0000-0000-000000000001",
       "orchestration_id": null,
-      "node": "node1",
-      "path": "lab/svc/redis",
+      "node": "node-a",
+      "path": "prod/svc/redis",
       "origin": "scheduler",
       "rid": "container#redis",
       "title": null,
       "title_truncated": false,
-      "command": "om lab/svc/redis status",
+      "command": "om prod/svc/redis status",
       "command_truncated": false,
       "state": "succeeded",
       "error": null,
@@ -277,7 +277,7 @@ page text to 128 Ki runes. Truncated fields carry explicit flags.
 ```json
 {
   "states": ["failed", "running"],
-  "object_path": "lab/svc/redis",
+  "object_path": "prod/svc/redis",
   "limit": 20
 }
 ```
@@ -297,8 +297,8 @@ though the current OpenAPI description lists only `running`, `succeeded`,
   "orchestrations": [
     {
       "orchestration_id": "30000000-0000-0000-0000-000000000001",
-      "node": "node1",
-      "path": "lab/svc/redis",
+      "node": "node-a",
+      "path": "prod/svc/redis",
       "expect": "started",
       "expect_truncated": false,
       "state": "succeeded",
@@ -329,10 +329,3 @@ appropriate.
 | Cursor record no longer retained | Explicit stale-cursor tool error |
 | Malformed kind, UUID, path, timestamp, or oversized identity field | Tool error; no partial list |
 | Daemon unavailable | Tool error with transport context |
-
-## Compatibility
-
-Verified against the OpenSVC development build identified by Git commit
-`481b933476ec79c3f647a78b934f3d10d6d3c1aa` using
-`GET /api/cluster/status`, `GET /api/node/name/{node}/daemon/exec`, and
-`GET /api/node/name/{node}/daemon/orchestration`.

@@ -4,26 +4,6 @@ A Go-based Model Context Protocol server that gives AI agents a controlled, type
 
 The project is intended to become the low-level operational MCP layer for AI-assisted inspection, diagnosis, and administration of OpenSVC clusters. One MCP server is expected to run close to each OpenSVC daemon and expose carefully designed tools instead of a generic raw API proxy.
 
-## Project status
-
-This project is in an early development stage.
-
-The current implementation:
-
-- carries Streamable HTTP over a permissioned local Unix socket;
-- uses the official Go MCP SDK;
-- connects to a configurable OpenSVC daemon API URL;
-- requires an OpenSVC Bearer access JWT on every MCP request;
-- validates JWT signatures and claims before invoking the MCP handler;
-- delegates the same request-scoped JWT to the daemon API;
-- exposes a small, typed diagnostic tool surface with explicit safety annotations;
-- validates every tool declaration and generated schema before opening the HTTP listener;
-- returns filtered, bounded structured responses;
-- preserves bounded RFC 7807 daemon error details in MCP tool errors;
-- supports a custom CA bundle for daemon server verification.
-
-It is not production-ready.
-
 ## Tool documentation
 
 The MCP currently exposes mostly read-only tools plus one explicit,
@@ -32,7 +12,7 @@ Every successful tool result includes a minimal `provenance` object naming the
 OpenSVC daemon API as its source and recording when the MCP collected the
 result; this time does not establish freshness of the underlying status.
 Detailed documentation is organized by OpenSVC daemon domain and includes
-verified, normalized lab input/output examples:
+representative input/output examples:
 
 - [Tool index and diagnostic workflow](docs/tools/README.md)
 - [Daemon tools](docs/tools/daemon.md)
@@ -55,8 +35,8 @@ verified, normalized lab input/output examples:
 Clone the repository:
 
 ~~~bash
-git clone https://github.com/hugobrenet/opensvc-daemon-mcp.git
-cd opensvc-daemon-mcp
+git clone https://github.com/opensvc/om3-mcp.git
+cd om3-mcp
 ~~~
 
 Download dependencies:
@@ -161,26 +141,6 @@ Run static analysis:
 go vet ./...
 ~~~
 
-### Isolated lab-node smoke test
-
-`scripts/smoke-node.sh` automates a short development loop against `node1`:
-focused tests, Linux build, temporary copy, isolated MCP startup on another
-Unix socket, short-lived in-memory JWT creation, and a direct
-`tools/call`. It does not stop or replace the installed MCP service.
-
-~~~bash
-scripts/smoke-node.sh
-scripts/smoke-node.sh --tool get_node_status --arguments '{"node":"node1"}'
-scripts/smoke-node.sh --role root --tool list_daemon_executions --arguments '{"node":"node1","limit":3}'
-~~~
-
-Use `--target USER@HOST` or `MCP_SMOKE_TARGET` for another lab node. The remote
-node must provide passwordless `sudo`, `om`, `curl`, `jq`, and `systemd-run`.
-The temporary JWT uses the `guest` role by default; pass `--role root` only for
-a tool whose daemon endpoint requires it.
-The script enables insecure TLS verification only for the candidate's loopback
-connection to the lab daemon; it does not change the installed service.
-
 Build without writing a binary into the repository root:
 
 ~~~bash
@@ -216,24 +176,6 @@ The test suite covers:
 - Verify OpenSVC operations after execution instead of assuming request acceptance means completion.
 - Treat status returned by read-only GET tools as the daemon's last-known state; these tools do not implicitly run resource-driver probes.
 
-## Roadmap
-
-Near-term work is expected to focus on:
-
-1. local systemd deployment and Unix socket permission validation;
-2. richer tests against representative OpenSVC v3 responses;
-3. stable error and audit contracts;
-4. additional read-only tools driven by operational use cases;
-5. audited, policy-controlled state-changing tools.
-
 ## License
 
 See the LICENSE file.
-
-## Project Status
-
-This project is currently in development. Feedback, issues, and contributions are welcome.
-
-For questions or discussion, you can contact me on LinkedIn:
-
-https://fr.linkedin.com/in/hugo-brenet-49b200202

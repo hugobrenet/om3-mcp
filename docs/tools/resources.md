@@ -48,7 +48,7 @@ run status drivers or change object state. The MCP tool is annotated read-only,
 non-destructive, and closed-world. These annotations are client hints; OpenSVC
 authorization remains authoritative.
 
-OpenSVC `3.0.0-rc21` requires the global `root` grant for this endpoint.
+This endpoint requires the global `root` grant.
 
 Container output is application-controlled and may contain credentials,
 personal data, or other sensitive values. Request only the smallest useful
@@ -67,18 +67,18 @@ Selectors such as `container#*` are rejected. `lines=0` is the omitted Go zero
 value and selects 50; it never enables an unbounded read. The daemon may omit
 older records according to `lines`, independently of the MCP output bound.
 
-Lab input example:
+Example input:
 
 ```json
 {
-  "path": "lab/svc/redis",
-  "node": "lab-node-01",
+  "path": "prod/svc/redis",
+  "node": "node-a",
   "resource_id": "container#redis",
   "lines": 10
 }
 ```
 
-#### Lab output example
+#### Example output
 
 ```json
 {
@@ -87,12 +87,12 @@ Lab input example:
     "observed_at": "2026-07-15T05:40:00Z"
   },
   "object": {
-    "path": "lab/svc/redis",
-    "namespace": "lab",
+    "path": "prod/svc/redis",
+    "namespace": "prod",
     "kind": "svc",
     "name": "redis"
   },
-  "node": "lab-node-01",
+  "node": "node-a",
   "resource_id": "container#redis",
   "lines": 10,
   "line_count": 3,
@@ -176,17 +176,17 @@ hints, while daemon authorization remains authoritative.
 An empty `path` and `node` lists visible IP resources cluster-wide. Selectors
 and glob expressions are rejected for these optional filters.
 
-Lab input example:
+Example input:
 
 ```json
 {
-  "path": "lab/svc/redis",
-  "node": "node1",
+  "path": "prod/svc/redis",
+  "node": "node-a",
   "limit": 100
 }
 ```
 
-#### Lab output example
+#### Example output
 
 ```json
 {
@@ -194,25 +194,25 @@ Lab input example:
     "source": "opensvc_daemon",
     "observed_at": "2026-09-22T10:45:00Z"
   },
-  "path_filter": "lab/svc/redis",
-  "node_filter": "node1",
+  "path_filter": "prod/svc/redis",
+  "node_filter": "node-a",
   "total": 1,
   "count": 1,
   "resources": [
     {
       "object": {
-        "path": "lab/svc/redis",
-        "namespace": "lab",
+        "path": "prod/svc/redis",
+        "namespace": "prod",
         "kind": "svc",
         "name": "redis"
       },
-      "node": "node1",
+      "node": "node-a",
       "rid": "ip#0",
       "type": "ip.host",
-      "label": "host 192.168.1.210/24 ens3",
+      "label": "host 192.0.2.10/24 ens3",
       "status": "up",
       "info": {
-        "ipaddr": "192.168.1.210",
+        "ipaddr": "192.0.2.10",
         "dev": "ens3",
         "netmask": 24,
         "expose": []
@@ -289,17 +289,17 @@ tool is read-only, non-destructive, closed-world, and has no side effects.
 | `limit` | No | 100 | 1..200 | Maximum resources in this page |
 | `cursor` | No | Empty | 1024 characters | Previous `next_cursor` with unchanged filters |
 
-Lab input example:
+Example input:
 
 ```json
 {
-  "path": "lab/svc/redis",
-  "node": "lab-node-01",
+  "path": "prod/svc/redis",
+  "node": "node-a",
   "limit": 100
 }
 ```
 
-#### Lab output example
+#### Example output
 
 ```json
 {
@@ -308,12 +308,12 @@ Lab input example:
     "observed_at": "2026-07-15T05:31:03Z"
   },
   "count": 1,
-  "node_filter": "lab-node-01",
+  "node_filter": "node-a",
   "object": {
     "kind": "svc",
     "name": "redis",
-    "namespace": "lab",
-    "path": "lab/svc/redis"
+    "namespace": "prod",
+    "path": "prod/svc/redis"
   },
   "resources": [
     {
@@ -325,7 +325,7 @@ Lab input example:
       "label": "docker redis:7-alpine",
       "logs": [],
       "logs_truncated": false,
-      "node": "lab-node-01",
+      "node": "node-a",
       "provisioned": "n/a",
       "provisioned_at": "0001-01-01T00:00:00Z",
       "restart_remaining": 0,
@@ -366,13 +366,3 @@ Invalid paths, filters, limits, or cursors fail before daemon access. Missing
 visibility, daemon authorization, transport failures, and malformed responses
 are MCP tool errors. Errors preserve bounded RFC 7807 details and never include
 the delegated JWT.
-
-## Compatibility
-
-Verified against OpenSVC `3.0.0-rc21` `GET /api/resource` and
-`GetInstanceContainerLog` behavior. The cluster IP inventory contract was
-also validated against the lab's `ip.host` resource at `192.168.1.210`.
-OpenSVC `3.0.0-rc21` can panic in `GetResources` when no path selector is
-provided because configuration-only entries may have a nil resource config;
-the cluster-wide call therefore always supplies the resource-bearing object
-selector documented above.

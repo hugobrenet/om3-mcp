@@ -1,6 +1,6 @@
 # CODEX
 
-Project guidance for AI coding agents working on opensvc-daemon-mcp.
+Project guidance for AI coding agents working on om3-mcp.
 
 ## Mission
 
@@ -40,7 +40,7 @@ Prefer the Go standard library and keep dependencies minimal.
 
 ~~~text
 cmd/
-  opensvc-daemon-mcp/
+  om3-mcp/
     main.go
     main_test.go
 
@@ -346,8 +346,7 @@ must cover:
 - whether the endpoint reads last-known daemon state or actively refreshes drivers;
 - input fields, defaults, validation, pagination, and selector behavior;
 - every output field and any derived semantics;
-- representative JSON input and complete bounded output examples captured from
-  the lab and normalized for publication;
+- representative JSON input and complete bounded output examples;
 - expected authentication, authorization, transport, and data errors;
 - the OpenSVC version against which behavior was verified.
 
@@ -369,8 +368,6 @@ Use these rules:
 Go imports are file-scoped. Files in the same package share declared types and functions, but they do not share imported package names.
 
 ## Go style
-
-The repository owner is learning Go and already has strong C and Python experience.
 
 Favor explicit, readable Go:
 
@@ -472,9 +469,9 @@ successful tool result now uses the minimal, typed `source` and `observed_at`
 provenance contract; freshness, refresh outcome, and truncation remain in
 domain fields.
 
-Before expanding the tool set, validate the open gaps against real lab cases
-and decide for each whether to enrich an existing tool, compose several daemon
-routes behind one capability, or create a new tool. Investigate any additional
+Before expanding the tool set, validate the open gaps against concrete operator
+use cases and decide for each whether to enrich an existing tool, compose
+several daemon routes behind one capability, or create a new tool. Investigate any additional
 provenance field only when a concrete diagnostic need justifies it.
 
 Keep collection, joins, normalization, bounds, and freshness semantics
@@ -500,7 +497,7 @@ network-membership, or reachability conclusions to this tool.
 
 ## Configuration
 
-Current environment:
+Environment variables:
 
 | Variable | Default |
 |---|---|

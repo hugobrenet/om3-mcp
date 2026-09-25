@@ -193,6 +193,11 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 				t.Errorf("got node drivers query %q, want no parameters", request.URL.RawQuery)
 			}
 			fmt.Fprint(response, `{"kind":"DriverList","items":[{"kind":"DriverItem","meta":{"node":"node-a"},"data":{"name":"fs.zfs"}},{"kind":"DriverItem","meta":{"node":"node-a"},"data":{"name":"app.simple"}}]}`)
+		case "/api/node/name/_/system/property":
+			if request.URL.RawQuery != "" {
+				t.Errorf("got node properties query %q, want no parameters", request.URL.RawQuery)
+			}
+			fmt.Fprint(response, `{"kind":"PropertyList","items":[{"kind":"PropertyItem","meta":{"node":"node-a"},"data":{"name":"node_env","title":"environment","source":"config","value":"TST","error":""}},{"kind":"PropertyItem","meta":{"node":"node-a"},"data":{"name":"cpu_threads","title":"cpu threads","source":"probe","value":4,"error":""}},{"kind":"PropertyItem","meta":{"node":"node-a"},"data":{"name":"feature_enabled","title":"feature enabled","source":"probe","value":true,"error":""}}]}`)
 		case "/api/node/name/_/metrics":
 			if request.URL.RawQuery != "" {
 				t.Errorf("got node daemon metrics query %q, want no parameters", request.URL.RawQuery)
@@ -323,6 +328,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		"get_node_logs":              "Get node logs",
 		"list_node_capabilities":     "List node capabilities",
 		"list_node_drivers":          "List node drivers",
+		"list_node_properties":       "List node properties",
 		"get_node_daemon_metrics":    "Get node daemon metrics",
 		"probe_node_reachability":    "Probe node reachability",
 		"get_container_logs":         "Get container logs",
@@ -570,6 +576,25 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Errorf("got unexpected node drivers %#v", nodeDrivers)
 	}
 	assertResultProvenance(t, nodeDrivers.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_node_properties",
+		Arguments: mcptools.ListNodePropertiesInput{
+			Sources: []string{"probe"},
+		},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call list_node_properties: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var nodeProperties mcptools.ListNodePropertiesOutput
+	if err := json.Unmarshal(data, &nodeProperties); err != nil {
+		t.Fatalf("decode node properties: %v", err)
+	}
+	if nodeProperties.Node != "node-a" || nodeProperties.ReportedTotal != 3 || nodeProperties.Total != 2 || nodeProperties.Count != 2 || nodeProperties.Properties[0].Name != "cpu_threads" || nodeProperties.Properties[0].Value.Number == nil || *nodeProperties.Properties[0].Value.Number != 4 || nodeProperties.Properties[1].Name != "feature_enabled" || nodeProperties.Properties[1].Value.Boolean == nil || !*nodeProperties.Properties[1].Value.Boolean {
+		t.Errorf("got unexpected node properties %#v", nodeProperties)
+	}
+	assertResultProvenance(t, nodeProperties.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "get_node_daemon_metrics",

@@ -43,6 +43,16 @@ type ListNodeDriversInput struct {
 
 type ListNodeDriversOutput = core.NodeDriverList
 
+type ListNodePropertiesInput struct {
+	Node    string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Names   []string `json:"names,omitempty" jsonschema:"optional exact property names; combined with sources using AND; at most 32 entries"`
+	Sources []string `json:"sources,omitempty" jsonschema:"optional exact collection sources such as probe config or default; combined with names using AND; at most 32 entries"`
+	Limit   int      `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
+	Cursor  string   `json:"cursor,omitempty" jsonschema:"optional next_cursor returned by a previous call with the same node and filters"`
+}
+
+type ListNodePropertiesOutput = core.NodePropertyList
+
 type GetNodeDaemonMetricsInput struct {
 	Node     string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
 	Names    []string `json:"names,omitempty" jsonschema:"optional exact Prometheus metric family names; combined with prefixes using OR; at most 32 entries"`
@@ -74,6 +84,28 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 				return nil, GetNodeConfigOutput{}, err
 			}
 			return nil, config, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "list_node_properties",
+			Title: "List node properties",
+			Description: "List bounded typed properties from one OpenSVC node system cache, defaulting to the local node, with exact name and source filters and stable pagination. " +
+				"Preserves string, number, and boolean values plus per-property collection errors without interpreting health. " +
+				"This root-only read does not refresh the cache; a missing cache remains an explicit daemon error until asset data has been pushed.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListNodePropertiesInput) (*mcp.CallToolResult, ListNodePropertiesOutput, error) {
+			properties, err := service.ListNodeProperties(ctx, core.ListNodePropertiesOptions{
+				Node: input.Node, Names: input.Names, Sources: input.Sources, Limit: input.Limit, Cursor: input.Cursor,
+			})
+			if err != nil {
+				return nil, ListNodePropertiesOutput{}, err
+			}
+			return nil, properties, nil
 		},
 	); err != nil {
 		return err

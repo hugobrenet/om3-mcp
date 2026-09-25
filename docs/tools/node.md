@@ -4,6 +4,7 @@ tools:
   - get_node_config
   - get_node_status
   - get_node_logs
+  - list_node_properties
   - list_node_capabilities
   - list_node_drivers
   - get_node_daemon_metrics
@@ -14,15 +15,15 @@ stability: experimental
 # Node Tools
 
 This document describes tools that read bounded node configuration evidence,
-inspect the last-known state and cached capabilities of one exact node, read
-its recent OpenSVC journal entries, expose advanced daemon-process metrics,
-and actively verify the proxy path to one daemon.
+inspect the last-known state, cached system properties, and capabilities of one
+exact node, read its recent OpenSVC journal entries, expose advanced
+daemon-process metrics, and actively verify the proxy path to one daemon.
 
 Implementation:
 
-- business logic: `internal/core/node.go`, `internal/core/node_capability.go`,
-  `internal/core/node_driver.go`, `internal/core/node_daemon_metric.go`, and
-  `internal/core/node_reachability.go`;
+- business logic: `internal/core/node.go`, `internal/core/node_property.go`,
+  `internal/core/node_capability.go`, `internal/core/node_driver.go`,
+  `internal/core/node_daemon_metric.go`, and `internal/core/node_reachability.go`;
 - MCP definitions: `internal/tools/node.go`.
 
 ## Tools
@@ -317,6 +318,146 @@ representative:
 | Configured node with no published data | Tool error naming the node |
 | Unknown node | Tool error naming the node |
 | Daemon unavailable or malformed response | Tool error with transport or decoding context |
+
+### `list_node_properties`
+
+Returns typed properties from one node's OpenSVC system cache. Use it to inspect
+cached operating-system, hardware, identity, environment, location, and support
+metadata such as `os_release`, `cpu_threads`, `manufacturer`, `node_env`, or
+`team_support`. The tool preserves source facts and per-property collection
+errors; it does not classify a node or compare nodes automatically.
+
+#### OpenSVC API, authorization, and freshness
+
+```text
+GET /api/node/name/_/system/property
+```
+
+The endpoint requires the global `root` grant. It reads the local node system
+cache by default. When `node` is supplied, OpenSVC replaces `_` with that exact
+name and proxies the request when necessary. The call does not execute an asset
+probe, run `push asset`, register the node with a collector, or update the
+cache.
+
+The cache may not exist until asset data has been pushed, which commonly
+happens during registration with a collector but can also be initiated by an
+operator. In that case OpenSVC returns HTTP `404` with `Load system cache`
+context. The MCP preserves that daemon error and never converts it to an empty
+property list.
+
+The endpoint exposes no cache timestamp. `provenance.observed_at` dates only
+the MCP read and does not establish when the properties were collected.
+
+#### Input and filtering
+
+| Input | Required | Default | Bounds | Meaning |
+|---|---:|---:|---:|---|
+| `node` | No | Local node (`_`) | Exact hostname using letters, digits, `.`, `_`, or `-`; at most 255 characters | Node whose system cache is read |
+| `names` | No | All | At most 32 exact names of at most 255 characters | Include only these property names |
+| `sources` | No | All | At most 32 exact sources of at most 255 characters | Include only these collection sources, such as `probe`, `config`, or `default` |
+| `limit` | No | 100 | 1..200 | Maximum matching properties returned |
+| `cursor` | No | — | At most 255 characters | Exact `next_cursor` from the preceding page with the same node and filters |
+
+Names are combined with OR, sources are combined with OR, and the two filter
+families are combined with AND. Filters are applied by the MCP after the full
+daemon response has been validated. `reported_total` is the number of daemon
+entries before filtering; `total` is the number matching both filters.
+
+Properties are sorted by exact name. Duplicate names are rejected because they
+would make the value and pagination cursor ambiguous. Each string value and
+per-property error is limited to 4096 Unicode characters, with explicit
+truncation flags. A page is additionally bounded to 64 Ki Unicode code points.
+
+#### Typed values
+
+OpenSVC properties can contain strings, numbers, or booleans. The MCP does not
+coerce between these types. Exactly one typed field is present in `value`:
+
+```json
+{"type":"string","string":"linux"}
+{"type":"number","number":4}
+{"type":"boolean","boolean":true}
+```
+
+An empty string remains a present string value. JSON `null`, arrays, objects,
+non-finite numbers, and other response shapes are rejected as malformed daemon
+data. The `error` field belongs to one property: a non-empty value is preserved
+without failing the whole list.
+
+#### MCP properties
+
+| Property | Value |
+|---|---|
+| Title | List node properties |
+| Read-only | Yes |
+| Destructive | No |
+| Open world | No; only the configured daemon and its OpenSVC proxy path are used |
+| Side effects | None; no asset probe or cache update |
+
+#### Example
+
+Input:
+
+```json
+{
+  "names": ["cpu_threads", "os_release", "node_env"],
+  "sources": ["probe", "config"]
+}
+```
+
+Representative output:
+
+```json
+{
+  "provenance": {"source":"opensvc_daemon","observed_at":"2026-09-24T11:20:00Z"},
+  "node": "node-a",
+  "reported_total": 41,
+  "total": 3,
+  "count": 3,
+  "properties": [
+    {
+      "name": "cpu_threads",
+      "title": "cpu threads",
+      "source": "probe",
+      "value": {"type":"number","number":4},
+      "value_truncated": false,
+      "error": "",
+      "error_truncated": false
+    },
+    {
+      "name": "node_env",
+      "title": "environment",
+      "source": "config",
+      "value": {"type":"string","string":"production"},
+      "value_truncated": false,
+      "error": "",
+      "error_truncated": false
+    },
+    {
+      "name": "os_release",
+      "title": "os release",
+      "source": "probe",
+      "value": {"type":"string","string":"13"},
+      "value_truncated": false,
+      "error": "",
+      "error_truncated": false
+    }
+  ],
+  "truncated": false
+}
+```
+
+#### Errors
+
+| Condition | Result |
+|---|---|
+| Invalid MCP JWT | MCP HTTP `401` |
+| Missing global `root` grant | Tool error containing daemon HTTP `403` |
+| System cache not yet populated | Tool error preserving daemon HTTP `404` and `Load system cache` detail |
+| Invalid node, filters, page size, or cursor | Tool validation error before the daemon request |
+| Cursor no longer present after a cache change | Explicit stale-cursor tool error |
+| Unexpected list/item kind, node, duplicate name, or value type | Tool error; no partial list |
+| Daemon or remote-node proxy unavailable | Tool error with transport context |
 
 ### `list_node_capabilities`
 

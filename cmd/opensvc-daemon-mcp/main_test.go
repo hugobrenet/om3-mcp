@@ -198,6 +198,11 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 				t.Errorf("got node properties query %q, want no parameters", request.URL.RawQuery)
 			}
 			fmt.Fprint(response, `{"kind":"PropertyList","items":[{"kind":"PropertyItem","meta":{"node":"node-a"},"data":{"name":"node_env","title":"environment","source":"config","value":"TST","error":""}},{"kind":"PropertyItem","meta":{"node":"node-a"},"data":{"name":"cpu_threads","title":"cpu threads","source":"probe","value":4,"error":""}},{"kind":"PropertyItem","meta":{"node":"node-a"},"data":{"name":"feature_enabled","title":"feature enabled","source":"probe","value":true,"error":""}}]}`)
+		case "/api/node/name/_/system/hardware":
+			if request.URL.RawQuery != "" {
+				t.Errorf("got node hardware query %q, want no parameters", request.URL.RawQuery)
+			}
+			fmt.Fprint(response, `{"kind":"HardwareList","items":[{"kind":"HardwareItem","meta":{"node":"node-a"},"data":{"type":"mem","class":"4096 MB RAM","driver":"","path":"DIMM 0","description":"Memory"}},{"kind":"HardwareItem","meta":{"node":"node-a"},"data":{"type":"pci","class":"Network controller","driver":"virtio-pci","path":"01:00.0","description":"Virtio network"}},{"kind":"HardwareItem","meta":{"node":"node-a"},"data":{"type":"pci","class":"Mass storage controller","driver":"virtio-pci","path":"04:00.0","description":"Virtio block"}}]}`)
 		case "/api/node/name/_/metrics":
 			if request.URL.RawQuery != "" {
 				t.Errorf("got node daemon metrics query %q, want no parameters", request.URL.RawQuery)
@@ -329,6 +334,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		"list_node_capabilities":     "List node capabilities",
 		"list_node_drivers":          "List node drivers",
 		"list_node_properties":       "List node properties",
+		"list_node_hardware":         "List node hardware",
 		"get_node_daemon_metrics":    "Get node daemon metrics",
 		"probe_node_reachability":    "Probe node reachability",
 		"get_container_logs":         "Get container logs",
@@ -595,6 +601,25 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Errorf("got unexpected node properties %#v", nodeProperties)
 	}
 	assertResultProvenance(t, nodeProperties.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_node_hardware",
+		Arguments: mcptools.ListNodeHardwareInput{
+			Types: []string{"pci"}, Drivers: []string{"virtio-pci"},
+		},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call list_node_hardware: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var nodeHardware mcptools.ListNodeHardwareOutput
+	if err := json.Unmarshal(data, &nodeHardware); err != nil {
+		t.Fatalf("decode node hardware: %v", err)
+	}
+	if nodeHardware.Node != "node-a" || nodeHardware.ReportedTotal != 3 || nodeHardware.Total != 2 || nodeHardware.Count != 2 || nodeHardware.Hardware[0].Path != "01:00.0" || nodeHardware.Hardware[1].Path != "04:00.0" {
+		t.Errorf("got unexpected node hardware %#v", nodeHardware)
+	}
+	assertResultProvenance(t, nodeHardware.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "get_node_daemon_metrics",

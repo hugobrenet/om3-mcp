@@ -11,7 +11,7 @@ combine the tools during operations.
 |---|---|---|
 | Daemon | `get_daemon_status`, `list_daemon_executions`, `list_daemon_orchestrations` | [Daemon tools](daemon.md) |
 | Cluster | `get_cluster_config`, `get_cluster_status` | [Cluster tools](cluster.md) |
-| Node | `get_node_config`, `get_node_status`, `get_node_logs`, `list_node_properties`, `get_node_daemon_metrics`, `probe_node_reachability`, `list_node_capabilities`, `list_node_drivers` | [Node tools](node.md) |
+| Node | `get_node_config`, `get_node_status`, `get_node_logs`, `list_node_properties`, `list_node_hardware`, `get_node_daemon_metrics`, `probe_node_reachability`, `list_node_capabilities`, `list_node_drivers` | [Node tools](node.md) |
 | Objects | `list_cluster_objects`, `get_object_status`, `get_object_config` | [Object tools](objects.md) |
 | Instances | `list_object_instances`, `get_instance_logs`, `refresh_instance_status` | [Instance tools](instances.md) |
 | Resources | `list_cluster_ip_resources`, `list_object_resources`, `get_container_logs` | [Resource tools](resources.md) |
@@ -83,6 +83,7 @@ are representative and will differ between calls.
 | `get_node_config` | Yes | No | `root` |
 | `get_node_status` | Yes | No | `guest` or higher |
 | `list_node_properties` | Yes | No | `root` |
+| `list_node_hardware` | Yes | No | `root` |
 | `list_node_capabilities` | Yes | No | `root` |
 | `list_node_drivers` | Yes | No | `root` |
 | `get_node_daemon_metrics` | Yes | No | Delegated JWT; daemon endpoint policy |

@@ -53,6 +53,17 @@ type ListNodePropertiesInput struct {
 
 type ListNodePropertiesOutput = core.NodePropertyList
 
+type ListNodeHardwareInput struct {
+	Node    string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Types   []string `json:"types,omitempty" jsonschema:"optional exact hardware types such as pci or mem; combined with classes and drivers using AND; at most 32 entries"`
+	Classes []string `json:"classes,omitempty" jsonschema:"optional exact hardware classes reported by OpenSVC; combined with types and drivers using AND; at most 32 entries"`
+	Drivers []string `json:"drivers,omitempty" jsonschema:"optional exact driver names; an empty string selects entries with no reported driver; combined with types and classes using AND; at most 32 entries"`
+	Limit   int      `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
+	Cursor  string   `json:"cursor,omitempty" jsonschema:"optional opaque next_cursor returned by a previous call with the same node and filters"`
+}
+
+type ListNodeHardwareOutput = core.NodeHardwareList
+
 type GetNodeDaemonMetricsInput struct {
 	Node     string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
 	Names    []string `json:"names,omitempty" jsonschema:"optional exact Prometheus metric family names; combined with prefixes using OR; at most 32 entries"`
@@ -84,6 +95,28 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 				return nil, GetNodeConfigOutput{}, err
 			}
 			return nil, config, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "list_node_hardware",
+			Title: "List node hardware",
+			Description: "List bounded hardware entries from one OpenSVC node system cache, defaulting to the local node, with exact type, class, and driver filters and stable pagination. " +
+				"Preserves paths, descriptions, empty drivers, and duplicate devices without interpreting availability or health. " +
+				"This root-only read does not refresh the cache; a missing cache remains an explicit daemon error until asset data has been pushed.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListNodeHardwareInput) (*mcp.CallToolResult, ListNodeHardwareOutput, error) {
+			hardware, err := service.ListNodeHardware(ctx, core.ListNodeHardwareOptions{
+				Node: input.Node, Types: input.Types, Classes: input.Classes, Drivers: input.Drivers, Limit: input.Limit, Cursor: input.Cursor,
+			})
+			if err != nil {
+				return nil, ListNodeHardwareOutput{}, err
+			}
+			return nil, hardware, nil
 		},
 	); err != nil {
 		return err

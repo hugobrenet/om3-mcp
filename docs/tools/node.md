@@ -5,6 +5,7 @@ tools:
   - get_node_status
   - get_node_logs
   - list_node_properties
+  - list_node_hardware
   - list_node_capabilities
   - list_node_drivers
   - get_node_daemon_metrics
@@ -15,14 +16,14 @@ stability: experimental
 # Node Tools
 
 This document describes tools that read bounded node configuration evidence,
-inspect the last-known state, cached system properties, and capabilities of one
-exact node, read its recent OpenSVC journal entries, expose advanced
+inspect the last-known state, cached system properties, hardware, and
+capabilities of one exact node, read its recent OpenSVC journal entries, expose advanced
 daemon-process metrics, and actively verify the proxy path to one daemon.
 
 Implementation:
 
 - business logic: `internal/core/node.go`, `internal/core/node_property.go`,
-  `internal/core/node_capability.go`, `internal/core/node_driver.go`,
+  `internal/core/node_hardware.go`, `internal/core/node_capability.go`, `internal/core/node_driver.go`,
   `internal/core/node_daemon_metric.go`, and `internal/core/node_reachability.go`;
 - MCP definitions: `internal/tools/node.go`.
 
@@ -457,6 +458,122 @@ Representative output:
 | Invalid node, filters, page size, or cursor | Tool validation error before the daemon request |
 | Cursor no longer present after a cache change | Explicit stale-cursor tool error |
 | Unexpected list/item kind, node, duplicate name, or value type | Tool error; no partial list |
+| Daemon or remote-node proxy unavailable | Tool error with transport context |
+
+### `list_node_hardware`
+
+Returns the hardware entries stored in one node's OpenSVC system cache. Use it
+to inventory device types, classes, drivers, hardware paths, and descriptions
+when investigating a missing dependency or a difference between nodes. The
+tool does not decide whether a device or driver is available, required, or
+healthy.
+
+#### OpenSVC API, authorization, and freshness
+
+```text
+GET /api/node/name/_/system/hardware
+```
+
+The endpoint requires the global `root` grant. It reads the local node system
+cache by default and uses the OpenSVC proxy path for another exact node. It
+does not scan buses, load drivers, execute `push asset`, register with a
+collector, or update the cache.
+
+As with `list_node_properties`, the cache may not exist until asset data has
+been pushed. OpenSVC then returns HTTP `404` with `Load system cache` context;
+the MCP preserves this error instead of returning an empty inventory. The API
+exposes no cache timestamp, so `provenance.observed_at` dates only the MCP read.
+
+#### Input and filtering
+
+| Input | Required | Default | Bounds | Meaning |
+|---|---:|---:|---:|---|
+| `node` | No | Local node (`_`) | Exact hostname using letters, digits, `.`, `_`, or `-`; at most 255 characters | Node whose cached hardware is read |
+| `types` | No | All | At most 32 exact values of at most 255 characters | Include hardware types such as `pci` or `mem` |
+| `classes` | No | All | At most 32 exact values of at most 1024 characters | Include only the reported hardware classes |
+| `drivers` | No | All | At most 32 exact values of at most 1024 characters | Include only the reported drivers; `""` selects entries with an empty driver |
+| `limit` | No | 100 | 1..200 | Maximum matching hardware entries returned |
+| `cursor` | No | — | Opaque value of at most 128 characters | Exact `next_cursor` from the preceding page with the same node and filters |
+
+Values within one filter family are combined with OR. The three families are
+combined with AND and applied after the full daemon response has been
+validated. `reported_total` is the number of daemon entries before filtering;
+`total` is the number matching all filters.
+
+Entries are sorted by exact `type`, `path`, `class`, `driver`, and description.
+The cursor is derived from the complete source record and its occurrence. It
+must be treated as opaque. Exact duplicate records are preserved because they
+can represent separate physical devices. Each description is limited to 4096
+Unicode characters with an explicit flag, and a page is additionally bounded
+to 128 Ki Unicode code points.
+
+`class` is descriptive source data and is not normalized by the MCP. An empty
+`driver` is also preserved as a fact; it does not prove that a required driver
+is missing.
+
+#### MCP properties
+
+| Property | Value |
+|---|---|
+| Title | List node hardware |
+| Read-only | Yes |
+| Destructive | No |
+| Open world | No; only the configured daemon and its OpenSVC proxy path are used |
+| Side effects | None; no scan, driver load, or cache update |
+
+#### Example
+
+Input:
+
+```json
+{
+  "types": ["pci"],
+  "classes": ["Network controller", "Mass storage controller"],
+  "limit": 20
+}
+```
+
+Representative output:
+
+```json
+{
+  "provenance": {"source":"opensvc_daemon","observed_at":"2026-09-25T10:00:00Z"},
+  "node": "node-a",
+  "reported_total": 25,
+  "total": 2,
+  "count": 2,
+  "hardware": [
+    {
+      "type": "pci",
+      "class": "Mass storage controller",
+      "driver": "ahci",
+      "path": "00:1f.2",
+      "description": "SATA controller",
+      "description_truncated": false
+    },
+    {
+      "type": "pci",
+      "class": "Network controller",
+      "driver": "virtio-pci",
+      "path": "01:00.0",
+      "description": "Virtio network device",
+      "description_truncated": false
+    }
+  ],
+  "truncated": false
+}
+```
+
+#### Errors
+
+| Condition | Result |
+|---|---|
+| Invalid MCP JWT | MCP HTTP `401` |
+| Missing global `root` grant | Tool error containing daemon HTTP `403` |
+| System cache not yet populated | Tool error preserving daemon HTTP `404` and `Load system cache` detail |
+| Invalid node, filters, page size, or cursor | Tool validation error before the daemon request |
+| Cursor no longer present after a cache change | Explicit stale-cursor tool error |
+| Unexpected list/item kind, node, required field, or control character | Tool error; no partial list |
 | Daemon or remote-node proxy unavailable | Tool error with transport context |
 
 ### `list_node_capabilities`

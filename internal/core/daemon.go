@@ -38,6 +38,10 @@ type TextGetter interface {
 	GetText(context.Context, string, url.Values) ([]byte, error)
 }
 
+type NoContentGetter interface {
+	GetNoContent(context.Context, string, url.Values) error
+}
+
 type Service struct {
 	client JSONGetter
 	now    func() time.Time

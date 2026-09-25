@@ -202,6 +202,14 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 			}
 			response.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 			fmt.Fprint(response, "# HELP opensvc_api_requests_total API requests.\n# TYPE opensvc_api_requests_total counter\nopensvc_api_requests_total{code=\"200\",method=\"GET\"} 12\n# HELP process_cpu_seconds_total CPU seconds.\n# TYPE process_cpu_seconds_total counter\nprocess_cpu_seconds_total 3.5\n")
+		case "/api/node/name/node-b/ping":
+			if request.URL.RawQuery != "" {
+				t.Errorf("got node ping query %q, want no parameters", request.URL.RawQuery)
+			}
+			if got := request.Header.Get("Accept"); got != "*/*" {
+				t.Errorf("got node ping Accept %q, want */*", got)
+			}
+			response.WriteHeader(http.StatusNoContent)
 		case "/api/node/name/node-a/instance/path/prod/svc/app/container/log":
 			if request.Method != http.MethodGet {
 				t.Errorf("got container log method %q, want GET", request.Method)
@@ -316,6 +324,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		"list_node_capabilities":     "List node capabilities",
 		"list_node_drivers":          "List node drivers",
 		"get_node_daemon_metrics":    "Get node daemon metrics",
+		"probe_node_reachability":    "Probe node reachability",
 		"get_container_logs":         "Get container logs",
 		"get_instance_logs":          "Get instance logs",
 		"get_object_config":          "Get object configuration",
@@ -335,7 +344,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		if tool.Description == "" {
 			t.Errorf("tool %q has no description", tool.Name)
 		}
-		if tool.Name == "get_node_status" || tool.Name == "get_node_logs" {
+		if tool.Name == "get_node_status" || tool.Name == "get_node_logs" || tool.Name == "probe_node_reachability" {
 			encoded, err := json.Marshal(tool.InputSchema)
 			if err != nil {
 				t.Errorf("%s input schema marshal: %v", tool.Name, err)
@@ -580,6 +589,23 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Errorf("got unexpected node daemon metrics %#v", nodeDaemonMetrics)
 	}
 	assertResultProvenance(t, nodeDaemonMetrics.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "probe_node_reachability",
+		Arguments: mcptools.ProbeNodeReachabilityInput{Node: "node-b"},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call probe_node_reachability: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var nodeReachability mcptools.ProbeNodeReachabilityOutput
+	if err := json.Unmarshal(data, &nodeReachability); err != nil {
+		t.Fatalf("decode node reachability: %v", err)
+	}
+	if nodeReachability.Node != "node-b" || !nodeReachability.Reachable || nodeReachability.StatusCode != http.StatusNoContent || nodeReachability.RoundTripMS < 0 {
+		t.Errorf("got unexpected node reachability %#v", nodeReachability)
+	}
+	assertResultProvenance(t, nodeReachability.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_cluster_objects",

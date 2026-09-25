@@ -7,6 +7,7 @@ tools:
   - list_node_capabilities
   - list_node_drivers
   - get_node_daemon_metrics
+  - probe_node_reachability
 stability: experimental
 ---
 
@@ -14,12 +15,14 @@ stability: experimental
 
 This document describes tools that read bounded node configuration evidence,
 inspect the last-known state and cached capabilities of one exact node, read
-its recent OpenSVC journal entries, and expose advanced daemon-process metrics.
+its recent OpenSVC journal entries, expose advanced daemon-process metrics,
+and actively verify the proxy path to one daemon.
 
 Implementation:
 
 - business logic: `internal/core/node.go`, `internal/core/node_capability.go`,
-  `internal/core/node_driver.go`, and `internal/core/node_daemon_metric.go`;
+  `internal/core/node_driver.go`, `internal/core/node_daemon_metric.go`, and
+  `internal/core/node_reachability.go`;
 - MCP definitions: `internal/tools/node.go`.
 
 ## Tools
@@ -619,6 +622,98 @@ Abbreviated output:
 | Unexpected media type or malformed Prometheus text | Tool error; no partial metrics are returned |
 | Source or filtered sample bounds exceeded | Explicit tool error suggesting narrower filters |
 | Daemon or remote-node proxy unavailable | Tool error with daemon transport context |
+
+### `probe_node_reachability`
+
+Actively verifies that one exact OpenSVC daemon answers through the contacted
+daemon's node proxy path.
+
+#### OpenSVC API and interpretation
+
+```text
+GET /api/node/name/<node>/ping
+```
+
+The endpoint requires the global `root` grant. The target `node` is mandatory;
+there is no implicit `_` default because probing the daemon already contacted
+by the MCP adds little diagnostic evidence. `_` remains accepted when supplied
+explicitly for a deliberate local control probe.
+
+For a remote target, the contacted daemon first verifies that it has status
+data for the node and that the node belongs to the cluster, then calls the
+remote daemon with the delegated JWT. A successful result means the complete
+path returned HTTP `204 No Content`:
+
+```text
+MCP -> contacted daemon -> OpenSVC proxy -> target daemon -> 204
+```
+
+This proves neither heartbeat health nor the state of daemon subsystems,
+objects, instances, or resources. The endpoint is an HTTP application probe,
+not ICMP. `round_trip_ms` measures the complete path above, including local MCP
+and proxy overhead; it is not a pure network latency measurement.
+
+#### Input and output
+
+`node` is required and must be one exact OpenSVC node name of at most 255
+characters. Paths, whitespace, wildcards, and selectors are rejected before
+the daemon request.
+
+Successful output fields are:
+
+| Field | Meaning |
+|---|---|
+| `provenance` | Daemon API source and MCP completion time |
+| `node` | Exact requested node or an explicitly supplied `_` alias |
+| `reachable` | `true`, because only an exact `204` produces a successful result |
+| `status_code` | `204` |
+| `round_trip_ms` | End-to-end elapsed milliseconds measured by the MCP |
+
+Failures remain explicit tool errors rather than successful
+`reachable=false` results. This preserves the difference between a refused
+JWT, an unknown node, missing status data, and a remote connection failure.
+
+#### MCP properties
+
+| Property | Value |
+|---|---|
+| Title | Probe node reachability |
+| Read-only | Yes |
+| Destructive | No |
+| Open world | No; only the configured daemon and its OpenSVC proxy path are used |
+| Side effects | One active HTTP request to the selected daemon |
+
+#### Example
+
+Input:
+
+```json
+{"node":"node2"}
+```
+
+Output:
+
+```json
+{
+  "provenance":{"source":"opensvc_daemon","observed_at":"2026-09-25T10:00:00Z"},
+  "node":"node2",
+  "reachable":true,
+  "status_code":204,
+  "round_trip_ms":1.42
+}
+```
+
+#### Errors
+
+| Condition | Result |
+|---|---|
+| Invalid MCP JWT | MCP HTTP `401` |
+| Missing global `root` grant | Tool error containing daemon HTTP `403` |
+| Empty, oversized, or non-exact `node` | Tool validation error before the daemon request |
+| Node has no status data | Tool error containing daemon HTTP `404` |
+| Target is not a configured cluster node | Tool error containing daemon HTTP `400` |
+| Target connection or request fails | Tool error containing daemon HTTP `500 Request peer` |
+| Target returns anything other than `204` | Tool error; no reachability success is claimed |
 
 ### `get_node_logs`
 

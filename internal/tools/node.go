@@ -53,6 +53,12 @@ type GetNodeDaemonMetricsInput struct {
 
 type GetNodeDaemonMetricsOutput = core.NodeDaemonMetricList
 
+type ProbeNodeReachabilityInput struct {
+	Node string `json:"node" jsonschema:"required exact OpenSVC node name to probe through the daemon proxy path; the underscore local alias is accepted only when explicitly supplied"`
+}
+
+type ProbeNodeReachabilityOutput = core.NodeReachabilityProbe
+
 func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 	if err := addTool(
 		registrar,
@@ -172,6 +178,26 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 				return nil, GetNodeDaemonMetricsOutput{}, err
 			}
 			return nil, metrics, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "probe_node_reachability",
+			Title: "Probe node reachability",
+			Description: "Actively verify that one exact OpenSVC daemon answers through the contacted daemon's node proxy path. " +
+				"A successful result means the target returned HTTP 204 and includes the end-to-end round-trip duration; it does not prove cluster, heartbeat, subsystem, object, or resource health. " +
+				"The node is required because a default local probe would add little diagnostic evidence. Requires root access to the daemon endpoint.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ProbeNodeReachabilityInput) (*mcp.CallToolResult, ProbeNodeReachabilityOutput, error) {
+			probe, err := service.ProbeNodeReachability(ctx, input.Node)
+			if err != nil {
+				return nil, ProbeNodeReachabilityOutput{}, err
+			}
+			return nil, probe, nil
 		},
 	); err != nil {
 		return err

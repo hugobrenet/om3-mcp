@@ -11,7 +11,7 @@ combine the tools during operations.
 |---|---|---|
 | Daemon | `get_daemon_status`, `list_daemon_executions`, `list_daemon_orchestrations` | [Daemon tools](daemon.md) |
 | Cluster | `get_cluster_config`, `get_cluster_status` | [Cluster tools](cluster.md) |
-| Node | `get_node_config`, `get_node_status`, `get_node_logs`, `get_node_daemon_metrics`, `list_node_capabilities`, `list_node_drivers` | [Node tools](node.md) |
+| Node | `get_node_config`, `get_node_status`, `get_node_logs`, `get_node_daemon_metrics`, `probe_node_reachability`, `list_node_capabilities`, `list_node_drivers` | [Node tools](node.md) |
 | Objects | `list_cluster_objects`, `get_object_status`, `get_object_config` | [Object tools](objects.md) |
 | Instances | `list_object_instances`, `get_instance_logs`, `refresh_instance_status` | [Instance tools](instances.md) |
 | Resources | `list_cluster_ip_resources`, `list_object_resources`, `get_container_logs` | [Resource tools](resources.md) |
@@ -30,6 +30,7 @@ get_daemon_status
   -> list_node_capabilities when detected runtime or driver support matters
   -> list_node_drivers when the drivers registered by the running daemon matter
   -> get_node_daemon_metrics when a hypothesis concerns daemon activity, latency, errors, or process behavior
+  -> probe_node_reachability when the proxy path to one exact daemon must be verified
   -> get_node_config when declared node settings matter
   -> get_node_logs when recent daemon activity on that node matters
   -> list_cluster_ip_resources when cluster service-address ownership matters
@@ -68,6 +69,9 @@ as runtime availability, configuration, use, or health.
 `get_node_daemon_metrics` exposes bounded, filterable Prometheus facts from one
 daemon for advanced activity or performance diagnosis. It does not calculate
 rates, interpret health, or expose general host and workload metrics.
+`probe_node_reachability` actively verifies the complete OpenSVC proxy path to
+one exact daemon. A `204` proves that daemon answered the request, not that its
+cluster, heartbeat, subsystems, objects, or resources are healthy.
 `get_node_config` provides the current redacted configuration for one exact
 node.
 `get_node_logs` shows recent OpenSVC journal entries on one exact node, with an
@@ -148,6 +152,7 @@ are representative and will differ between calls.
 | `list_node_capabilities` | Yes | No | `root` |
 | `list_node_drivers` | Yes | No | `root` |
 | `get_node_daemon_metrics` | Yes | No | Delegated JWT; daemon endpoint policy |
+| `probe_node_reachability` | Yes | No | `root` |
 | `get_node_logs` | Yes | No | `root` |
 | `list_cluster_objects` | Yes | No | Visible namespaces |
 | `get_object_status` | Yes | No | Visibility on the object namespace |

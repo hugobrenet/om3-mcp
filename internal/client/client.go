@@ -83,6 +83,33 @@ func (c *Client) GetJSON(ctx context.Context, path string, query url.Values, out
 	return c.doJSON(ctx, http.MethodGet, path, query, nil, output)
 }
 
+// GetNoContent sends an authenticated GET and requires an exact 204 response.
+func (c *Client) GetNoContent(ctx context.Context, path string, query url.Values) error {
+	endpoint := c.baseURL.JoinPath(strings.TrimPrefix(path, "/"))
+	endpoint.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return fmt.Errorf("create OpenSVC daemon GET request: %w", err)
+	}
+	request.Header.Set("Accept", "*/*")
+	if err := auth.ApplyBearerFromContext(request); err != nil {
+		return fmt.Errorf("authenticate OpenSVC daemon request: %w", err)
+	}
+
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("request OpenSVC daemon %s: %w", path, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return newAPIError(http.MethodGet, path, response)
+	}
+	if response.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("OpenSVC daemon %s returned unexpected status %d, want 204", path, response.StatusCode)
+	}
+	return nil
+}
+
 func (c *Client) PostJSON(ctx context.Context, path string, query url.Values, input any, output any) error {
 	var body io.Reader
 	if input != nil {

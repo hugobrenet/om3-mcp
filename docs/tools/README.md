@@ -16,69 +16,6 @@ combine the tools during operations.
 | Instances | `list_object_instances`, `get_instance_logs`, `refresh_instance_status` | [Instance tools](instances.md) |
 | Resources | `list_cluster_ip_resources`, `list_object_resources`, `get_container_logs` | [Resource tools](resources.md) |
 
-## Diagnostic workflow
-
-Use the smallest tool that answers the current question:
-
-```text
-get_daemon_status
-  -> list_daemon_orchestrations when a requested target state matters
-  -> list_daemon_executions when recent or running commands matter
-  -> get_cluster_status
-  -> get_cluster_config when declared cluster settings matter
-  -> get_node_status when one node needs closer inspection
-  -> list_node_capabilities when detected runtime or driver support matters
-  -> list_node_drivers when the drivers registered by the running daemon matter
-  -> get_node_daemon_metrics when a hypothesis concerns daemon activity, latency, errors, or process behavior
-  -> probe_node_reachability when the proxy path to one exact daemon must be verified
-  -> get_node_config when declared node settings matter
-  -> get_node_logs when recent daemon activity on that node matters
-  -> list_cluster_ip_resources when cluster service-address ownership matters
-  -> list_cluster_objects
-  -> get_object_status
-  -> get_object_config when declared settings matter
-  -> list_object_instances
-  -> get_instance_logs when recent OpenSVC activity matters
-  -> refresh_instance_status when freshness is insufficient
-  -> list_object_resources
-  -> get_container_logs when workload stdout or stderr matters
-```
-
-`get_daemon_status` confirms the target node and cluster, then exposes the
-local daemon process and exact subsystem states without adding a health
-verdict.
-`list_daemon_executions` exposes bounded running and recent command records on
-one exact node. It preserves the daemon's state, exit code, and error facts and
-requires `root` because command arguments can be sensitive.
-`list_daemon_orchestrations` exposes the requested target state and exact
-outcome of bounded running and recent orchestrations. Its `orchestration_id`
-can be passed to `list_daemon_executions` to inspect the commands run beneath
-that intent.
-`get_cluster_status` provides bounded cluster, node, heartbeat, and actor-object
-facts from the daemon's last-known cluster view without an MCP health verdict.
-`get_cluster_config` provides the current redacted cluster configuration when
-declared settings matter.
-`get_node_status` shows the reported state, membership context, monitor,
-capacity, policy, and bounded heartbeat facts for one exact node.
-`list_node_capabilities` returns the exact capability markers stored by the
-last OpenSVC capability scan, defaulting to the local node through `_`, without
-treating presence as current health or configuration.
-`list_node_drivers` returns the exact driver names registered by the running
-daemon, defaulting to the local node through `_`, without treating registration
-as runtime availability, configuration, use, or health.
-`get_node_daemon_metrics` exposes bounded, filterable Prometheus facts from one
-daemon for advanced activity or performance diagnosis. It does not calculate
-rates, interpret health, or expose general host and workload metrics.
-`probe_node_reachability` actively verifies the complete OpenSVC proxy path to
-one exact daemon. A `204` proves that daemon answered the request, not that its
-cluster, heartbeat, subsystems, objects, or resources are healthy.
-`get_node_config` provides the current redacted configuration for one exact
-node.
-`get_node_logs` shows recent OpenSVC journal entries on one exact node, with an
-optional component filter.
-The object, instance, and resource tools then narrow a diagnosis from cluster
-inventory to the exact failing resource.
-
 ## Authentication and visibility
 
 Every MCP HTTP request requires an OpenSVC access JWT. The MCP validates the JWT

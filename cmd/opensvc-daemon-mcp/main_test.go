@@ -203,6 +203,11 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 				t.Errorf("got node hardware query %q, want no parameters", request.URL.RawQuery)
 			}
 			fmt.Fprint(response, `{"kind":"HardwareList","items":[{"kind":"HardwareItem","meta":{"node":"node-a"},"data":{"type":"mem","class":"4096 MB RAM","driver":"","path":"DIMM 0","description":"Memory"}},{"kind":"HardwareItem","meta":{"node":"node-a"},"data":{"type":"pci","class":"Network controller","driver":"virtio-pci","path":"01:00.0","description":"Virtio network"}},{"kind":"HardwareItem","meta":{"node":"node-a"},"data":{"type":"pci","class":"Mass storage controller","driver":"virtio-pci","path":"04:00.0","description":"Virtio block"}}]}`)
+		case "/api/node/name/_/system/package":
+			if request.URL.RawQuery != "" {
+				t.Errorf("got node packages query %q, want no parameters", request.URL.RawQuery)
+			}
+			fmt.Fprint(response, `{"kind":"PackageList","items":[{"kind":"PackageItem","meta":{"node":"node-a"},"data":{"name":"jq","version":"1.7.1","arch":"amd64","type":"deb","installedat":"2026-09-23T17:01:19Z","sig":""}},{"kind":"PackageItem","meta":{"node":"node-a"},"data":{"name":"opensvc-server","version":"3.0.0~rc30","arch":"amd64","type":"deb","installedat":"2026-09-10T18:45:04Z","sig":""}},{"kind":"PackageItem","meta":{"node":"node-a"},"data":{"name":"opensvc-client","version":"3.0.0~rc30","arch":"amd64","type":"deb","installedat":"2026-09-10T10:58:38Z","sig":""}}]}`)
 		case "/api/node/name/_/metrics":
 			if request.URL.RawQuery != "" {
 				t.Errorf("got node daemon metrics query %q, want no parameters", request.URL.RawQuery)
@@ -335,6 +340,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		"list_node_drivers":          "List node drivers",
 		"list_node_properties":       "List node properties",
 		"list_node_hardware":         "List node hardware",
+		"list_node_packages":         "List node packages",
 		"get_node_daemon_metrics":    "Get node daemon metrics",
 		"probe_node_reachability":    "Probe node reachability",
 		"get_container_logs":         "Get container logs",
@@ -620,6 +626,25 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Errorf("got unexpected node hardware %#v", nodeHardware)
 	}
 	assertResultProvenance(t, nodeHardware.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_node_packages",
+		Arguments: mcptools.ListNodePackagesInput{
+			NamePrefixes: []string{"opensvc-"}, Types: []string{"deb"}, Architectures: []string{"amd64"},
+		},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call list_node_packages: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var nodePackages mcptools.ListNodePackagesOutput
+	if err := json.Unmarshal(data, &nodePackages); err != nil {
+		t.Fatalf("decode node packages: %v", err)
+	}
+	if nodePackages.Node != "node-a" || nodePackages.ReportedTotal != 3 || nodePackages.Total != 2 || nodePackages.Count != 2 || nodePackages.Packages[0].Name != "opensvc-client" || nodePackages.Packages[1].Name != "opensvc-server" {
+		t.Errorf("got unexpected node packages %#v", nodePackages)
+	}
+	assertResultProvenance(t, nodePackages.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "get_node_daemon_metrics",

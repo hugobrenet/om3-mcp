@@ -6,6 +6,7 @@ tools:
   - get_node_logs
   - list_node_properties
   - list_node_hardware
+  - list_node_packages
   - list_node_capabilities
   - list_node_drivers
   - get_node_daemon_metrics
@@ -16,9 +17,10 @@ stability: experimental
 # Node Tools
 
 This document describes tools that read bounded node configuration evidence,
-inspect the last-known state, cached system properties, hardware, and
-capabilities of one exact node, read its recent OpenSVC journal entries, expose advanced
-daemon-process metrics, and actively verify the proxy path to one daemon.
+inspect the last-known state, cached system properties, hardware, packages,
+and capabilities of one exact node, read its recent OpenSVC journal entries,
+expose advanced daemon-process metrics, and actively verify the proxy path to
+one daemon.
 
 Implementation:
 
@@ -574,6 +576,127 @@ Representative output:
 | Invalid node, filters, page size, or cursor | Tool validation error before the daemon request |
 | Cursor no longer present after a cache change | Explicit stale-cursor tool error |
 | Unexpected list/item kind, node, required field, or control character | Tool error; no partial list |
+| Daemon or remote-node proxy unavailable | Tool error with transport context |
+
+### `list_node_packages`
+
+Returns the package entries stored in one node's OpenSVC package cache. Use it
+to establish whether a named package family, version, architecture, or package
+manager type was reported when investigating a driver or workload dependency.
+The tool does not compare versions or decide whether a package is current,
+vulnerable, compatible, correctly signed, or trusted.
+
+#### OpenSVC API, authorization, and freshness
+
+```text
+GET /api/node/name/_/system/package
+```
+
+The endpoint requires the global `root` grant. It reads the local node package
+cache by default and uses the OpenSVC proxy path for another exact node. It
+does not inventory the operating system, execute `push pkg`, contact a
+collector, install or remove packages, or update the cache.
+
+The cache may not exist until OpenSVC has executed a package push. The daemon
+then returns HTTP `404` with `Load package cache` context; the MCP preserves
+this error instead of returning an empty inventory. The API exposes no cache
+timestamp, so `provenance.observed_at` dates only the MCP read. Each
+`installed_at` value belongs to its package record and does not establish the
+freshness of the cache.
+
+#### Input and filtering
+
+| Input | Required | Default | Bounds | Meaning |
+|---|---:|---:|---:|---|
+| `node` | No | Local node (`_`) | Exact hostname using letters, digits, `.`, `_`, or `-`; at most 255 characters | Node whose cached packages are read |
+| `names` | No | All | At most 32 exact values of at most 255 characters | Include exact package names |
+| `name_prefixes` | No | All | At most 32 case-sensitive prefixes of at most 255 characters | Include package families such as `opensvc-` or `linux-image-` |
+| `types` | No | All | At most 32 exact values of at most 255 characters | Include package manager types such as `deb`, `rpm`, or `snap`; `""` selects an unreported type |
+| `architectures` | No | All | At most 32 exact values of at most 255 characters | Include architectures such as `amd64` or `all`; `""` selects an unreported architecture |
+| `limit` | No | 100 | 1..200 | Maximum matching package entries returned |
+| `cursor` | No | — | Opaque value of at most 128 characters | Exact `next_cursor` from the preceding page with the same node and filters |
+
+Exact names and name prefixes are combined with OR. Package name, type, and
+architecture filter families are combined with AND and applied after the full
+daemon response has been validated. `reported_total` is the number of daemon
+entries before filtering; `total` is the number matching all filters.
+
+Entries are sorted by exact name, architecture, type, version, installation
+timestamp, and signature. The cursor is derived from the complete source
+record and its occurrence and must be treated as opaque. Exact duplicates are
+preserved. A page is additionally bounded to 128 Ki Unicode code points.
+
+The daemon field `installedat` is exposed as `installed_at` after RFC 3339
+validation. Some package collectors do not obtain an installation time and
+can report the Go all-zero timestamp. Version, architecture, and type are also
+preserved when a backend reports an empty value. `signature` preserves the
+exact `sig` field; an empty value is expected for package backends that do not
+populate it and is not a signature-validation result.
+
+#### MCP properties
+
+| Property | Value |
+|---|---|
+| Title | List node packages |
+| Read-only | Yes |
+| Destructive | No |
+| Open world | No; only the configured daemon and its OpenSVC proxy path are used |
+| Side effects | None; no inventory, cache update, collector push, or package operation |
+
+#### Example
+
+Input:
+
+```json
+{
+  "name_prefixes": ["opensvc-"],
+  "types": ["deb"],
+  "architectures": ["amd64"],
+  "limit": 20
+}
+```
+
+Representative output:
+
+```json
+{
+  "provenance": {"source":"opensvc_daemon","observed_at":"2026-09-25T10:00:00Z"},
+  "node": "node-a",
+  "reported_total": 420,
+  "total": 2,
+  "count": 2,
+  "packages": [
+    {
+      "name": "opensvc-client",
+      "version": "3.0.0",
+      "architecture": "amd64",
+      "type": "deb",
+      "installed_at": "2026-09-24T10:15:30+02:00",
+      "signature": ""
+    },
+    {
+      "name": "opensvc-server",
+      "version": "3.0.0",
+      "architecture": "amd64",
+      "type": "deb",
+      "installed_at": "2026-09-24T10:15:35+02:00",
+      "signature": ""
+    }
+  ],
+  "truncated": false
+}
+```
+
+#### Errors
+
+| Condition | Result |
+|---|---|
+| Invalid MCP JWT | MCP HTTP `401` |
+| Missing global `root` grant | Tool error containing daemon HTTP `403` |
+| Package cache not yet populated | Tool error preserving daemon HTTP `404` and `Load package cache` detail |
+| Invalid node, filters, page size, or cursor | Tool validation error before the daemon request |
+| Cursor no longer present after a cache change | Explicit stale-cursor tool error |
+| Unexpected list/item kind, node, required field, timestamp, or control character | Tool error; no partial list |
 | Daemon or remote-node proxy unavailable | Tool error with transport context |
 
 ### `list_node_capabilities`

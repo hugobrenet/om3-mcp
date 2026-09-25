@@ -64,6 +64,18 @@ type ListNodeHardwareInput struct {
 
 type ListNodeHardwareOutput = core.NodeHardwareList
 
+type ListNodePackagesInput struct {
+	Node          string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Names         []string `json:"names,omitempty" jsonschema:"optional exact package names; combined with name_prefixes using OR and with types and architectures using AND; at most 32 entries"`
+	NamePrefixes  []string `json:"name_prefixes,omitempty" jsonschema:"optional exact case-sensitive package name prefixes; combined with names using OR and with types and architectures using AND; at most 32 entries"`
+	Types         []string `json:"types,omitempty" jsonschema:"optional exact package manager types such as deb rpm or snap; an empty string selects entries with no reported type; combined with name filters and architectures using AND; at most 32 entries"`
+	Architectures []string `json:"architectures,omitempty" jsonschema:"optional exact package architectures such as amd64 or all; an empty string selects entries with no reported architecture; combined with name filters and types using AND; at most 32 entries"`
+	Limit         int      `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
+	Cursor        string   `json:"cursor,omitempty" jsonschema:"optional opaque next_cursor returned by a previous call with the same node and filters"`
+}
+
+type ListNodePackagesOutput = core.NodePackageList
+
 type GetNodeDaemonMetricsInput struct {
 	Node     string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
 	Names    []string `json:"names,omitempty" jsonschema:"optional exact Prometheus metric family names; combined with prefixes using OR; at most 32 entries"`
@@ -95,6 +107,29 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 				return nil, GetNodeConfigOutput{}, err
 			}
 			return nil, config, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "list_node_packages",
+			Title: "List node packages",
+			Description: "List bounded package entries from one OpenSVC node package cache, defaulting to the local node, with exact-name, name-prefix, type, and architecture filters and stable pagination. " +
+				"Preserves versions, installation timestamps, signatures, empty source fields, and duplicate entries without comparing versions or interpreting freshness, vulnerability, compatibility, or trust. " +
+				"This root-only read does not inventory packages, execute push pkg, contact a collector, or refresh the cache; a missing cache remains an explicit daemon error.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListNodePackagesInput) (*mcp.CallToolResult, ListNodePackagesOutput, error) {
+			packages, err := service.ListNodePackages(ctx, core.ListNodePackagesOptions{
+				Node: input.Node, Names: input.Names, NamePrefixes: input.NamePrefixes, Types: input.Types,
+				Architectures: input.Architectures, Limit: input.Limit, Cursor: input.Cursor,
+			})
+			if err != nil {
+				return nil, ListNodePackagesOutput{}, err
+			}
+			return nil, packages, nil
 		},
 	); err != nil {
 		return err

@@ -14,7 +14,7 @@ result; this time does not establish freshness of the underlying status.
 Detailed documentation is organized by OpenSVC daemon domain and includes
 representative input/output examples:
 
-- [Tool index and diagnostic workflow](docs/tools/README.md)
+- [Tool index and shared contracts](docs/tools/README.md)
 - [Daemon tools](docs/tools/daemon.md)
 - [Cluster tools](docs/tools/cluster.md)
 - [Node tools](docs/tools/node.md)

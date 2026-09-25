@@ -15,7 +15,7 @@ tools are read-only; `refresh_instance_status` is an explicit, non-destructive
 active probe. Tool contracts, endpoints, examples, and domain-specific behavior
 are documented by domain in:
 
-- [Tool index and diagnostic workflow](docs/tools/README.md)
+- [Tool index and shared contracts](docs/tools/README.md)
 - [Daemon tools](docs/tools/daemon.md)
 - [Cluster tools](docs/tools/cluster.md)
 - [Node tools](docs/tools/node.md)
@@ -335,9 +335,9 @@ Update `stability` when the domain contracts mature. Do not use documentation
 tags as authorization or runtime policy.
 
 The domain index in `docs/tools/README.md` must list every registered tool and
-show the recommended cross-domain diagnostic workflow. Each domain document
-must introduce its core and MCP implementation files. Each documented tool
-must cover:
+document the shared authentication, freshness, and safety contracts. Each
+domain document must introduce its core and MCP implementation files. Each
+documented tool must cover:
 
 - when to use the tool and when not to use it;
 - MCP title, side-effect annotations, and their non-authoritative nature;

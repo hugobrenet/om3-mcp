@@ -66,19 +66,19 @@ Common selectors:
 |---|---|
 | `**` | All visible objects |
 | `*/svc/*` | All visible service objects |
-| `lab/**` | All visible objects in namespace `lab` |
-| `lab/svc/redis` | One exact object |
+| `prod/**` | All visible objects in namespace `prod` |
+| `prod/svc/redis` | One exact object |
 
-Lab input example:
+Example input:
 
 ```json
 {
-  "selector": "lab/**",
+  "selector": "prod/**",
   "limit": 100
 }
 ```
 
-#### Lab output example
+#### Example output
 
 ```json
 {
@@ -91,11 +91,11 @@ Lab input example:
     {
       "kind": "svc",
       "name": "redis",
-      "namespace": "lab",
-      "path": "lab/svc/redis"
+      "namespace": "prod",
+      "path": "prod/svc/redis"
     }
   ],
-  "selector": "lab/**",
+  "selector": "prod/**",
   "total": 1,
   "truncated": false
 }
@@ -112,8 +112,8 @@ Path normalization follows OpenSVC conventions:
 | `cluster` | namespace `root`, kind `ccfg`, name `cluster` |
 | `redis` | namespace `root`, kind `svc`, name `redis` |
 | `cfg/app` | namespace `root`, kind `cfg`, name `app` |
-| `lab/svc/redis` | namespace `lab`, kind `svc`, name `redis` |
-| `lab/` | namespace `lab`, kind `nscfg`, name `namespace` |
+| `prod/svc/redis` | namespace `prod`, kind `svc`, name `redis` |
+| `prod/` | namespace `prod`, kind `nscfg`, name `namespace` |
 
 Malformed paths returned by the daemon are rejected rather than silently
 rewritten or omitted.
@@ -141,17 +141,17 @@ Use `list_object_instances` to inspect per-node timestamps and
 
 This tool is read-only, non-destructive, closed-world, and has no side effects.
 
-#### Lab input example
+#### Example input
 
 ```json
 {
-  "path": "lab/svc/redis"
+  "path": "prod/svc/redis"
 }
 ```
 
 Wildcard paths are intentionally unsupported.
 
-#### Lab output example
+#### Example output
 
 ```json
 {
@@ -162,12 +162,12 @@ Wildcard paths are intentionally unsupported.
   "availability": "up",
   "frozen": "unfrozen",
   "instance_count": 1,
-  "instance_nodes": ["lab-node-01"],
+  "instance_nodes": ["node-a"],
   "object": {
     "kind": "svc",
     "name": "redis",
-    "namespace": "lab",
-    "path": "lab/svc/redis"
+    "namespace": "prod",
+    "path": "prod/svc/redis"
   },
   "orchestrate": "no",
   "overall": "up",
@@ -175,7 +175,7 @@ Wildcard paths are intentionally unsupported.
   "placement_state": "optimal",
   "priority": 50,
   "provisioned": "n/a",
-  "scope": ["lab-node-01"],
+  "scope": ["node-a"],
   "topology": "failover",
   "up_instances_count": 1,
   "updated_at": "2026-07-15T14:31:02.780259555+09:00"
@@ -206,8 +206,8 @@ converts evaluated values, impersonates a node, or returns the raw INI file.
 If the daemon unexpectedly returns evaluated data, the tool fails instead of
 exposing it.
 
-OpenSVC remains authoritative for namespace visibility. The lab daemon permits
-this read with `guest` access on the object namespace.
+OpenSVC remains authoritative for namespace visibility. The example assumes
+`guest` access on the object namespace.
 
 #### MCP properties
 
@@ -224,11 +224,11 @@ This tool is read-only, non-destructive, closed-world, and has no side effects.
 `limit=0` is the omitted Go zero value and selects the default 100; it never
 means unlimited. The daemon endpoint itself has no `limit` parameter.
 
-Lab input example:
+Example input:
 
 ```json
 {
-  "path": "lab/svc/redis",
+  "path": "prod/svc/redis",
   "keywords": [
     "container#redis.image",
     "container#redis.image_pull_policy"
@@ -237,7 +237,7 @@ Lab input example:
 }
 ```
 
-#### Lab output example
+#### Example output
 
 ```json
 {
@@ -248,8 +248,8 @@ Lab input example:
   "object": {
     "kind": "svc",
     "name": "redis",
-    "namespace": "lab",
-    "path": "lab/svc/redis"
+    "namespace": "prod",
+    "path": "prod/svc/redis"
   },
   "keyword_filter": [
     "container#redis.image",
@@ -298,8 +298,3 @@ unbounded response.
 | Malformed daemon path or response | Tool error with parsing context |
 
 Errors preserve bounded OpenSVC RFC 7807 details and never include the JWT.
-
-## Compatibility
-
-Verified against OpenSVC `3.0.0-rc21` `/api/object/path` and `/api/object`
-behavior, including namespace visibility and selector handling.

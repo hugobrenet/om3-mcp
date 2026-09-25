@@ -8,7 +8,7 @@ import (
 )
 
 type ListClusterObjectsInput struct {
-	Selector string `json:"selector,omitempty" jsonschema:"optional OpenSVC object selector; defaults to **; examples: lab/**, */svc/*, lab/svc/redis"`
+	Selector string `json:"selector,omitempty" jsonschema:"optional OpenSVC object selector; defaults to **; examples: prod/**, */svc/*, prod/svc/redis"`
 	Limit    int    `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
 	Cursor   string `json:"cursor,omitempty" jsonschema:"optional next_cursor returned by a previous call with the same selector"`
 }

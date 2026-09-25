@@ -55,10 +55,10 @@ The request reads journal records available when the call starts. It does not
 run resource drivers, refresh instance status, or change daemon state. The tool
 is read-only, non-destructive, and closed-world.
 
-OpenSVC `3.0.0-rc21` delegates this instance route to its node-log handler,
-which requires the global `root` grant. A namespace `guest`, `operator`, or
-`admin` grant is not sufficient in this version, even though the outer
-instance handler first checks namespace visibility.
+OpenSVC delegates this instance route to its node-log handler, which requires
+the global `root` grant. A namespace `guest`, `operator`, or `admin` grant is
+not sufficient, even though the outer instance handler first checks namespace
+visibility.
 
 #### Input
 
@@ -72,17 +72,17 @@ The MCP requests one extra daemon record to determine whether older entries
 were omitted. It then retains at most the requested number of most recent
 entries in chronological order.
 
-Lab input example:
+Example input:
 
 ```json
 {
-  "path": "lab/svc/redis",
-  "node": "lab-node-01",
+  "path": "prod/svc/redis",
+  "node": "node-a",
   "lines": 3
 }
 ```
 
-#### Lab output example
+#### Example output
 
 ```json
 {
@@ -96,7 +96,7 @@ Lab input example:
       "component": "daemon/daemonapi",
       "event_id": "b04fe7aa-c70c-4c30-a4a9-e7d2ef477061",
       "level": "info",
-      "message": "daemon: api: inet: GET /api/object/path/lab/svc/redis/config/file: serve config file lab/svc/redis to opensvc-daemon-mcp",
+      "message": "daemon: api: inet: GET /api/object/path/prod/svc/redis/config/file: serve config file prod/svc/redis to opensvc-daemon-mcp",
       "message_truncated": false,
       "request_id": "7ae41b79-d9fd-4c0b-80c1-9368e88dbd93",
       "session_id": "e24f692e-fd28-4b4a-a606-13e037e03c36",
@@ -106,7 +106,7 @@ Lab input example:
       "component": "daemon/daemonapi",
       "event_id": "b04fe7aa-c70c-4c30-a4a9-e7d2ef477061",
       "level": "info",
-      "message": "daemon: api: ux: GET /api/object/path/lab/svc/redis/config/file: serve config file lab/svc/redis to root",
+      "message": "daemon: api: ux: GET /api/object/path/prod/svc/redis/config/file: serve config file prod/svc/redis to root",
       "message_truncated": false,
       "request_id": "fd76415e-a716-4fd2-a765-a20f32b9d0cc",
       "session_id": "e24f692e-fd28-4b4a-a606-13e037e03c36",
@@ -116,7 +116,7 @@ Lab input example:
       "component": "daemon/daemonapi",
       "event_id": "b04fe7aa-c70c-4c30-a4a9-e7d2ef477061",
       "level": "info",
-      "message": "daemon: api: ux: GET /api/object/path/lab/svc/redis/config/file: serve config file lab/svc/redis to root",
+      "message": "daemon: api: ux: GET /api/object/path/prod/svc/redis/config/file: serve config file prod/svc/redis to root",
       "message_truncated": false,
       "request_id": "5af7dc44-923d-48fd-8bb6-a327b1c7a453",
       "session_id": "e24f692e-fd28-4b4a-a606-13e037e03c36",
@@ -124,12 +124,12 @@ Lab input example:
     }
   ],
   "lines": 3,
-  "node": "lab-node-01",
+  "node": "node-a",
   "object": {
     "kind": "svc",
     "name": "redis",
-    "namespace": "lab",
-    "path": "lab/svc/redis"
+    "namespace": "prod",
+    "path": "prod/svc/redis"
   },
   "truncated": true
 }
@@ -190,17 +190,17 @@ is read-only, non-destructive, closed-world, and has no side effects.
 | `limit` | No | 50 | 1..100 | Maximum instances in this page |
 | `cursor` | No | Empty | 255 characters | Previous `next_cursor` with unchanged filters |
 
-Lab input example:
+Example input:
 
 ```json
 {
-  "path": "lab/svc/redis",
-  "node": "lab-node-01",
+  "path": "prod/svc/redis",
+  "node": "node-a",
   "limit": 50
 }
 ```
 
-#### Lab output example
+#### Example output
 
 ```json
 {
@@ -219,7 +219,7 @@ Lab input example:
       "last_started_at": "2026-07-15T13:36:32.905515501+09:00",
       "local_expect": "started",
       "monitor_state": "idle",
-      "node": "lab-node-01",
+      "node": "node-a",
       "orchestration_id": "00000000-0000-0000-0000-000000000000",
       "orchestration_is_done": false,
       "overall": "up",
@@ -236,12 +236,12 @@ Lab input example:
       "updated_at": "2026-07-15T14:31:02.747625761+09:00"
     }
   ],
-  "node_filter": "lab-node-01",
+  "node_filter": "node-a",
   "object": {
     "kind": "svc",
     "name": "redis",
-    "namespace": "lab",
-    "path": "lab/svc/redis"
+    "namespace": "prod",
+    "path": "prod/svc/redis"
   },
   "total": 1,
   "truncated": false
@@ -291,12 +291,12 @@ namespace. A `guest` JWT can inspect instances but cannot trigger the action.
 
 Discover the exact node with `list_object_instances`; do not guess it.
 
-Lab input example:
+Example input:
 
 ```json
 {
-  "path": "lab/svc/redis",
-  "node": "lab-node-01",
+  "path": "prod/svc/redis",
+  "node": "node-a",
   "timeout_seconds": 30
 }
 ```
@@ -313,7 +313,7 @@ The timestamp change is the completion signal because this status action is not
 a CRM orchestration and its session is not reliably represented in instance
 monitor fields.
 
-#### Lab output example
+#### Example output
 
 ```json
 {
@@ -332,7 +332,7 @@ monitor fields.
     "last_started_at": "2026-07-15T13:36:32.905515501+09:00",
     "local_expect": "started",
     "monitor_state": "idle",
-    "node": "lab-node-01",
+    "node": "node-a",
     "orchestration_id": "00000000-0000-0000-0000-000000000000",
     "orchestration_is_done": false,
     "overall": "up",
@@ -348,12 +348,12 @@ monitor fields.
     },
     "updated_at": "2026-07-15T14:35:58.608127647+09:00"
   },
-  "node": "lab-node-01",
+  "node": "node-a",
   "object": {
     "kind": "svc",
     "name": "redis",
-    "namespace": "lab",
-    "path": "lab/svc/redis"
+    "namespace": "prod",
+    "path": "prod/svc/redis"
   },
   "previous_updated_at": "2026-07-15T14:31:02.747625761+09:00",
   "refresh_observed": true,
@@ -374,7 +374,7 @@ still complete later.
 A caller holding only `guest` receives an MCP tool error similar to:
 
 ```text
-request instance status refresh: OpenSVC daemon POST ... returned HTTP 403 Forbidden: need one of [operator:lab admin:lab operator admin root] grant
+request instance status refresh: OpenSVC daemon POST ... returned HTTP 403 Forbidden: need one of [operator:prod admin:prod operator admin root] grant
 ```
 
 The message comes from the daemon's bounded RFC 7807 response. The MCP does not
@@ -387,9 +387,3 @@ before daemon access where possible. Missing or invisible instances,
 authorization failures, transport errors, malformed responses, missing action
 session identifiers, and caller cancellation are MCP tool errors. No JWT or
 raw error body is exposed.
-
-## Compatibility
-
-Verified against OpenSVC `3.0.0-rc21` `GET /api/instance`, `GetInstanceLogs`,
-and `PostInstanceActionStatus` behavior. The status action executes `instance
-status -r`.

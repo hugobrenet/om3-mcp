@@ -194,27 +194,27 @@ Annotations are client hints; OpenSVC enforces access using the delegated JWT.
 Input:
 
 ```json
-{"node":"node1"}
+{"node":"node-a"}
 ```
 
-Illustrative output using the two-node lab. Timestamps and capacity values are
+Illustrative output for a two-node cluster. Timestamps and capacity values are
 representative:
 
 ```json
 {
   "provenance": {"source": "opensvc_daemon", "observed_at": "2026-09-18T10:00:30Z"},
-  "node": "node1",
+  "node": "node-a",
   "membership": {
     "is_configured": true,
     "configured_peers": {
       "total": 1,
       "count": 1,
-      "items": ["node2"],
+      "items": ["node-b"],
       "truncated": false
     }
   },
   "status": {
-    "agent_version": "v3.0.0-rc30",
+    "agent_version": "v3.0.0",
     "api_version": 0,
     "compat_version": 0,
     "is_leader": true,
@@ -241,13 +241,13 @@ representative:
   "policy": {"min_avail_mem_pct": 5, "min_avail_swap_pct": 0},
   "heartbeat": {
     "updated_at": "2026-09-18T10:00:00Z",
-    "last_message": {"from": "node1", "patch_length": 0, "type": "patch"},
+    "last_message": {"from": "node-a", "patch_length": 0, "type": "patch"},
     "last_messages": {
       "total": 2,
       "count": 2,
       "items": [
-        {"from": "node1", "patch_length": 0, "type": "patch"},
-        {"from": "node2", "patch_length": 0, "type": "patch"}
+        {"from": "node-a", "patch_length": 0, "type": "patch"},
+        {"from": "node-b", "patch_length": 0, "type": "patch"}
       ],
       "truncated": false
     },
@@ -268,8 +268,8 @@ representative:
             "total": 1,
             "count": 1,
             "items": [{
-              "name": "node2",
-              "description": ":10000 ← node2",
+              "name": "node-b",
+              "description": ":10000 ← node-b",
               "description_truncated": false,
               "is_beating": true,
               "changed_at": "2026-09-18T09:00:01Z",
@@ -290,8 +290,8 @@ representative:
             "total": 1,
             "count": 1,
             "items": [{
-              "name": "node2",
-              "description": "→ node2:10000",
+              "name": "node-b",
+              "description": "→ node-b:10000",
               "description_truncated": false,
               "is_beating": true,
               "changed_at": "2026-09-18T09:00:01Z",
@@ -381,12 +381,12 @@ Input:
 {"limit":3}
 ```
 
-Output using the real node1 capability cache:
+Representative capability output:
 
 ```json
 {
   "provenance": {"source":"opensvc_daemon","observed_at":"2026-09-24T11:30:00Z"},
-  "node": "node1",
+  "node": "node-a",
   "reported_total": 65,
   "total": 65,
   "count": 3,
@@ -400,7 +400,7 @@ Output using the real node1 capability cache:
 }
 ```
 
-Examples of other marker classes observed on node1 include
+Examples of other marker classes include
 `drivers.resource.container.docker`,
 `drivers.resource.container.docker.registry_creds`, and `node.x.systemd`.
 The MCP does not translate these markers into availability or health verdicts.
@@ -483,12 +483,12 @@ Input:
 {"limit":5}
 ```
 
-Output based on the real node1 registry:
+Representative driver registry output:
 
 ```json
 {
   "provenance": {"source":"opensvc_daemon","observed_at":"2026-09-24T15:30:00Z"},
-  "node": "node1",
+  "node": "node-a",
   "reported_total": 122,
   "total": 122,
   "count": 5,
@@ -688,7 +688,7 @@ JWT, an unknown node, missing status data, and a remote connection failure.
 Input:
 
 ```json
-{"node":"node2"}
+{"node":"node-b"}
 ```
 
 Output:
@@ -696,7 +696,7 @@ Output:
 ```json
 {
   "provenance":{"source":"opensvc_daemon","observed_at":"2026-09-25T10:00:00Z"},
-  "node":"node2",
+  "node":"node-b",
   "reachable":true,
   "status_code":204,
   "round_trip_ms":1.42
@@ -760,10 +760,3 @@ identifiers, command lines, and user IDs is omitted. `truncated` reports older
 entries omitted by the requested line limit or message content shortened by
 these bounds. Invalid inputs, malformed SSE or JSON, unexpected node or
 component values, oversized streams, and daemon errors become MCP tool errors.
-
-## Compatibility
-
-Node status, capability, driver, and log behavior was verified against the OpenSVC
-development branch used by the two-node lab. Node configuration redaction
-requires OpenSVC main including `opensvc/om3#1125` until that change is
-included in a tagged release.

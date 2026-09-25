@@ -118,20 +118,16 @@ itself. Use `refresh_instance_status` only for one exact object instance when
 a fresher probe is required. It is non-destructive, but it executes status
 drivers and updates daemon state.
 
-## Lab examples
+## Examples
 
-The JSON examples were captured through the real Streamable HTTP MCP server
-against an OpenSVC `3.0.0-rc21` single-node lab running a Redis Docker resource.
-Values are normalized for publication while preserving the actual response
-shape. The `provenance` fields in these historical examples illustrate the
-current contract; their timestamps are representative, not original capture
-metadata:
+The JSON examples use representative values and illustrate the documented
+response shape. Timestamps and provenance values are illustrative:
 
 | Value | Example |
 |---|---|
-| Cluster | `lab-cluster` |
-| Node | `lab-node-01` |
-| Object | `lab/svc/redis` |
+| Cluster | `cluster-a` |
+| Node | `node-a` |
+| Object | `prod/svc/redis` |
 | Resource | `container#redis` |
 
 Examples show the `arguments` object passed to `tools/call`, not the complete
@@ -158,11 +154,11 @@ are representative and will differ between calls.
 | `get_object_status` | Yes | No | Visibility on the object namespace |
 | `get_object_config` | Yes | No | Visibility on the object namespace |
 | `list_object_instances` | Yes | No | Visibility on the object namespace |
-| `get_instance_logs` | Yes | No | `root` in OpenSVC 3.0.0-rc21 |
+| `get_instance_logs` | Yes | No | `root` |
 | `refresh_instance_status` | No | No | `operator`, `admin`, or `root` |
 | `list_cluster_ip_resources` | Yes | No | Visible namespaces |
 | `list_object_resources` | Yes | No | Visibility on the object namespace |
-| `get_container_logs` | Yes | No | `root` in OpenSVC 3.0.0-rc21 |
+| `get_container_logs` | Yes | No | `root` |
 
 Annotations are client hints. The daemon's authorization decision is always
 authoritative.

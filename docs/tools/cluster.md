@@ -40,10 +40,8 @@ therefore controls access at the daemon. The call reads the current
 `cluster.conf` file rather than the cluster status cache and does not refresh
 drivers or change daemon state.
 
-Cluster-side redaction requires an OpenSVC daemon containing the fix merged in
-`opensvc/om3#1125`. An older daemon can ignore this optional query parameter and
-return an unredacted file, so the daemon must be upgraded before enabling this
-tool against it.
+The daemon must honor the `redact-secrets` query parameter. A daemon that
+ignores it can return an unredacted file and must not be used with this tool.
 
 #### Input and output
 
@@ -88,7 +86,7 @@ Output:
 ```json
 {
   "provenance": {"source": "opensvc_daemon", "observed_at": "2026-09-23T10:00:00Z"},
-  "content": "[cluster]\nname = lab\nnodes = node1 node2\nsecret = ********\n",
+  "content": "[cluster]\nname = cluster-a\nnodes = node-a node-b\nsecret = ********\n",
   "size_bytes": 65,
   "returned_bytes": 65,
   "truncated": false,
@@ -244,14 +242,14 @@ Input:
 {"node_limit":100,"object_limit":100}
 ```
 
-Abbreviated output using facts observed on the two-node lab:
+Abbreviated representative output for a two-node cluster:
 
 ```json
 {
   "provenance": {"source":"opensvc_daemon","observed_at":"2026-09-23T15:00:33Z"},
   "cluster": {
     "id":"a9601756-8a8a-440c-a2bb-1721b73dd280",
-    "name":"lab-opensvc",
+    "name":"cluster-a",
     "quorum_enabled":false,
     "is_compatible":true,
     "is_frozen":false,
@@ -265,7 +263,7 @@ Abbreviated output using facts observed on the two-node lab:
     "total":2,
     "count":2,
     "items":[{
-      "name":"node1",
+      "name":"node-a",
       "configured":true,
       "reported":true,
       "status":{"is_leader":true,"is_overloaded":true},
@@ -279,7 +277,7 @@ Abbreviated output using facts observed on the two-node lab:
     "reported_total":5,
     "actor_total":1,
     "count":1,
-    "items":[{"path":"lab/svc/redis","availability":"up","overall":"up","provisioned":"n/a","placement_state":"optimal"}],
+    "items":[{"path":"prod/svc/redis","availability":"up","overall":"up","provisioned":"n/a","placement_state":"optimal"}],
     "state_counts":{"availability":[{"value":"up","count":1}]},
     "truncated":false
   }
@@ -297,10 +295,3 @@ output schema and implementation always return their complete typed shapes.
 | Insufficient daemon grants | Tool error containing daemon HTTP `403` |
 | Invalid page limit or oversized cursor | Tool error before the daemon request |
 | Daemon unavailable or malformed status | Tool error; no partial snapshot |
-
-## Compatibility
-
-The factual status projection was verified against the `node1` lab daemon on
-23 September 2026. Cluster configuration redaction requires OpenSVC main
-including `opensvc/om3#1125` until that change is included in a tagged release.
-Unknown future status strings are preserved rather than reclassified.

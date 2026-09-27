@@ -12,7 +12,7 @@ combine the tools during operations.
 | Daemon | `get_daemon_status`, `list_daemon_executions`, `list_daemon_orchestrations` | [Daemon tools](daemon.md) |
 | Cluster | `get_cluster_config`, `get_cluster_status` | [Cluster tools](cluster.md) |
 | Node | `get_node_config`, `get_node_status`, `get_node_logs`, `list_node_properties`, `list_node_hardware`, `list_node_packages`, `get_node_daemon_metrics`, `probe_node_reachability`, `list_node_capabilities`, `list_node_drivers` | [Node tools](node.md) |
-| Objects | `list_cluster_objects`, `get_object_status`, `get_object_config` | [Object tools](objects.md) |
+| Objects | `list_cluster_objects`, `get_object_status`, `get_object_config`, `list_object_config_keywords` | [Object tools](objects.md) |
 | Instances | `list_object_instances`, `get_instance_logs`, `refresh_instance_status` | [Instance tools](instances.md) |
 | Resources | `list_cluster_ip_resources`, `list_object_resources`, `get_container_logs` | [Resource tools](resources.md) |
 
@@ -93,6 +93,7 @@ are representative and will differ between calls.
 | `list_cluster_objects` | Yes | No | Visible namespaces |
 | `get_object_status` | Yes | No | Visibility on the object namespace |
 | `get_object_config` | Yes | No | Visibility on the object namespace |
+| `list_object_config_keywords` | Yes | No | `guest` or higher on the object namespace |
 | `list_object_instances` | Yes | No | Visibility on the object namespace |
 | `get_instance_logs` | Yes | No | `root` |
 | `refresh_instance_status` | No | No | `operator`, `admin`, or `root` |

@@ -4,6 +4,7 @@ tools:
   - list_cluster_objects
   - get_object_status
   - get_object_config
+  - list_object_config_keywords
 stability: experimental
 ---
 
@@ -15,7 +16,8 @@ aggregate status.
 Implementation:
 
 - business logic: `internal/core/object.go`, `internal/core/object_status.go`,
-  and `internal/core/object_config.go`;
+  `internal/core/object_config.go`, and
+  `internal/core/object_config_keyword.go`;
 - MCP definitions: `internal/tools/object.go`.
 
 ## Tool selection
@@ -25,6 +27,9 @@ Use `get_object_status` after selecting one exact path. Continue with
 `list_object_instances` when an aggregate object state requires node-level
 diagnosis. Use `get_object_config` when the diagnosis requires declared driver,
 resource, placement, or orchestration settings.
+Use `list_object_config_keywords` to discover which options an object kind or
+configured driver supports, their defaults, constraints, and documentation.
+It returns definitions, not the object's configured values.
 
 ## Tools
 
@@ -186,6 +191,126 @@ Wildcard paths are intentionally unsupported.
 object. The MCP does not derive an actor classification from its presence or
 absence. Scope and instance node names are sorted.
 
+### `list_object_config_keywords`
+
+Returns configuration keyword definitions supported by one exact object. It
+is intended for configuration discovery and validation: use
+`get_object_config` to read the values actually declared on the object.
+
+#### OpenSVC API
+
+```text
+GET /api/object/path/<namespace>/<kind>/<name>/config/keywords[?driver=<driver>|section=<section>][&option=<option>]
+```
+
+The daemon applies all definition filters before returning the catalog:
+
+- `driver` selects one exact driver, such as `container.docker`;
+- `section` selects one exact configured section, such as `container#redis`,
+  and lets OpenSVC resolve its driver from the object configuration;
+- `option` selects one exact option name. Used alone, it returns every
+  matching definition variant across drivers;
+- `driver` and `section` are mutually exclusive.
+
+An unknown option returns an empty successful list. Invalid drivers, sections,
+empty filters, or the `driver`/`section` conflict are daemon errors. OpenSVC
+requires at least `guest` visibility on the namespace named by the object path.
+
+The daemon returns the complete filtered catalog without pagination. The MCP
+validates and deterministically sorts that catalog, then applies bounded cursor
+pagination locally. A cursor is tied to the path, filters, and returned
+definition; pagination is recalculated from the current catalog and is not a
+snapshot.
+
+#### MCP properties
+
+This tool is read-only, non-destructive, closed-world, and has no side effects.
+
+#### Input
+
+| Field | Required | Default | Bounds | Meaning |
+|---|---:|---:|---:|---|
+| `path` | Yes | — | 512 characters | Exact canonical object path |
+| `driver` | No | Empty | 255 characters | Exact driver; mutually exclusive with `section` |
+| `section` | No | Empty | 255 characters | Exact configured section; mutually exclusive with `driver` |
+| `option` | No | Empty | 255 characters | Exact option name |
+| `limit` | No | 25 | 1..100 | Maximum definitions in this page |
+| `cursor` | No | Empty | 128 characters | Previous `next_cursor` for the same path and filters |
+
+Example input:
+
+```json
+{
+  "path": "prod/svc/redis",
+  "section": "container#redis",
+  "option": "image",
+  "limit": 25
+}
+```
+
+#### Example output
+
+```json
+{
+  "provenance": {
+    "source": "opensvc_daemon",
+    "observed_at": "2026-09-27T08:00:00Z"
+  },
+  "object": {
+    "path": "prod/svc/redis",
+    "namespace": "prod",
+    "kind": "svc",
+    "name": "redis"
+  },
+  "filters": {
+    "section": "container#redis",
+    "option": "image"
+  },
+  "total": 1,
+  "count": 1,
+  "definitions": [
+    {
+      "section": "container",
+      "option": "image",
+      "scopable": false,
+      "converter": "string",
+      "text": "Container image reference.",
+      "default_text": "",
+      "example": "redis:7-alpine",
+      "default": "",
+      "default_option": "",
+      "candidates": [],
+      "depends": [],
+      "kinds": ["svc"],
+      "provisioning": true,
+      "types": ["docker"],
+      "aliases": [],
+      "inherit": "leaf2head",
+      "since": "v3.0.0",
+      "deprecated": "",
+      "replaced_by": "",
+      "redact_secret": false,
+      "recorded": false,
+      "arithmetic": false,
+      "required": true,
+      "minimal": true
+    }
+  ],
+  "truncated": false
+}
+```
+
+Definitions are ordered by section, option, driver types, object kinds, and a
+stable full-record tie-breaker. `types` identifies driver variants and `kinds`
+identifies applicable object kinds. `redact_secret=true` describes how OpenSVC
+must redact a future configured value; this tool itself returns no configured
+secret value. An empty definition `section` identifies a generic object keyword
+such as `comment`; it is preserved as a source fact.
+
+The MCP requires `aliases`, `candidates`, `depends`, `kinds`, and `types` to be
+JSON arrays, including when empty. A daemon regression that serializes one of
+them as `null` is rejected instead of silently changing the contract.
+
 ### `get_object_config`
 
 Returns sorted raw, non-evaluated configuration keyword records for one exact
@@ -293,8 +418,9 @@ unbounded response.
 | Invalid MCP JWT | MCP HTTP `401` |
 | Invisible or unauthorized object | Tool error from the daemon; commonly HTTP `403` or an empty selection |
 | Invalid selector, path, limit, cursor, or keyword filter | Tool validation or daemon error |
+| Conflicting definition `driver` and `section` filters | Tool validation error before calling the daemon |
 | Missing object or unexpected selection | Tool error; no partial result |
 | Evaluated configuration returned unexpectedly | Tool error; values are not exposed |
-| Malformed daemon path or response | Tool error with parsing context |
+| Malformed daemon path, keyword definition, or required array | Tool error with parsing context |
 
 Errors preserve bounded OpenSVC RFC 7807 details and never include the JWT.

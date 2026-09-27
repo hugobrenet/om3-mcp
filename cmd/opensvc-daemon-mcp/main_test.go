@@ -123,6 +123,17 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 				t.Error("config request unexpectedly impersonates a node")
 			}
 			fmt.Fprint(response, `{"kind":"KeywordList","items":[{"object":"prod/svc/app","node":"","keyword":"app#main.type","value":"forking","evaluated_as":""},{"object":"prod/svc/app","node":"","keyword":"app#main.command","value":"/opt/app/start","evaluated_as":""}]}`)
+		case "/api/object/path/prod/svc/app/config/keywords":
+			if got := request.URL.Query().Get("section"); got != "container#app" {
+				t.Errorf("got config keyword section %q, want container#app", got)
+			}
+			if got := request.URL.Query().Get("option"); got != "image" {
+				t.Errorf("got config keyword option %q, want image", got)
+			}
+			if request.URL.Query().Has("driver") {
+				t.Error("config keyword request unexpectedly includes driver with section")
+			}
+			fmt.Fprint(response, `{"kind":"KeywordDefinitionList","items":[{"section":"container","option":"image","scopable":false,"converter":"string","text":"Container image reference.","defaultText":"","example":"redis:7-alpine","default":"","defaultOption":"","candidates":[],"depends":[],"kind":["svc"],"provisioning":true,"types":["docker"],"aliases":[],"inherit":"leaf2head","since":"v3.0.0","deprecated":"","replacedBy":"","redactSecret":false,"recorded":false,"arithmetic":false,"required":true,"minimal":true}]}`)
 		case "/api/instance":
 			if request.Method != http.MethodGet {
 				t.Errorf("got instance method %q, want GET", request.Method)
@@ -328,30 +339,31 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Fatalf("list MCP tools: %v", err)
 	}
 	expectedToolTitles := map[string]string{
-		"get_daemon_status":          "Get daemon status",
-		"list_daemon_executions":     "List daemon executions",
-		"list_daemon_orchestrations": "List daemon orchestrations",
-		"get_cluster_config":         "Get cluster configuration",
-		"get_cluster_status":         "Get cluster status snapshot",
-		"get_node_config":            "Get node configuration",
-		"get_node_status":            "Get node status",
-		"get_node_logs":              "Get node logs",
-		"list_node_capabilities":     "List node capabilities",
-		"list_node_drivers":          "List node drivers",
-		"list_node_properties":       "List node properties",
-		"list_node_hardware":         "List node hardware",
-		"list_node_packages":         "List node packages",
-		"get_node_daemon_metrics":    "Get node daemon metrics",
-		"probe_node_reachability":    "Probe node reachability",
-		"get_container_logs":         "Get container logs",
-		"get_instance_logs":          "Get instance logs",
-		"get_object_config":          "Get object configuration",
-		"get_object_status":          "Get object status",
-		"list_cluster_ip_resources":  "List cluster IP resources",
-		"list_cluster_objects":       "List cluster objects",
-		"list_object_instances":      "List object instances",
-		"list_object_resources":      "List object resources",
-		"refresh_instance_status":    "Refresh instance status",
+		"get_daemon_status":           "Get daemon status",
+		"list_daemon_executions":      "List daemon executions",
+		"list_daemon_orchestrations":  "List daemon orchestrations",
+		"get_cluster_config":          "Get cluster configuration",
+		"get_cluster_status":          "Get cluster status snapshot",
+		"get_node_config":             "Get node configuration",
+		"get_node_status":             "Get node status",
+		"get_node_logs":               "Get node logs",
+		"list_node_capabilities":      "List node capabilities",
+		"list_node_drivers":           "List node drivers",
+		"list_node_properties":        "List node properties",
+		"list_node_hardware":          "List node hardware",
+		"list_node_packages":          "List node packages",
+		"get_node_daemon_metrics":     "Get node daemon metrics",
+		"probe_node_reachability":     "Probe node reachability",
+		"get_container_logs":          "Get container logs",
+		"get_instance_logs":           "Get instance logs",
+		"get_object_config":           "Get object configuration",
+		"get_object_status":           "Get object status",
+		"list_cluster_ip_resources":   "List cluster IP resources",
+		"list_cluster_objects":        "List cluster objects",
+		"list_object_config_keywords": "List object configuration keywords",
+		"list_object_instances":       "List object instances",
+		"list_object_resources":       "List object resources",
+		"refresh_instance_status":     "Refresh instance status",
 	}
 	toolNames := make(map[string]bool, len(availableTools.Tools))
 	for _, tool := range availableTools.Tools {
@@ -747,6 +759,31 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Errorf("got unexpected object config items %#v", objectConfig.Items)
 	}
 	assertResultProvenance(t, objectConfig.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_object_config_keywords",
+		Arguments: mcptools.ListObjectConfigKeywordsInput{
+			Path: "prod/svc/app", Section: "container#app", Option: "image",
+		},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call list_object_config_keywords: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var keywordDefinitions mcptools.ListObjectConfigKeywordsOutput
+	if err := json.Unmarshal(data, &keywordDefinitions); err != nil {
+		t.Fatalf("decode object config keyword definitions: %v", err)
+	}
+	if keywordDefinitions.Total != 1 || keywordDefinitions.Count != 1 || keywordDefinitions.Truncated ||
+		keywordDefinitions.Filters.Section != "container#app" || keywordDefinitions.Filters.Option != "image" {
+		t.Errorf("got unexpected object config keyword metadata %#v", keywordDefinitions)
+	}
+	definition := keywordDefinitions.Definitions[0]
+	if definition.Section != "container" || definition.Option != "image" || !definition.Required ||
+		!definition.Provisioning || !definition.Minimal || !slices.Equal(definition.Types, []string{"docker"}) {
+		t.Errorf("got unexpected object config keyword definition %#v", definition)
+	}
+	assertResultProvenance(t, keywordDefinitions.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_object_instances",

@@ -29,7 +29,40 @@ type GetObjectConfigInput struct {
 
 type GetObjectConfigOutput = core.ObjectConfig
 
+type ListObjectConfigKeywordsInput struct {
+	Path    string `json:"path" jsonschema:"the exact canonical OpenSVC object path returned by list_cluster_objects"`
+	Driver  string `json:"driver,omitempty" jsonschema:"optional exact driver filter such as container.docker; mutually exclusive with section"`
+	Section string `json:"section,omitempty" jsonschema:"optional exact configured section filter such as container#redis; mutually exclusive with driver"`
+	Option  string `json:"option,omitempty" jsonschema:"optional exact option-name filter; alone it returns every matching definition variant"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"optional page size between 1 and 100; defaults to 25"`
+	Cursor  string `json:"cursor,omitempty" jsonschema:"optional next_cursor returned by a previous call with the same path and filters"`
+}
+
+type ListObjectConfigKeywordsOutput = core.ObjectConfigKeywordDefinitionList
+
 func RegisterObjectTools(registrar *Registrar, service *core.Service) error {
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:        "list_object_config_keywords",
+			Title:       "List object configuration keywords",
+			Description: "Discover bounded configuration keyword definitions supported by one exact OpenSVC object, optionally filtered by driver, configured section, or option. This describes schema, defaults, constraints, deprecation, and secret-handling flags; it does not return configured values. Driver and section filters are mutually exclusive.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListObjectConfigKeywordsInput) (*mcp.CallToolResult, ListObjectConfigKeywordsOutput, error) {
+			keywords, err := service.ListObjectConfigKeywords(ctx, core.ListObjectConfigKeywordsOptions{
+				Path: input.Path, Driver: input.Driver, Section: input.Section,
+				Option: input.Option, Limit: input.Limit, Cursor: input.Cursor,
+			})
+			if err != nil {
+				return nil, ListObjectConfigKeywordsOutput{}, err
+			}
+			return nil, keywords, nil
+		},
+	); err != nil {
+		return err
+	}
+
 	if err := addTool(
 		registrar,
 		&mcp.Tool{

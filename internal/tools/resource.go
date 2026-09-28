@@ -17,6 +17,18 @@ type ListObjectResourcesInput struct {
 
 type ListObjectResourcesOutput = core.ObjectResourceList
 
+type ListResourceInfoInput struct {
+	Scope  string `json:"scope" jsonschema:"required exact scope: object or instance"`
+	Path   string `json:"path" jsonschema:"the exact canonical OpenSVC svc or vol path returned by list_cluster_objects"`
+	Node   string `json:"node,omitempty" jsonschema:"required exact OpenSVC node name for instance scope; omit for object scope"`
+	RID    string `json:"rid,omitempty" jsonschema:"optional exact resource id filter applied locally by the MCP"`
+	Key    string `json:"key,omitempty" jsonschema:"optional exact resource information key filter applied locally by the MCP"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
+	Cursor string `json:"cursor,omitempty" jsonschema:"optional opaque next_cursor returned by a previous call with the same scope, path, node, and filters"`
+}
+
+type ListResourceInfoOutput = core.ResourceInfoList
+
 type ListClusterIPResourcesInput struct {
 	Path   string `json:"path,omitempty" jsonschema:"optional exact canonical OpenSVC object path used to restrict the cluster inventory"`
 	Node   string `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name used to restrict the cluster inventory"`
@@ -36,6 +48,28 @@ type GetContainerLogsInput struct {
 type GetContainerLogsOutput = core.ContainerLogs
 
 func RegisterResourceTools(registrar *Registrar, service *core.Service) error {
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:        "list_resource_info",
+			Title:       "List resource information",
+			Description: "Read bounded cached OpenSVC resource information key-value entries for one exact svc or vol, either aggregated across visible instances or restricted to one exact node. Values remain strings without type coercion, may contain sensitive driver or application data, and have no daemon-provided cache timestamp; the MCP filters, sorts, paginates, and bounds the response without running resource drivers.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListResourceInfoInput) (*mcp.CallToolResult, ListResourceInfoOutput, error) {
+			info, err := service.ListResourceInfo(ctx, core.ListResourceInfoOptions{
+				Scope: input.Scope, Path: input.Path, Node: input.Node, RID: input.RID, Key: input.Key,
+				Limit: input.Limit, Cursor: input.Cursor,
+			})
+			if err != nil {
+				return nil, ListResourceInfoOutput{}, err
+			}
+			return nil, info, nil
+		},
+	); err != nil {
+		return err
+	}
+
 	if err := addTool(
 		registrar,
 		&mcp.Tool{

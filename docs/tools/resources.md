@@ -4,18 +4,20 @@ tools:
   - get_container_logs
   - list_cluster_ip_resources
   - list_object_resources
+  - list_resource_info
 stability: experimental
 ---
 
 # Resource Tools
 
 This document describes tools that inventory cluster IP resources, inspect
-resource status, and read bounded container output for an OpenSVC object.
+resource status and cached driver information, and read bounded container
+output for an OpenSVC object.
 
 Implementation:
 
-- business logic: `internal/core/resource.go` and
-  `internal/core/container_logs.go`;
+- business logic: `internal/core/resource.go`, `internal/core/resource_info.go`,
+  and `internal/core/container_logs.go`;
 - MCP definitions: `internal/tools/resource.go`.
 
 ## Tools
@@ -366,3 +368,133 @@ Invalid paths, filters, limits, or cursors fail before daemon access. Missing
 visibility, daemon authorization, transport failures, and malformed responses
 are MCP tool errors. Errors preserve bounded RFC 7807 details and never include
 the delegated JWT.
+
+### `list_resource_info`
+
+Returns bounded cached resource information key-value entries for one exact
+`svc` or `vol`. Use it after `list_object_resources` identifies a resource
+whose driver facts are needed. For example, an `app` resource can report its
+effective commands and timeouts, while storage drivers can report devices,
+sizes, arrays, or backend identifiers.
+
+This data is distinct from resource status and from raw object configuration.
+The daemon reports every value as a string; the MCP deliberately does not
+coerce values such as `"false"` or `"1073741824"` to booleans or numbers.
+
+#### OpenSVC API and freshness
+
+Object scope aggregates every visible instance:
+
+```text
+GET /api/object/path/<namespace>/<kind>/<name>/resource/info
+```
+
+Instance scope reads one exact node:
+
+```text
+GET /api/node/name/<node>/instance/path/<namespace>/<kind>/<name>/resource/info
+```
+
+Both endpoints read the daemon's persisted `resinfo.json` cache. They do not
+run resource drivers or refresh the cache. OpenSVC does not include the cache
+timestamp in this response, so `provenance.observed_at` dates only the MCP
+collection. It must not be interpreted as resource information freshness.
+
+The daemon requires `guest` or higher on the object namespace. The tool is
+read-only, non-destructive, closed-world, and has no side effects.
+
+Resource information can contain commands, paths, storage identifiers, or
+arbitrary output produced by an application resource's `info` command. Treat
+values as potentially sensitive and untrusted even though OpenSVC authorized
+the request.
+
+#### Input
+
+| Field | Required | Default | Bounds | Meaning |
+|---|---:|---:|---:|---|
+| `scope` | Yes | — | `object` or `instance` | Whether to aggregate visible instances or read one exact node |
+| `path` | Yes | — | Exact `svc` or `vol` path | Canonical OpenSVC object path |
+| `node` | Instance only | Empty | Exact name, 255 characters | Node to read; must be omitted for object scope |
+| `rid` | No | Empty | Exact value, 255 characters | Local exact resource-id filter |
+| `key` | No | Empty | Exact value, 255 characters | Local exact information-key filter |
+| `limit` | No | 100 | 1..200 | Maximum entries in this page |
+| `cursor` | No | Empty | Opaque, 64 characters | Previous `next_cursor` with every other input unchanged |
+
+`rid` and `key` are applied by the MCP after it receives and validates the
+complete daemon response. They reduce the result, not the upstream transfer.
+
+Example input:
+
+```json
+{
+  "scope": "instance",
+  "path": "prod/svc/app",
+  "node": "node-a",
+  "rid": "app#worker",
+  "limit": 2
+}
+```
+
+#### Example output
+
+```json
+{
+  "provenance": {
+    "source": "opensvc_daemon",
+    "observed_at": "2026-09-28T14:40:00Z"
+  },
+  "scope": "instance",
+  "object": {
+    "kind": "svc",
+    "name": "app",
+    "namespace": "prod",
+    "path": "prod/svc/app"
+  },
+  "node": "node-a",
+  "filters": {
+    "rid": "app#worker"
+  },
+  "reported_total": 28,
+  "total": 19,
+  "count": 2,
+  "entries": [
+    {
+      "node": "node-a",
+      "object": "prod/svc/app",
+      "rid": "app#worker",
+      "key": "driver",
+      "value": "app.forking",
+      "value_truncated": false
+    },
+    {
+      "node": "node-a",
+      "object": "prod/svc/app",
+      "rid": "app#worker",
+      "key": "start",
+      "value": "/bin/true",
+      "value_truncated": false
+    }
+  ],
+  "values_truncated": 0,
+  "next_cursor": "opaque-cursor-returned-by-the-tool",
+  "truncated": true
+}
+```
+
+`reported_total` is the daemon item count before local filters. `total` is the
+filtered count before pagination, and `count` is the current page size.
+Entries are sorted by node, object, RID, key, and raw value. Duplicate entries
+remain distinct and are paginated with occurrence-aware opaque cursors.
+
+The MCP accepts at most 10,000 daemon entries. Raw values above 1 Mi Unicode
+code points are rejected. Returned values are limited to 4,096 Unicode code
+points and flagged with `value_truncated=true`; each page also has a 128 Ki
+Unicode-code-point aggregate budget. `values_truncated` counts bounded values
+in the current page and is independent from collection `truncated`.
+
+The daemon currently returns `200` with an empty array for an unknown object in
+object scope, so an empty result means no visible cached information and does
+not prove that the object exists. Instance scope returns `404` when the local
+instance or its cache is absent. Authorization, non-2xx responses, unexpected
+objects or nodes, invalid identifiers, control characters, oversized payloads,
+and stale cursors become MCP tool errors.

@@ -259,6 +259,14 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 			}
 			response.Header().Set("Content-Type", "text/event-stream")
 			fmt.Fprint(response, "application started\nready to accept connections\n")
+		case "/api/object/path/prod/svc/app/resource/info":
+			if request.Method != http.MethodGet {
+				t.Errorf("got resource info method %q, want GET", request.Method)
+			}
+			if request.URL.RawQuery != "" {
+				t.Errorf("got resource info query %q, want no parameters", request.URL.RawQuery)
+			}
+			fmt.Fprint(response, `{"kind":"ResourceInfoList","items":[{"node":"node-b","object":"prod/svc/app","rid":"app#worker","key":"start","value":"/bin/true"},{"node":"node-a","object":"prod/svc/app","rid":"container#app","key":"driver","value":"container.docker"}]}`)
 		case "/api/resource":
 			if request.URL.Query().Get("resource") == "ip#*" {
 				if got := request.URL.Query().Get("path"); got != "*/svc/*,*/vol/*" {
@@ -368,6 +376,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		"list_object_config_keywords": "List object configuration keywords",
 		"list_object_instances":       "List object instances",
 		"list_object_resources":       "List object resources",
+		"list_resource_info":          "List resource information",
 		"list_schedules":              "List schedules",
 		"refresh_instance_status":     "Refresh instance status",
 	}
@@ -927,6 +936,27 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Errorf("got unexpected object resources %#v", resources)
 	}
 	assertResultProvenance(t, resources.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_resource_info",
+		Arguments: mcptools.ListResourceInfoInput{
+			Scope: core.ResourceInfoScopeObject, Path: "prod/svc/app",
+		},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call list_resource_info: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var resourceInfo mcptools.ListResourceInfoOutput
+	if err := json.Unmarshal(data, &resourceInfo); err != nil {
+		t.Fatalf("decode resource information: %v", err)
+	}
+	if resourceInfo.Scope != core.ResourceInfoScopeObject || resourceInfo.Object.Path != "prod/svc/app" ||
+		resourceInfo.ReportedTotal != 2 || resourceInfo.Count != 2 || resourceInfo.Entries[0].Node != "node-a" ||
+		resourceInfo.Entries[0].RID != "container#app" || resourceInfo.Entries[0].Value != "container.docker" {
+		t.Errorf("got unexpected resource information %#v", resourceInfo)
+	}
+	assertResultProvenance(t, resourceInfo.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "get_container_logs",

@@ -15,6 +15,7 @@ combine the tools during operations.
 | Objects | `list_cluster_objects`, `get_object_status`, `get_object_config`, `list_object_config_keywords` | [Object tools](objects.md) |
 | Instances | `list_object_instances`, `get_instance_logs`, `refresh_instance_status` | [Instance tools](instances.md) |
 | Resources | `list_cluster_ip_resources`, `list_object_resources`, `get_container_logs` | [Resource tools](resources.md) |
+| Scheduler | `list_schedules` | [Scheduler tools](schedules.md) |
 
 ## Authentication and visibility
 
@@ -100,6 +101,7 @@ are representative and will differ between calls.
 | `list_cluster_ip_resources` | Yes | No | Visible namespaces |
 | `list_object_resources` | Yes | No | Visibility on the object namespace |
 | `get_container_logs` | Yes | No | `root` |
+| `list_schedules` | Yes | No | `root` for node scope; namespace `guest` or higher for object and instance scopes |
 
 Annotations are client hints. The daemon's authorization decision is always
 authoritative.

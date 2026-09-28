@@ -134,6 +134,11 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 				t.Error("config keyword request unexpectedly includes driver with section")
 			}
 			fmt.Fprint(response, `{"kind":"KeywordDefinitionList","items":[{"section":"container","option":"image","scopable":false,"converter":"string","text":"Container image reference.","defaultText":"","example":"redis:7-alpine","default":"","defaultOption":"","candidates":[],"depends":[],"kind":["svc"],"provisioning":true,"types":["docker"],"aliases":[],"inherit":"leaf2head","since":"v3.0.0","deprecated":"","replacedBy":"","redactSecret":false,"recorded":false,"arithmetic":false,"required":true,"minimal":true}]}`)
+		case "/api/object/path/prod/svc/app/schedule":
+			if request.URL.RawQuery != "" {
+				t.Errorf("got schedule query %q, want no parameters", request.URL.RawQuery)
+			}
+			fmt.Fprint(response, `{"kind":"ScheduleList","items":[{"kind":"ScheduleItem","meta":{"node":"node-a","object":"prod/svc/app"},"data":{"action":"status","key":"status_schedule","last_run_at":null,"max_parallel":1,"next_run_at":"2026-09-28T12:10:00Z","require":"","require_collector":false,"require_provisioned":false,"schedule":"@10m"}}]}`)
 		case "/api/instance":
 			if request.Method != http.MethodGet {
 				t.Errorf("got instance method %q, want GET", request.Method)
@@ -363,6 +368,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		"list_object_config_keywords": "List object configuration keywords",
 		"list_object_instances":       "List object instances",
 		"list_object_resources":       "List object resources",
+		"list_schedules":              "List schedules",
 		"refresh_instance_status":     "Refresh instance status",
 	}
 	toolNames := make(map[string]bool, len(availableTools.Tools))
@@ -784,6 +790,25 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		t.Errorf("got unexpected object config keyword definition %#v", definition)
 	}
 	assertResultProvenance(t, keywordDefinitions.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_schedules",
+		Arguments: mcptools.ListSchedulesInput{
+			Scope: core.ScheduleScopeObject, Path: "prod/svc/app",
+		},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call list_schedules: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var schedules mcptools.ListSchedulesOutput
+	if err := json.Unmarshal(data, &schedules); err != nil {
+		t.Fatalf("decode schedules: %v", err)
+	}
+	if schedules.Scope != core.ScheduleScopeObject || schedules.Object == nil || schedules.Object.Path != "prod/svc/app" || schedules.Count != 1 || schedules.Schedules[0].Key != "status_schedule" || schedules.Schedules[0].LastRunAt != nil {
+		t.Errorf("got unexpected schedules %#v", schedules)
+	}
+	assertResultProvenance(t, schedules.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "list_object_instances",

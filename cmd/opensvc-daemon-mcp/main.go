@@ -80,6 +80,9 @@ func main() {
 	if err := tools.RegisterResourceTools(registrar, service); err != nil {
 		log.Fatal(err)
 	}
+	if err := tools.RegisterScheduleTools(registrar, service); err != nil {
+		log.Fatal(err)
+	}
 
 	streamHandler := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },

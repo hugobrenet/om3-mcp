@@ -1,6 +1,7 @@
 ---
 domain: instance
 tools:
+  - get_instance_status
   - get_instance_logs
   - list_object_instances
   - refresh_instance_status
@@ -14,19 +15,356 @@ refresh the status of one OpenSVC object instance.
 
 Implementation:
 
-- business logic: `internal/core/instance.go` and
-  `internal/core/instance_logs.go`;
+- business logic: `internal/core/instance.go`,
+  `internal/core/instance_status.go`, and `internal/core/instance_logs.go`;
 - MCP definitions: `internal/tools/instance.go`.
 
 ## Tool selection
 
 Use `list_object_instances` after `get_object_status` to locate the node behind
-an aggregate problem and inspect status age. Use `get_instance_logs` to inspect
-recent OpenSVC activity for that exact node instance. Use
+an aggregate problem and inspect status age. Use `get_instance_status` for the
+selected instance's published configuration, monitor, and detailed resource
+status. Use `get_instance_logs` to inspect recent OpenSVC activity for that
+exact node instance. Use
 `refresh_instance_status` only when the selected instance's `updated_at` is too
 old for the diagnosis.
 
 ## Tools
+
+### `get_instance_status`
+
+Returns the cached configuration descriptor, monitor facts, and detailed
+instance and resource status for one exact object and node. Use it after
+`list_object_instances` when the instance summary needs more detail.
+
+Use `get_object_config` for configuration keywords, `list_object_resources`
+for paginated resource status, and `list_schedules` for scheduler execution
+timestamps. The `config` block here is the daemon's published descriptor;
+`config.schedules` contains configured expressions and requirements. Workload
+output is available through `get_container_logs`.
+
+#### OpenSVC API, authorization, and freshness
+
+```text
+GET /api/node/name/<node>/instance/path/<namespace>/<kind>/<name>
+```
+
+The tool performs one GET without query parameters. The configured daemon
+looks up that object and node in its instance cache. It can return a peer
+node's instance when the peer's data is published in that cache. Selecting
+`node` does not open another daemon connection.
+
+The daemon accepts namespace `guest`, `operator`, or `admin` grants, their
+global equivalents, and global `join` or `root` grants. A namespace `guest`
+JWT is sufficient for this read. The daemon checks namespace access before
+looking up the configuration. An unauthorized namespace returns
+`403`; an authorized lookup with no published configuration returns `404`.
+Missing monitor or status data is represented by `null` on a successful read.
+
+This is a passive read. Assess each block using its own `updated_at`:
+`config.updated_at`, `monitor.updated_at`, and `status.updated_at` date
+different publications. The three blocks are read separately and can have
+different ages. `provenance.observed_at` records the MCP collection time.
+Use `refresh_instance_status` when a new driver probe is needed.
+
+#### MCP properties
+
+The runtime title is **Get instance status**. The tool declares
+`readOnlyHint=true`, `destructiveHint=false`, and `openWorldHint=false`.
+Annotations are client hints; delegated JWT checks and daemon authorization
+remain authoritative.
+
+#### Input
+
+| Field | Required | Default | Bounds | Meaning |
+|---|---:|---:|---:|---|
+| `path` | Yes | — | 512 bytes after trimming surrounding whitespace | Canonical object path discovered with `list_object_instances` |
+| `node` | Yes | — | 255 ASCII characters | Exact node name reported for that instance |
+
+`node` accepts letters, digits, `_`, `.`, and `-`, with no surrounding
+whitespace. Empty names, `.`, `..`, the local alias `_`, selectors, and
+multiple nodes are rejected locally. Empty paths, malformed path structures,
+and more than three path components also fail locally. Path components are escaped
+individually in the HTTP route. Object kinds and names that pass the local
+path parser are validated by the daemon; object selector syntax is never
+expanded by the MCP.
+
+Use the canonical path returned by discovery: the response's object path and
+node must match the requested identity. There are no `limit` or `cursor`
+arguments. Nested data is bounded as described below.
+
+Example input:
+
+```json
+{
+  "path": "prod/svc/redis",
+  "node": "node-a"
+}
+```
+
+#### Example output
+
+This is a complete representative result with the optional fields published
+for this instance. Other optional fields can be absent.
+
+```json
+{
+  "provenance": {
+    "source": "opensvc_daemon",
+    "observed_at": "2026-09-29T10:05:00Z"
+  },
+  "object": {
+    "path": "prod/svc/redis",
+    "namespace": "prod",
+    "kind": "svc",
+    "name": "redis"
+  },
+  "node": "node-a",
+  "config": {
+    "csum": "7ec47b82a85a191ef90a251083488a36",
+    "priority": 50,
+    "scope": ["node-a", "node-b"],
+    "updated_at": "2026-09-28T11:40:57.064043402+02:00",
+    "orchestrate": "no",
+    "placement_policy": "nodes order",
+    "topology": "failover",
+    "is_disabled": false,
+    "claims": {"cpu": -1, "memory": -1},
+    "resources": {
+      "container#redis": {
+        "is_disabled": false,
+        "is_monitored": false,
+        "is_standby": false,
+        "restart_delay": 500000000
+      }
+    },
+    "schedules": [
+      {
+        "action": "status",
+        "key": "status_schedule",
+        "schedule": "@10m",
+        "max_parallel": 1,
+        "require_collector": false,
+        "require_provisioned": false
+      }
+    ],
+    "subsets": {}
+  },
+  "monitor": {
+    "global_expect": "none",
+    "global_expect_updated_at": null,
+    "global_expect_options": null,
+    "is_leader": true,
+    "is_ha_leader": true,
+    "local_expect": "none",
+    "local_expect_updated_at": null,
+    "orchestration_id": "00000000-0000-0000-0000-000000000000",
+    "orchestration_is_done": false,
+    "session_id": "00000000-0000-0000-0000-000000000000",
+    "state": "idle",
+    "state_updated_at": "2026-09-28T19:39:31.564638488+02:00",
+    "monitor_action_executed_at": null,
+    "preserved": false,
+    "updated_at": "2026-09-28T19:39:32.153701097+02:00"
+  },
+  "status": {
+    "avail": "down",
+    "overall": "down",
+    "provisioned": "n/a",
+    "frozen_at": null,
+    "last_started_at": null,
+    "stopped_at": null,
+    "updated_at": "2026-09-29T12:04:25.561354248+02:00",
+    "resources": {
+      "container#redis": {
+        "type": "container.docker",
+        "label": "docker redis:7-alpine",
+        "status": "down",
+        "provisioned": {"state": "n/a", "mtime": null},
+        "info": {"name": "prod..redis.container.redis"}
+      }
+    }
+  },
+  "truncated": false,
+  "truncations": []
+}
+```
+
+#### Output fields
+
+| Field | Meaning |
+|---|---|
+| `provenance` | Required API source and MCP collection time; see the [shared contract](README.md#freshness-model) |
+| `object` | Required canonical reference with `path`, `namespace`, `kind`, and `name` |
+| `node` | Required exact instance node reported by the daemon |
+| `config` | Required non-null published configuration descriptor |
+| `monitor` | Required monitor block, or `null` when unpublished |
+| `status` | Required instance status block, or `null` when unpublished |
+| `truncated` | Whether a supported collection or text field was shortened |
+| `truncations` | Required array of reductions sorted by JSON Pointer and kind; `[]` when none |
+
+Within these blocks, daemon JSON names are retained, including `csum`,
+`avail`, `preserved`, `restart_delay`, and resource status flags. Only the
+fields documented here are projected into the typed result. Unknown fields
+are omitted without a truncation record. Optional scalar fields are omitted
+when absent, while supplied `false`, `0`, and empty strings remain present.
+Supplied empty collections remain `[]` or `{}`; absent optional collections
+remain omitted.
+
+Known date fields are RFC3339 strings preserving their supplied precision and
+offset. Missing dates, JSON `null`, and Go zero dates such as
+`0001-01-01T00:00:00Z` become `null`. This also applies to nested provisioning,
+restart, file, running-action, and encapsulated-status dates, and to
+`global_expect_options.config_updated_at` when that key is supplied. Zero UUID
+strings remain strings. State values preserve case, whitespace, and unknown
+values.
+
+The core validates integer fields as signed 64-bit integers. MCP output uses
+the SDK's native JSON serialization: integers outside the exact binary64
+range, `[-(2^53-1), 2^53-1]`, can be rounded.
+
+##### `config`
+
+`csum`, `priority`, `scope`, and `updated_at` are always returned. Other
+configuration fields are optional.
+
+| Field | Meaning |
+|---|---|
+| `csum` | Published configuration checksum |
+| `priority` | Configured object priority |
+| `scope` | Configured nodes in their original placement priority order |
+| `updated_at` | Configuration publication date, or `null` |
+| `labels` | Configured label map |
+| `app`, `env` | Configured application and environment |
+| `drp` | Configured disaster recovery flag |
+| `children`, `parents` | Object relations sorted by exact path |
+| `monitor_action` | Configured monitor actions in source order |
+| `pre_monitor_action` | Configured pre-monitor action text |
+| `orchestrate`, `placement_policy`, `topology` | Exact configured modes and policy |
+| `resources` | Resource configuration map keyed by RID; fields below |
+| `schedules` | Configured schedule entries; fields below |
+| `stonith` | Configured fencing flag |
+| `subsets` | Subset map; each entry can contain optional boolean `parallel` |
+| `flex` | Optional integer `min`, `max`, and `target` instance counts |
+| `is_disabled` | Object disabled flag from configuration |
+| `claims` | Compute claim map: CPU in thousandths and memory in bytes; `-1` means uncapped |
+| `pool`, `size`, `charges` | Volume pool, size in bytes, and volume charges keyed by pool |
+
+Each `config.resources[RID]` requires boolean `is_disabled`, `is_monitored`,
+and `is_standby`. It can also contain integer `restart` and `restart_delay`.
+`restart_delay` retains the daemon's nanosecond unit. These configuration
+flags are distinct from the resource flags in `status`.
+
+| Schedule field | Meaning |
+|---|---|
+| `key`, `action` | Required configuration key and scheduled action |
+| `schedule` | Required raw schedule expression |
+| `max_parallel` | Required configured maximum parallel runs |
+| `require` | Optional raw resource requirement |
+| `require_collector`, `require_provisioned` | Required collector and provisioning flags |
+
+##### `monitor`
+
+When the monitor block is published, all fields below are returned except
+the optional `resources`, `parents`, and `children` maps.
+
+| Field | Meaning |
+|---|---|
+| `global_expect`, `local_expect` | Exact monitor targets |
+| `global_expect_updated_at`, `local_expect_updated_at` | Target update dates, or `null` |
+| `global_expect_options` | Bounded JSON object of target options, or `null` |
+| `is_leader`, `is_ha_leader` | Provisioning and HA leader flags |
+| `orchestration_id`, `session_id` | Reported UUID strings, including zero UUIDs |
+| `orchestration_is_done` | Reported orchestration completion flag |
+| `state`, `state_updated_at` | Exact monitor state and its date, or `null` for the date |
+| `monitor_action_executed_at` | Last monitor action date, or `null` |
+| `preserved` | Reported preserved flag |
+| `updated_at` | Monitor publication date, or `null` |
+| `resources` | RID map; an entry can contain `restart` with optional integer `remaining` and nullable `last_at` |
+| `parents`, `children` | Exact parent and child status strings keyed by object path |
+
+##### `status` and encapsulated status
+
+`avail`, `overall`, `provisioned`, and the four date fields are always
+returned in a published status block. Other status fields are optional.
+
+| Field | Meaning |
+|---|---|
+| `avail`, `overall`, `provisioned` | Exact instance availability, overall, and provisioning states |
+| `frozen_at`, `last_started_at`, `stopped_at`, `updated_at` | Freeze, start, intentional stop, and cached status dates, or `null` |
+| `optional` | Exact optional-resource aggregate state |
+| `resources` | Resource status map keyed by RID; fields below |
+| `running` | Running actions with required `rid`, `session_id`, integer `pid`, and nullable `at` |
+| `hostname` | Reported hostname when supplied |
+| `encap` | Encapsulated status map using the same fields, limited to two nested levels |
+
+Each `status.resources[RID]` requires `type`, `label`, `status`, and
+`provisioned`; other resource fields are optional.
+
+| Resource field | Meaning |
+|---|---|
+| `type`, `label`, `status` | Exact driver type, bounded label, and exact resource status |
+| `provisioned` | Required provisioning `state` and nullable `mtime` |
+| `disable`, `monitor`, `optional`, `standby`, `encap`, `stopped` | Boolean flags published with resource status |
+| `subset` | Reported subset name |
+| `tags`, `datastores` | Tags and datastore references sorted by exact value |
+| `log` | Status messages with `level` and `message`, in daemon-provided order |
+| `info` | Driver facts as bounded JSON values retaining strings, numbers, booleans, arrays, objects, and `null` |
+| `files` | File metadata with required `name`, `csum`, nullable `mtime`, and boolean `ingest`; no file content is read |
+
+#### Ordering, bounds, and truncation
+
+Maps are selected by lexical key order before truncation. Relations, tags,
+and datastore references are sorted by exact string value. Schedules are
+sorted by key, action, and expression. File metadata is sorted by name,
+checksum, timestamp, and ingest flag; running actions by RID, timestamp, PID,
+and session. Remaining source fields break ties deterministically. Duplicates
+are retained. Placement scope, monitor actions, status messages, and arrays
+inside arbitrary JSON values retain their source order.
+
+| Data | Maximum returned |
+|---|---:|
+| Resources in each configuration, monitor, or status map | 200 |
+| Configuration schedules and subsets | 200 each |
+| Placement scope, object relations, monitor parent/child maps, and running actions | 200 each |
+| Labels, compute claims, and volume charges | 100 each |
+| Tags, datastores, driver facts, and files per resource | 100 each |
+| Monitor actions | 20 |
+| Status messages per resource | 20 |
+| Encapsulated statuses | 32 per map, two nested levels |
+| Ordinary text, including JSON string values | 4,096 Unicode code points |
+| Each status message | 2,048 Unicode code points |
+| Arbitrary JSON options and each driver-fact value | Depth 4, 128 visited values, 100 entries per object or array |
+| Truncation records | 256 |
+| Encoded core result, before MCP framing | 256 KiB |
+
+Text reductions include a final `…` within the size limit. Each collection
+or text reduction adds a record with `path` (a JSON Pointer), `kind`
+(`collection` or `text`), `original_count`, and `returned_count`. Counts are
+entries for collections and Unicode code points for text. Non-empty
+encapsulation beyond the depth limit is omitted with a collection reduction.
+
+Identifiers and map keys longer than 512 Unicode code points fail instead of
+being shortened. Date strings longer than 128 bytes, arbitrary JSON number
+tokens longer than 512 bytes, malformed dates, invalid field types, excessive
+JSON depth or visited values, too many truncation records, and a core result
+exceeding 256 KiB also fail. Nested truncation does not provide a continuation
+cursor. Use the specialized paginated
+resource, resource-info, or schedule tools for larger inventories.
+
+#### Errors
+
+Missing or invalid caller JWTs are rejected by the MCP HTTP transport with
+`401`. With a valid JWT, daemon errors become tool results with
+`isError=true`, preserving the daemon HTTP status and bounded RFC 7807 detail.
+Examples include invalid object kinds or names (`400`), namespace access
+denied (`403`), and a missing object/node cache entry (`404`). These tool
+errors are carried by a successful MCP HTTP exchange, not by an HTTP status
+matching the daemon's error. Errors contain no successful structured result.
+
+Unexpected `InstanceItem` kind or identity, absent configuration, malformed
+published blocks, exceeded limits, transport failures, and caller
+cancellation are also MCP tool errors.
 
 ### `get_instance_logs`
 

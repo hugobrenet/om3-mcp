@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -151,6 +152,15 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 				updatedAt = "2026-07-15T10:00:01Z"
 			}
 			fmt.Fprintf(response, `{"kind":"InstanceList","items":[{"kind":"InstanceItem","meta":{"node":"node-a","object":"prod/svc/app"},"data":{"monitor":{"state":"idle","global_expect":"started","local_expect":"none","is_ha_leader":true,"orchestration_is_done":true},"status":{"avail":"up","overall":"up","provisioned":"true","updated_at":%q,"resources":{"app#1":{"status":"up"}}}}}]}`, updatedAt)
+		case "/api/node/name/node-a/instance/path/prod/svc/app":
+			if request.Method != http.MethodGet || request.URL.RawQuery != "" {
+				t.Error("exact instance read must use GET without query parameters")
+			}
+			logs := strings.Repeat(`{"level":"info","message":"source message"},`, 20) + `{"level":"warn","message":"omitted message"}`
+			fmt.Fprint(response, `{"kind":"InstanceItem","meta":{"node":"node-a","object":"prod/svc/app"},"data":{
+				"config":{"csum":"test-checksum","priority":50,"scope":["node-b","node-a"],"updated_at":null,"claims":{"cpu":-1,"memory":9007199254740993}},
+				"monitor":{"global_expect":"none","is_leader":true,"is_ha_leader":true,"local_expect":"none","orchestration_id":"00000000-0000-0000-0000-000000000000","orchestration_is_done":false,"session_id":"00000000-0000-0000-0000-000000000000","state":"future-state","preserved":false},
+				"status":{"avail":"up","overall":"up","provisioned":"n/a","frozen_at":null,"resources":{"app#1":{"type":"app.forking","label":"worker","status":"up","provisioned":{"state":"n/a","mtime":null},"info":{"large_integer":9007199254740993},"log":[`+logs+`]}}}}}`)
 		case "/api/node/name/node-a/instance/path/prod/svc/app/action/status":
 			if request.Method != http.MethodPost {
 				t.Errorf("got refresh method %q, want POST", request.Method)
@@ -369,6 +379,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		"probe_node_reachability":     "Probe node reachability",
 		"get_container_logs":          "Get container logs",
 		"get_instance_logs":           "Get instance logs",
+		"get_instance_status":         "Get instance status",
 		"get_object_config":           "Get object configuration",
 		"get_object_status":           "Get object status",
 		"list_cluster_ip_resources":   "List cluster IP resources",
@@ -389,7 +400,7 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 		if tool.Description == "" {
 			t.Errorf("tool %q has no description", tool.Name)
 		}
-		if tool.Name == "get_node_status" || tool.Name == "get_node_logs" || tool.Name == "probe_node_reachability" {
+		if tool.Name == "get_node_status" || tool.Name == "get_node_logs" || tool.Name == "probe_node_reachability" || tool.Name == "get_instance_status" {
 			encoded, err := json.Marshal(tool.InputSchema)
 			if err != nil {
 				t.Errorf("%s input schema marshal: %v", tool.Name, err)
@@ -837,6 +848,26 @@ func TestServerOverStreamableHTTP(t *testing.T) {
 	assertResultProvenance(t, instances.Provenance)
 
 	result, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "get_instance_status", Arguments: mcptools.GetInstanceStatusInput{Path: "prod/svc/app", Node: "node-a"},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("call get_instance_status: err=%v result=%#v", err, result)
+	}
+	data, _ = json.Marshal(result.StructuredContent)
+	var instanceStatus mcptools.GetInstanceStatusOutput
+	if err := json.Unmarshal(data, &instanceStatus); err != nil {
+		t.Fatalf("decode instance status: %v", err)
+	}
+	// The native SDK conversion rounds the fixture's integer 9007199254740993.
+	if instanceStatus.Node != "node-a" || instanceStatus.Config.Claims["memory"] != 9007199254740992 || instanceStatus.Status.FrozenAt != nil || instanceStatus.Monitor.State != "future-state" {
+		t.Fatalf("unexpected instance status: %#v", instanceStatus)
+	}
+	if !instanceStatus.Truncated || len(instanceStatus.Status.Resources["app#1"].Log) != 20 {
+		t.Fatal("instance status did not publish bounded log metadata")
+	}
+	assertResultProvenance(t, instanceStatus.Provenance)
+
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "get_instance_logs",
 		Arguments: mcptools.GetInstanceLogsInput{
 			Path: "prod/svc/app", Node: "node-a", Lines: 2,
@@ -1022,6 +1053,11 @@ func TestDaemonAPIErrorsOverStreamableHTTP(t *testing.T) {
 		notWantTexts []string
 	}
 	scenarios := map[string]scenario{
+		"lab/svc/bad-request": {
+			status:     http.StatusBadRequest,
+			body:       `{"title":"Invalid parameter","detail":"invalid instance path"}`,
+			wantSuffix: ": invalid instance path",
+		},
 		"lab/svc/unauthorized": {
 			status:     http.StatusUnauthorized,
 			body:       `{"title":"Unauthorized","detail":"delegated token is expired"}`,
@@ -1034,6 +1070,21 @@ func TestDaemonAPIErrorsOverStreamableHTTP(t *testing.T) {
 		},
 		"lab/svc/not-found": {
 			status: http.StatusNotFound,
+		},
+		"lab/svc/missing-instance": {
+			status:     http.StatusNotFound,
+			body:       `{"title":"Not found","detail":"instance not found: lab/svc/missing-instance@node-a"}`,
+			wantSuffix: ": instance not found: lab/svc/missing-instance@node-a",
+		},
+		"lab/invalid/app": {
+			status:     http.StatusBadRequest,
+			body:       `{"title":"Invalid parameter","detail":"invalid kind invalid"}`,
+			wantSuffix: ": invalid kind invalid",
+		},
+		"lab/svc/*": {
+			status:     http.StatusBadRequest,
+			body:       `{"title":"Invalid parameter","detail":"invalid object name *"}`,
+			wantSuffix: ": invalid object name *",
 		},
 		"lab/svc/title-only": {
 			status:     http.StatusConflict,
@@ -1103,11 +1154,15 @@ func TestDaemonAPIErrorsOverStreamableHTTP(t *testing.T) {
 			http.Error(response, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if request.Method != http.MethodGet || request.URL.Path != "/api/object" {
+		const instancePrefix = "/api/node/name/node-a/instance/path/"
+		if request.Method != http.MethodGet || (request.URL.Path != "/api/object" && !strings.HasPrefix(request.URL.Path, instancePrefix)) {
 			http.NotFound(response, request)
 			return
 		}
 		selected := request.URL.Query().Get("path")
+		if strings.HasPrefix(request.URL.Path, instancePrefix) {
+			selected = strings.TrimPrefix(request.URL.Path, instancePrefix)
+		}
 		test, ok := scenarios[selected]
 		if !ok {
 			http.NotFound(response, request)
@@ -1195,46 +1250,59 @@ func TestDaemonAPIErrorsOverStreamableHTTP(t *testing.T) {
 		}
 	}()
 
-	for path, test := range scenarios {
-		t.Run(strings.TrimPrefix(path, "lab/svc/"), func(t *testing.T) {
-			result, err := session.CallTool(ctx, &mcp.CallToolParams{
-				Name:      "get_object_status",
-				Arguments: mcptools.GetObjectStatusInput{Path: path},
-			})
-			if err != nil {
-				t.Fatalf("call get_object_status: %v", err)
-			}
-			if !result.IsError {
-				t.Fatalf("tool result is not marked as an error: %#v", result)
-			}
-			if result.StructuredContent != nil {
-				t.Errorf("error result has structured content: %#v", result.StructuredContent)
-			}
-			if len(result.Content) != 1 {
-				t.Fatalf("got %d error content blocks, want 1", len(result.Content))
-			}
-			text, ok := result.Content[0].(*mcp.TextContent)
-			if !ok {
-				t.Fatalf("error content has type %T, want *mcp.TextContent", result.Content[0])
-			}
-			want := fmt.Sprintf(
-				"get object status: OpenSVC daemon GET /api/object returned HTTP %d %s%s",
-				test.status,
-				http.StatusText(test.status),
-				test.wantSuffix,
-			)
-			if text.Text != want {
-				t.Errorf("got MCP error %q, want %q", text.Text, want)
-			}
-			if strings.Contains(text.Text, token) {
-				t.Fatal("MCP error exposes delegated JWT")
-			}
-			for _, notWant := range test.notWantTexts {
-				if strings.Contains(text.Text, notWant) {
-					t.Errorf("MCP error exposes rejected response content %q: %q", notWant, text.Text)
+	for _, toolName := range []string{"get_object_status", "get_instance_status"} {
+		for path, test := range scenarios {
+			t.Run(toolName+"/"+strings.TrimPrefix(path, "lab/svc/"), func(t *testing.T) {
+				var arguments any = mcptools.GetObjectStatusInput{Path: path}
+				prefix, endpoint := "get object status", "/api/object"
+				if toolName == "get_instance_status" {
+					arguments = mcptools.GetInstanceStatusInput{Path: path, Node: "node-a"}
+					parts := strings.Split(path, "/")
+					for i := range parts {
+						parts[i] = url.PathEscape(parts[i])
+					}
+					prefix, endpoint = "get instance status", "/api/node/name/node-a/instance/path/"+strings.Join(parts, "/")
 				}
-			}
-		})
+				result, err := session.CallTool(ctx, &mcp.CallToolParams{
+					Name:      toolName,
+					Arguments: arguments,
+				})
+				if err != nil {
+					t.Fatalf("call %s: %v", toolName, err)
+				}
+				if !result.IsError {
+					t.Fatalf("tool result is not marked as an error: %#v", result)
+				}
+				if result.StructuredContent != nil {
+					t.Errorf("error result has structured content: %#v", result.StructuredContent)
+				}
+				if len(result.Content) != 1 {
+					t.Fatalf("got %d error content blocks, want 1", len(result.Content))
+				}
+				text, ok := result.Content[0].(*mcp.TextContent)
+				if !ok {
+					t.Fatalf("error content has type %T, want *mcp.TextContent", result.Content[0])
+				}
+				want := fmt.Sprintf(
+					"%s: OpenSVC daemon GET %s returned HTTP %d %s%s",
+					prefix, endpoint,
+					test.status,
+					http.StatusText(test.status),
+					test.wantSuffix,
+				)
+				if text.Text != want {
+					t.Errorf("got MCP error %q, want %q", text.Text, want)
+				}
+				if strings.Contains(text.Text, token) {
+					t.Fatal("MCP error exposes delegated JWT")
+				}
+				for _, notWant := range test.notWantTexts {
+					if strings.Contains(text.Text, notWant) {
+						t.Errorf("MCP error exposes rejected response content %q: %q", notWant, text.Text)
+					}
+				}
+			})
+		}
 	}
 }
 

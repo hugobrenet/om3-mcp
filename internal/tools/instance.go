@@ -17,6 +17,13 @@ type ListObjectInstancesInput struct {
 
 type ListObjectInstancesOutput = core.ObjectInstanceList
 
+type GetInstanceStatusInput struct {
+	Path string `json:"path" jsonschema:"the exact canonical object path discovered with list_object_instances"`
+	Node string `json:"node" jsonschema:"the exact node hosting the instance; local aliases and selectors are not accepted"`
+}
+
+type GetInstanceStatusOutput = core.InstanceStatusSnapshot
+
 type RefreshInstanceStatusInput struct {
 	Path           string `json:"path" jsonschema:"the exact canonical OpenSVC object path returned by list_cluster_objects"`
 	Node           string `json:"node" jsonschema:"the exact node name hosting the instance to refresh"`
@@ -34,6 +41,22 @@ type GetInstanceLogsInput struct {
 type GetInstanceLogsOutput = core.InstanceLogList
 
 func RegisterInstanceTools(registrar *Registrar, service *core.Service) error {
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:        "get_instance_status",
+			Title:       "Get instance status",
+			Description: "Read the cached configuration, monitor and detailed resource status of one exact OpenSVC object instance after list_object_instances. Nested inventories are sorted and bounded with explicit truncation metadata; placement and message order are preserved. This passive read does not run status drivers; inspect each block's updated_at for freshness. Requires guest access on the object's namespace.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input GetInstanceStatusInput) (*mcp.CallToolResult, GetInstanceStatusOutput, error) {
+			result, err := service.GetInstanceStatus(ctx, core.GetInstanceStatusOptions{Path: input.Path, Node: input.Node})
+			return nil, result, err
+		},
+	); err != nil {
+		return err
+	}
+
 	if err := addTool(
 		registrar,
 		&mcp.Tool{

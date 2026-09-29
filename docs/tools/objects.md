@@ -139,8 +139,10 @@ GET /api/object?path=<exact-path>
 
 The MCP requires exactly one returned object. This read does not execute status
 drivers: compare `updated_at` with the current time before relying on the state.
-Use `list_object_instances` to inspect per-node timestamps and
-`refresh_instance_status` when an explicit probe is necessary.
+Use `list_object_instances` to inspect per-node timestamps,
+`get_instance_status` for one instance's cached configuration, monitor, and
+resource details, and `refresh_instance_status` when an explicit probe is
+necessary.
 
 #### MCP properties
 

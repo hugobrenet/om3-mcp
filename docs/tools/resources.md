@@ -274,9 +274,9 @@ GET /api/resource?path=<exact-path>[&node=<node>][&resource=<rid>]
 ```
 
 Resource data comes from the last-known instance status and does not trigger a
-driver probe. Use the parent instance `updated_at` from
-`list_object_instances` to assess freshness, and refresh that exact instance
-first when necessary.
+driver probe. Use the selected instance's `updated_at` in
+`list_object_instances`, or `status.updated_at` in `get_instance_status`, to
+assess freshness. Refresh that exact instance first when necessary.
 
 OpenSVC filters resources according to delegated JWT namespace grants. This
 tool is read-only, non-destructive, closed-world, and has no side effects.

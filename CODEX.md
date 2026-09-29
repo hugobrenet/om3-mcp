@@ -94,6 +94,8 @@ internal/
     object_status_test.go
     instance.go
     instance_test.go
+    instance_status.go
+    instance_status_test.go
     instance_logs.go
     instance_logs_test.go
     container_logs.go
@@ -347,8 +349,10 @@ documented tool must cover:
 - input fields, defaults, validation, pagination, and selector behavior;
 - every output field and any derived semantics;
 - representative JSON input and complete bounded output examples;
-- expected authentication, authorization, transport, and data errors;
-- the OpenSVC version against which behavior was verified.
+- expected authentication, authorization, transport, and data errors.
+
+Keep verification reports, test results, and lab build details out of tool
+documentation.
 
 Keep declarations, implementation, tests, and documentation synchronized in
 the same change. The end-to-end `tools/list` test must assert the title,

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/tls"
@@ -12,7 +13,9 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +24,78 @@ import (
 	"time"
 
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/config"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/oauth"
+	"github.com/modelcontextprotocol/go-sdk/oauthex"
 )
+
+func TestRemoteLoginPrototypeOverVerifiedTLS(t *testing.T) {
+	certFile, keyFile, roots := writeListenerCertificate(t)
+	var daemonCalls atomic.Int32
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		daemonCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(daemon.Close)
+	cfg := config.Config{Transport: "https", ListenAddress: "127.0.0.1:0", TLSCertFile: certFile, TLSKeyFile: keyFile, DaemonURL: daemon.URL, JWTVerifyKeyFile: "/nonexistent/local-key"}
+	listener, tlsConfig, err := listenMCP(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.OAuth = oauth.Config{PublicURL: "https://" + listener.Addr().String(), ClusterRef: "cluster-a", ClusterName: "Example cluster"}
+	handler, err := newMCPHandler(cfg)
+	if err != nil {
+		_ = listener.Close()
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: handler, TLSConfig: tlsConfig, ReadHeaderTimeout: time.Second}
+	done := make(chan error, 1)
+	go func() { done <- server.ServeTLS(listener, "", "") }()
+	t.Cleanup(func() {
+		if err := shutdownHTTPServer(server, time.Second); err != nil {
+			t.Error(err)
+		}
+		if err := <-done; err != http.ErrServerClosed {
+			t.Error(err)
+		}
+	})
+	tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}}
+	t.Cleanup(tr.CloseIdleConnections)
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &http.Client{Transport: tr, Jar: jar, Timeout: 2 * time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	resource, err := oauthex.GetProtectedResourceMetadata(ctx, cfg.OAuth.PublicURL+"/.well-known/oauth-protected-resource/mcp", cfg.OAuth.PublicURL+"/mcp", c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resource.AuthorizationServers) != 1 || resource.AuthorizationServers[0] != cfg.OAuth.PublicURL {
+		t.Fatalf("resource metadata: %+v", resource)
+	}
+	meta, err := oauthex.GetAuthServerMeta(ctx, cfg.OAuth.PublicURL+"/.well-known/oauth-authorization-server", cfg.OAuth.PublicURL, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registration, err := oauthex.RegisterClient(ctx, meta.RegistrationEndpoint, &oauthex.ClientRegistrationMetadata{ClientName: "Example agent", RedirectURIs: []string{"http://127.0.0.1/callback/client-a"}, TokenEndpointAuthMethod: "none", GrantTypes: []string{"authorization_code", "refresh_token"}, ResponseTypes: []string{"code"}}, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := url.Values{"client_id": {registration.ClientID}, "redirect_uri": {"http://127.0.0.1:5432/callback/client-a"}, "response_type": {"code"}, "resource": {resource.Resource}, "scope": {oauth.Scope}, "state": {"example-state"}, "code_challenge_method": {"S256"}, "code_challenge": {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}
+	response, err := c.Get(meta.AuthorizationEndpoint + "?" + q.Encode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if err != nil || response.StatusCode != 200 || response.Request.URL.String() != cfg.OAuth.PublicURL+"/login" || !strings.Contains(string(page), "Example agent") || !strings.Contains(string(page), "Example cluster") || !strings.Contains(string(page), "<fieldset disabled>") {
+		t.Fatalf("TLS login journey failed: status=%d error=%v", response.StatusCode, err)
+	}
+	if daemonCalls.Load() != 0 {
+		t.Fatal("login prototype called the daemon")
+	}
+}
 
 func TestHTTPSListenerRequiresTrustedTLSAndBlocksRemoteMCP(t *testing.T) {
 	certFile, keyFile, roots := writeListenerCertificate(t)

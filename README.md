@@ -31,8 +31,10 @@ representative input/output examples:
 - Git
 
 The OpenSVC CA and JWT requirements apply to the existing Unix transport.
-The initial HTTPS transport requires a server certificate and private key;
-remote OAuth and daemon delegation are still being implemented.
+The HTTPS transport requires a server certificate and private key. Its optional
+remote OAuth prototype implements discovery, client registration and the journey
+to a disabled login form. Remote authentication and daemon delegation are still
+being implemented.
 
 ## Installation from source
 
@@ -66,6 +68,9 @@ The server supports these environment variables:
 | OPENSVC_MCP_LISTEN_ADDR | 127.0.0.1:8443 in https mode | TCP bind address, written as IPv4:port or [IPv6]:port; requires explicit https mode |
 | OPENSVC_MCP_TLS_CERT_FILE | empty | Absolute path to the HTTPS server certificate PEM, followed by intermediate certificates if needed; required in https mode |
 | OPENSVC_MCP_TLS_KEY_FILE | empty | Absolute path to the HTTPS server private key PEM; required in https mode |
+| OPENSVC_MCP_PUBLIC_URL | empty | Canonical HTTPS origin visible to the agent and browser, without a path or trailing slash; enables the login prototype together with the two cluster fields |
+| OPENSVC_MCP_CLUSTER_REF | empty | Stable target reference for the prototype, 1–64 ASCII letters, digits, hyphens or underscores |
+| OPENSVC_MCP_CLUSTER_NAME | empty | Target name displayed on the form, 1–128 bytes of text without control characters |
 | OPENSVC_DAEMON_URL | https://127.0.0.1:1215 | Base URL of the local OpenSVC daemon API |
 | OPENSVC_DAEMON_REQUEST_TIMEOUT | 20s | Whole-request timeout for daemon JSON, SSE, and bounded stream calls; accepted range 1s to 2m |
 | OPENSVC_MCP_SOCKET_PATH | /run/opensvc-daemon-mcp/mcp.sock | Local Unix socket carrying Streamable HTTP |
@@ -101,12 +106,14 @@ The middleware accepts only JWTs signed with RS256 by the configured cluster CA.
 
 The local mode has no Basic Auth, X.509 client-authentication, local token file, unauthenticated mode, or fallback service credential.
 
-HTTPS mode is a transport-only increment. `/mcp` returns `503` with an
-`application/problem+json` explanation until the integrated OAuth layer is
-implemented. It does not accept or forward a client Bearer token, call any
-daemon, or require the local OpenSVC JWT verification key. Discovery, DCR,
-`/authorize`, `/login`, and `/token` are not exposed yet. The planned remote
-mode will use separate MCP OAuth tokens and per-user OpenSVC credentials.
+In HTTPS mode, omitting all three prototype variables retains the transport-only
+listener: `/mcp` returns `503`, and OAuth routes are not exposed. Supplying any
+of these variables requires all three to be valid and `https` to be selected.
+With the prototype enabled, `/mcp` returns an OAuth `401` challenge and the
+routes described below are available. Neither mode accepts or forwards client
+Bearer tokens, calls a daemon, or requires the local OpenSVC JWT verification
+key. The planned remote mode will use separate MCP OAuth tokens and per-user
+OpenSVC credentials.
 
 ## Run locally over a Unix socket
 
@@ -153,11 +160,11 @@ error. TCP ports must be numeric and between 1 and 65535, with an explicit IP
 host; use `0.0.0.0` or `[::]` when binding all interfaces intentionally.
 `OPENSVC_DAEMON_TLS_INSECURE` affects daemon connections only, never this listener.
 
-For the lab, the planned bind address is `192.168.1.213:443`, and the canonical
-MCP URL is `https://192.168.1.213/mcp`. The floating IP must be present on the
+For a service using a floating IP, a documentation example bind address is
+`192.0.2.10:443`, and its canonical MCP URL is `https://192.0.2.10/mcp`. The floating IP must be present on the
 active node before binding. Port 443 requires an appropriate execution context
 or `CAP_NET_BIND_SERVICE`. The certificate must include an IP SAN for
-`192.168.1.213`, and its issuing CA must be trusted by both the client and browser.
+`192.0.2.10`, and its issuing CA must be trusted by both the client and browser.
 The existing systemd unit below is for the local mode and grants no capabilities.
 
 With a trusted certificate covering the configured address, check the listener:
@@ -166,8 +173,92 @@ With a trusted certificate covering the configured address, check the listener:
 curl --cacert /path/to/mcp-ca.pem https://127.0.0.1:8443/mcp
 ~~~
 
-At this stage, the expected application response is `503`; it confirms HTTPS
-connectivity, not a completed MCP or OAuth session.
+Without the prototype variables, the expected response is `503`; it confirms
+HTTPS connectivity, not a completed MCP or OAuth session.
+
+## Remote OAuth journey to the login form
+
+Enable the prototype on the same HTTPS listener:
+
+~~~bash
+OPENSVC_MCP_TRANSPORT=https \
+OPENSVC_MCP_LISTEN_ADDR=127.0.0.1:8443 \
+OPENSVC_MCP_TLS_CERT_FILE=/etc/opensvc-mcp/tls/server.crt \
+OPENSVC_MCP_TLS_KEY_FILE=/etc/opensvc-mcp/tls/server.key \
+OPENSVC_MCP_PUBLIC_URL=https://127.0.0.1:8443 \
+OPENSVC_MCP_CLUSTER_REF=cluster-a \
+OPENSVC_MCP_CLUSTER_NAME='Example cluster' \
+  ./bin/opensvc-daemon-mcp
+~~~
+
+All example addresses, cluster names and service paths used in tests are
+synthetic. `192.0.2.10` is a documentation address, not a deployed endpoint.
+
+`OPENSVC_MCP_PUBLIC_URL` is the origin reachable by the agent and browser on
+the customer network or VPN. It need not be Internet-accessible. It is separate
+from the listener bind address: binding `0.0.0.0:8443` does not make that address
+the issuer. Discovery and redirects always use the configured origin, never
+the request Host or forwarded headers.
+
+The configuration remains on the MCP hosts. In this increment, the cluster
+fields only identify the target displayed on the form; remote daemon endpoints,
+their CA and the expected OpenSVC cluster ID are not configured yet.
+
+| Route | Prototype behavior |
+|---|---|
+| `/mcp` | `401` with a Bearer challenge pointing to the protected resource metadata; all tokens are rejected |
+| `/.well-known/oauth-protected-resource/mcp` | Canonical MCP resource, authorization server and `mcp:access` scope; also available without `/mcp` suffix |
+| `/.well-known/oauth-authorization-server` | Integrated issuer, discovery endpoints and PKCE `S256`; explicitly marked `opensvc_login_prototype` |
+| `/register` | POST DCR for public clients, with no client secret |
+| `/authorize` | GET validates the registered client, callback, resource, scope, state and S256 challenge, then redirects to `/login` |
+| `/login` | GET displays the target and declared application name from the validated request; POST returns `405` |
+| `/token` | POST returns `503 temporarily_unavailable` without reading credentials or issuing tokens |
+
+Registration accepts only HTTP callbacks on loopback addresses or `localhost`.
+For literal loopback IPs, only the port may change from the registered URI;
+the host, path and query must match. `localhost` callbacks must match exactly.
+HTTPS web callbacks, custom schemes, confidential clients and CIMD are outside
+this prototype. The only provisioned grant is `authorization_code`.
+
+The validated request is held on the server and associated with an opaque,
+Secure, HttpOnly, SameSite=Lax cookie. The login URL contains no request context.
+An absent or expired context is rejected, and application names are HTML-escaped.
+Client names are self-declared metadata, not verified identities.
+The form clearly identifies itself as a prototype; its username, secret and
+submit controls are disabled. No OpenSVC credentials, authorization codes or
+OAuth tokens are processed or issued.
+
+State is bounded and held only in process memory: at most 256 registrations
+lasting 24 hours and 256 authorization requests lasting 10 minutes. Restarting
+the process invalidates both. Persistence, failover continuity and actual
+authentication will be implemented in later increments.
+
+### Try with Codex
+
+For the local example above, configure the server and initiate DCR:
+
+~~~bash
+codex mcp add opensvc --url https://127.0.0.1:8443/mcp
+codex mcp login opensvc --oauth-client-registration dcr --no-browser
+~~~
+
+Open the authorization URL printed by Codex in a browser that trusts the server
+CA. It should reach `/login` and display the associated form. Codex will remain
+waiting for the callback because this increment deliberately stops at the form;
+cancel the command after checking the page.
+
+When using a private CA, Codex supports a PEM CA bundle via
+`CODEX_CA_CERTIFICATE`, which takes precedence over `SSL_CERT_FILE`, according
+to the [official OpenAI documentation](https://learn.chatgpt.com/docs/config-file/environment-variables).
+For example, prefix the login command with
+`CODEX_CA_CERTIFICATE=/path/to/mcp-ca.pem`. The browser needs to trust the same
+CA separately. Keep certificate verification enabled.
+
+This journey was also checked with Codex CLI 0.159.1 against a temporary
+localhost listener with a generated test CA and fictitious cluster identity.
+Codex performed discovery and DCR; following its authorization URL reached the
+disabled form over verified TLS. This verifies the journey to the form, not a
+completed OAuth login or access to a real cluster.
 
 ## systemd
 
@@ -220,7 +311,11 @@ The test suite covers:
 - end-to-end Streamable HTTP MCP calls over a Unix socket to every registered tool using a delegated JWT against a fake OpenSVC daemon.
 - HTTPS over TCP with certificate verification, rejection of untrusted certificates, wrong certificate identity, TLS 1.1 and plaintext HTTP;
 - startup rejection for missing, malformed or mismatched TLS material and an occupied TCP address;
-- blocked remote MCP requests without any daemon call while OAuth is pending.
+- blocked remote MCP requests without any daemon call while OAuth is pending;
+- OAuth metadata and public DCR, callback validation, resource and PKCE binding;
+- invalid or expired requests, bounded concurrent state and HTML escaping;
+- the journey from discovery to the associated disabled login form over verified TLS;
+- rejection of credential submission without reading the request body.
 
 ## Design principles
 

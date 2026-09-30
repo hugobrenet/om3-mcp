@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/client"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/oauth"
 )
 
 func TestLoadDefaults(t *testing.T) {
@@ -69,8 +70,53 @@ func TestLoadFromEnvironment(t *testing.T) {
 
 func clearListenerEnvironment(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"OPENSVC_MCP_TRANSPORT", "OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE"} {
+	for _, name := range []string{"OPENSVC_MCP_TRANSPORT", "OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_PUBLIC_URL", "OPENSVC_MCP_CLUSTER_REF", "OPENSVC_MCP_CLUSTER_NAME"} {
 		t.Setenv(name, "")
+	}
+}
+
+func TestLoadRemoteOAuthPrototype(t *testing.T) {
+	clearListenerEnvironment(t)
+	t.Setenv("OPENSVC_MCP_TRANSPORT", "https")
+	t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
+	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
+	t.Setenv("OPENSVC_MCP_LISTEN_ADDR", "0.0.0.0:8443")
+	t.Setenv("OPENSVC_MCP_PUBLIC_URL", "https://192.0.2.10")
+	t.Setenv("OPENSVC_MCP_CLUSTER_REF", "cluster-a")
+	t.Setenv("OPENSVC_MCP_CLUSTER_NAME", "Example cluster")
+	got, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OAuth != (oauth.Config{PublicURL: "https://192.0.2.10", ClusterRef: "cluster-a", ClusterName: "Example cluster"}) || got.ListenAddress != "0.0.0.0:8443" {
+		t.Fatalf("public origin must be independent of bind address: %+v", got)
+	}
+}
+
+func TestLoadRejectsIncompleteOrLocalOAuthConfig(t *testing.T) {
+	for _, tc := range []struct{ variable, value string }{
+		{"OPENSVC_MCP_PUBLIC_URL", ""},
+		{"OPENSVC_MCP_CLUSTER_REF", ""},
+		{"OPENSVC_MCP_CLUSTER_NAME", ""},
+		{"OPENSVC_MCP_TRANSPORT", "unix"},
+	} {
+		t.Run(tc.variable, func(t *testing.T) {
+			clearListenerEnvironment(t)
+			t.Setenv("OPENSVC_MCP_TRANSPORT", "https")
+			t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
+			t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
+			t.Setenv("OPENSVC_MCP_PUBLIC_URL", "https://192.0.2.10")
+			t.Setenv("OPENSVC_MCP_CLUSTER_REF", "cluster-a")
+			t.Setenv("OPENSVC_MCP_CLUSTER_NAME", "Example cluster")
+			if tc.value == "unix" {
+				t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "")
+				t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "")
+			}
+			t.Setenv(tc.variable, tc.value)
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OPENSVC_MCP_PUBLIC_URL") {
+				t.Fatalf("got error %v", err)
+			}
+		})
 	}
 }
 
@@ -81,7 +127,7 @@ func TestLoadHTTPS(t *testing.T) {
 	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/etc/opensvc-mcp/tls/server.key")
 	// HTTPS does not depend on the Unix socket or its directory.
 	t.Setenv("OPENSVC_MCP_SOCKET_PATH", "unused-relative-path")
-	for _, address := range []string{"", "192.168.1.213:443", "[::1]:8443"} {
+	for _, address := range []string{"", "192.0.2.10:443", "[::1]:8443"} {
 		t.Run(address, func(t *testing.T) {
 			t.Setenv("OPENSVC_MCP_LISTEN_ADDR", address)
 			got, err := Load()
@@ -109,8 +155,8 @@ func TestLoadRejectsInvalidListenerConfiguration(t *testing.T) {
 		{"missing key", "OPENSVC_MCP_TLS_KEY_FILE", "", "OPENSVC_MCP_TLS_KEY_FILE"},
 		{"relative certificate", "OPENSVC_MCP_TLS_CERT_FILE", "server.crt", "OPENSVC_MCP_TLS_CERT_FILE"},
 		{"relative key", "OPENSVC_MCP_TLS_KEY_FILE", "server.key", "OPENSVC_MCP_TLS_KEY_FILE"},
-		{"URL as address", "OPENSVC_MCP_LISTEN_ADDR", "https://192.168.1.213:443", "OPENSVC_MCP_LISTEN_ADDR"},
-		{"missing port", "OPENSVC_MCP_LISTEN_ADDR", "192.168.1.213", "OPENSVC_MCP_LISTEN_ADDR"},
+		{"URL as address", "OPENSVC_MCP_LISTEN_ADDR", "https://192.0.2.10:443", "OPENSVC_MCP_LISTEN_ADDR"},
+		{"missing port", "OPENSVC_MCP_LISTEN_ADDR", "192.0.2.10", "OPENSVC_MCP_LISTEN_ADDR"},
 		{"implicit host", "OPENSVC_MCP_LISTEN_ADDR", ":443", "OPENSVC_MCP_LISTEN_ADDR"},
 		{"hostname", "OPENSVC_MCP_LISTEN_ADDR", "localhost:443", "OPENSVC_MCP_LISTEN_ADDR"},
 		{"ephemeral port", "OPENSVC_MCP_LISTEN_ADDR", "127.0.0.1:0", "OPENSVC_MCP_LISTEN_ADDR"},

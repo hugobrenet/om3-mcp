@@ -53,7 +53,7 @@ func (f *instanceLogsClient) GetSSE(_ context.Context, path string, query url.Va
 func TestGetInstanceLogs(t *testing.T) {
 	client := &instanceLogsClient{
 		t:     t,
-		path:  "/api/node/name/node-a/instance/path/lab/svc/redis/log",
+		path:  "/api/node/name/node-a/instance/path/example/svc/cache/log",
 		query: url.Values{"follow": {"false"}, "lines": {"3"}},
 		events: [][]byte{
 			instanceLogEvent(t, "2026-07-15T10:00:00Z", "old", "daemon/imon", ""),
@@ -63,12 +63,12 @@ func TestGetInstanceLogs(t *testing.T) {
 	}
 
 	result, err := New(client).GetInstanceLogs(context.Background(), GetInstanceLogsOptions{
-		Path: " lab/svc/redis ", Node: " node-a ", Lines: 2,
+		Path: " example/svc/cache ", Node: " node-a ", Lines: 2,
 	})
 	if err != nil {
 		t.Fatalf("get instance logs: %v", err)
 	}
-	if client.calls != 1 || result.Object.Path != "lab/svc/redis" || result.Node != "node-a" || result.Lines != 2 || result.Count != 2 || !result.Truncated {
+	if client.calls != 1 || result.Object.Path != "example/svc/cache" || result.Node != "node-a" || result.Lines != 2 || result.Count != 2 || !result.Truncated {
 		t.Fatalf("got unexpected log result %+v client=%+v", result, client)
 	}
 	if result.Entries[0].Message != "status failed" || result.Entries[1].Message != "instance down" {
@@ -83,16 +83,16 @@ func TestGetInstanceLogs(t *testing.T) {
 func TestGetInstanceLogsUsesOuterFieldsWhenNestedPayloadIsAbsent(t *testing.T) {
 	payload, err := json.Marshal(daemonInstanceLogEnvelope{
 		Timestamp: "2026-07-15T10:00:00Z", Level: "WARN", Message: " outer\nmessage ",
-		Node: "node-a", Object: "lab/svc/redis", Component: "daemon/imon",
+		Node: "node-a", Object: "example/svc/cache", Component: "daemon/imon",
 	})
 	if err != nil {
 		t.Fatalf("marshal event: %v", err)
 	}
 	client := &instanceLogsClient{
-		t: t, path: "/api/node/name/node-a/instance/path/lab/svc/redis/log",
+		t: t, path: "/api/node/name/node-a/instance/path/example/svc/cache/log",
 		query: url.Values{"follow": {"false"}, "lines": {"51"}}, events: [][]byte{payload},
 	}
-	result, err := New(client).GetInstanceLogs(context.Background(), GetInstanceLogsOptions{Path: "lab/svc/redis", Node: "node-a"})
+	result, err := New(client).GetInstanceLogs(context.Background(), GetInstanceLogsOptions{Path: "example/svc/cache", Node: "node-a"})
 	if err != nil {
 		t.Fatalf("get instance logs: %v", err)
 	}
@@ -103,11 +103,11 @@ func TestGetInstanceLogsUsesOuterFieldsWhenNestedPayloadIsAbsent(t *testing.T) {
 
 func TestGetInstanceLogsBoundsMessage(t *testing.T) {
 	client := &instanceLogsClient{
-		t: t, path: "/api/node/name/node-a/instance/path/lab/svc/redis/log",
+		t: t, path: "/api/node/name/node-a/instance/path/example/svc/cache/log",
 		query:  url.Values{"follow": {"false"}, "lines": {"2"}},
 		events: [][]byte{instanceLogEvent(t, "2026-07-15T10:00:00Z", strings.Repeat("é", maxInstanceLogMessageRunes+1), "daemon/imon", "")},
 	}
-	result, err := New(client).GetInstanceLogs(context.Background(), GetInstanceLogsOptions{Path: "lab/svc/redis", Node: "node-a", Lines: 1})
+	result, err := New(client).GetInstanceLogs(context.Background(), GetInstanceLogsOptions{Path: "example/svc/cache", Node: "node-a", Lines: 1})
 	if err != nil {
 		t.Fatalf("get instance logs: %v", err)
 	}
@@ -122,8 +122,8 @@ func TestGetInstanceLogsRejectsInvalidInputBeforeDaemonCall(t *testing.T) {
 		name    string
 		options GetInstanceLogsOptions
 	}{
-		{name: "node", options: GetInstanceLogsOptions{Path: "lab/svc/redis"}},
-		{name: "lines", options: GetInstanceLogsOptions{Path: "lab/svc/redis", Node: "node-a", Lines: maxGetInstanceLogsLines + 1}},
+		{name: "node", options: GetInstanceLogsOptions{Path: "example/svc/cache"}},
+		{name: "lines", options: GetInstanceLogsOptions{Path: "example/svc/cache", Node: "node-a", Lines: maxGetInstanceLogsLines + 1}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			client := &instanceLogsClient{t: t}
@@ -140,10 +140,10 @@ func TestGetInstanceLogsRejectsInvalidInputBeforeDaemonCall(t *testing.T) {
 func TestGetInstanceLogsPropagatesSSEAndPayloadErrors(t *testing.T) {
 	want := errors.New("SSE failed")
 	client := &instanceLogsClient{
-		t: t, path: "/api/node/name/node-a/instance/path/lab/svc/redis/log",
+		t: t, path: "/api/node/name/node-a/instance/path/example/svc/cache/log",
 		query: url.Values{"follow": {"false"}, "lines": {"51"}}, err: want,
 	}
-	_, err := New(client).GetInstanceLogs(context.Background(), GetInstanceLogsOptions{Path: "lab/svc/redis", Node: "node-a"})
+	_, err := New(client).GetInstanceLogs(context.Background(), GetInstanceLogsOptions{Path: "example/svc/cache", Node: "node-a"})
 	if !errors.Is(err, want) {
 		t.Fatalf("got error %v, want SSE error", err)
 	}
@@ -151,13 +151,13 @@ func TestGetInstanceLogsPropagatesSSEAndPayloadErrors(t *testing.T) {
 	client.err = nil
 	client.eventTypes = []string{"unexpected"}
 	client.events = [][]byte{[]byte(`{}`)}
-	if _, err := New(client).GetInstanceLogs(context.Background(), GetInstanceLogsOptions{Path: "lab/svc/redis", Node: "node-a"}); err == nil {
+	if _, err := New(client).GetInstanceLogs(context.Background(), GetInstanceLogsOptions{Path: "example/svc/cache", Node: "node-a"}); err == nil {
 		t.Fatal("GetInstanceLogs accepted an unexpected SSE event")
 	}
 
 	client.eventTypes = nil
 	client.events = [][]byte{[]byte(`{"JSON":"not-json"}`)}
-	if _, err := New(client).GetInstanceLogs(context.Background(), GetInstanceLogsOptions{Path: "lab/svc/redis", Node: "node-a"}); err == nil {
+	if _, err := New(client).GetInstanceLogs(context.Background(), GetInstanceLogsOptions{Path: "example/svc/cache", Node: "node-a"}); err == nil {
 		t.Fatal("GetInstanceLogs accepted malformed nested JSON")
 	}
 }
@@ -166,7 +166,7 @@ func instanceLogEvent(t *testing.T, timestamp string, message string, component 
 	t.Helper()
 	nested, err := json.Marshal(daemonInstanceLogPayload{
 		Timestamp: timestamp, Level: "ERROR", Message: message,
-		Node: "node-a", Object: "lab/svc/redis", Component: component,
+		Node: "node-a", Object: "example/svc/cache", Component: component,
 		ResourceID: resourceID, SessionID: "session-1", EventID: "event-1",
 		RequestID: "request-1", OrchestrationID: "orchestration-1",
 	})
@@ -174,7 +174,7 @@ func instanceLogEvent(t *testing.T, timestamp string, message string, component 
 		t.Fatalf("marshal nested log: %v", err)
 	}
 	envelope, err := json.Marshal(daemonInstanceLogEnvelope{
-		JSON: string(nested), Message: "raw journald message", Node: "node-a", Object: "lab/svc/redis",
+		JSON: string(nested), Message: "raw journald message", Node: "node-a", Object: "example/svc/cache",
 	})
 	if err != nil {
 		t.Fatalf("marshal log envelope: %v", err)

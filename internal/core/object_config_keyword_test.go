@@ -33,17 +33,17 @@ func TestListObjectConfigKeywordsFiltersSortsAndPaginates(t *testing.T) {
 
 	payload := marshalObjectConfigKeywordResponse(t, []daemonObjectConfigKeywordDefinition{podman, docker, docker})
 	client := &recordingJSONGetter{
-		t: t, path: "/api/object/path/lab/svc/redis/config/keywords",
+		t: t, path: "/api/object/path/example/svc/cache/config/keywords",
 		query: url.Values{"option": {"image"}}, payload: payload,
 	}
 	service := New(client)
-	options := ListObjectConfigKeywordsOptions{Path: " lab/svc/redis ", Option: "image", Limit: 2}
+	options := ListObjectConfigKeywordsOptions{Path: " example/svc/cache ", Option: "image", Limit: 2}
 
 	first, err := service.ListObjectConfigKeywords(context.Background(), options)
 	if err != nil {
 		t.Fatalf("list first object config keyword page: %v", err)
 	}
-	if first.Object.Path != "lab/svc/redis" || first.Filters.Option != "image" || first.Total != 3 || first.Count != 2 || !first.Truncated || first.NextCursor == "" {
+	if first.Object.Path != "example/svc/cache" || first.Filters.Option != "image" || first.Total != 3 || first.Count != 2 || !first.Truncated || first.NextCursor == "" {
 		t.Fatalf("unexpected first page: %#v", first)
 	}
 	if first.Definitions[0].Types[0] != "docker" || !reflect.DeepEqual(first.Definitions[0], first.Definitions[1]) {
@@ -73,8 +73,8 @@ func TestListObjectConfigKeywordsFiltersSortsAndPaginates(t *testing.T) {
 
 func TestListObjectConfigKeywordsSendsDriverAndSectionFilters(t *testing.T) {
 	for name, options := range map[string]ListObjectConfigKeywordsOptions{
-		"driver":  {Path: "lab/svc/redis", Driver: "container.docker", Option: "image"},
-		"section": {Path: "lab/svc/redis", Section: "container#redis", Option: "image"},
+		"driver":  {Path: "example/svc/cache", Driver: "container.docker", Option: "image"},
+		"section": {Path: "example/svc/cache", Section: "container#redis", Option: "image"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			query := url.Values{"option": {"image"}}
@@ -84,7 +84,7 @@ func TestListObjectConfigKeywordsSendsDriverAndSectionFilters(t *testing.T) {
 				query.Set("section", options.Section)
 			}
 			client := &recordingJSONGetter{
-				t: t, path: "/api/object/path/lab/svc/redis/config/keywords", query: query,
+				t: t, path: "/api/object/path/example/svc/cache/config/keywords", query: query,
 				payload: marshalObjectConfigKeywordResponse(t, []daemonObjectConfigKeywordDefinition{}),
 			}
 			result, err := New(client).ListObjectConfigKeywords(context.Background(), options)
@@ -101,13 +101,13 @@ func TestListObjectConfigKeywordsSendsDriverAndSectionFilters(t *testing.T) {
 func TestListObjectConfigKeywordsRejectsInvalidInputsBeforeDaemon(t *testing.T) {
 	tests := map[string]ListObjectConfigKeywordsOptions{
 		"missing path":        {},
-		"conflicting filters": {Path: "lab/svc/redis", Driver: "container.docker", Section: "container#redis"},
-		"spaced driver":       {Path: "lab/svc/redis", Driver: " container.docker"},
-		"control section":     {Path: "lab/svc/redis", Section: "container#redis\n"},
-		"long option":         {Path: "lab/svc/redis", Option: strings.Repeat("x", maxObjectConfigKeywordFilterRunes+1)},
-		"invalid limit":       {Path: "lab/svc/redis", Limit: maxObjectConfigKeywordLimit + 1},
-		"control cursor":      {Path: "lab/svc/redis", Cursor: "bad\ncursor"},
-		"long cursor":         {Path: "lab/svc/redis", Cursor: strings.Repeat("x", maxObjectConfigKeywordCursorRunes+1)},
+		"conflicting filters": {Path: "example/svc/cache", Driver: "container.docker", Section: "container#redis"},
+		"spaced driver":       {Path: "example/svc/cache", Driver: " container.docker"},
+		"control section":     {Path: "example/svc/cache", Section: "container#redis\n"},
+		"long option":         {Path: "example/svc/cache", Option: strings.Repeat("x", maxObjectConfigKeywordFilterRunes+1)},
+		"invalid limit":       {Path: "example/svc/cache", Limit: maxObjectConfigKeywordLimit + 1},
+		"control cursor":      {Path: "example/svc/cache", Cursor: "bad\ncursor"},
+		"long cursor":         {Path: "example/svc/cache", Cursor: strings.Repeat("x", maxObjectConfigKeywordCursorRunes+1)},
 	}
 	for name, options := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -140,9 +140,9 @@ func TestListObjectConfigKeywordsRejectsMalformedDaemonData(t *testing.T) {
 	for name, payload := range tests {
 		t.Run(name, func(t *testing.T) {
 			client := &recordingJSONGetter{
-				t: t, path: "/api/object/path/lab/svc/redis/config/keywords", query: url.Values{}, payload: payload,
+				t: t, path: "/api/object/path/example/svc/cache/config/keywords", query: url.Values{}, payload: payload,
 			}
-			if _, err := New(client).ListObjectConfigKeywords(context.Background(), ListObjectConfigKeywordsOptions{Path: "lab/svc/redis"}); err == nil {
+			if _, err := New(client).ListObjectConfigKeywords(context.Background(), ListObjectConfigKeywordsOptions{Path: "example/svc/cache"}); err == nil {
 				t.Fatal("expected malformed daemon response error")
 			}
 		})
@@ -154,10 +154,10 @@ func TestListObjectConfigKeywordsPreservesGenericEmptySection(t *testing.T) {
 	generic.Section = ""
 	generic.Option = "comment"
 	client := &recordingJSONGetter{
-		t: t, path: "/api/object/path/lab/svc/redis/config/keywords", query: url.Values{},
+		t: t, path: "/api/object/path/example/svc/cache/config/keywords", query: url.Values{},
 		payload: marshalObjectConfigKeywordResponse(t, []daemonObjectConfigKeywordDefinition{generic}),
 	}
-	result, err := New(client).ListObjectConfigKeywords(context.Background(), ListObjectConfigKeywordsOptions{Path: "lab/svc/redis"})
+	result, err := New(client).ListObjectConfigKeywords(context.Background(), ListObjectConfigKeywordsOptions{Path: "example/svc/cache"})
 	if err != nil {
 		t.Fatalf("list generic object config keyword: %v", err)
 	}
@@ -174,10 +174,10 @@ func TestListObjectConfigKeywordsAppliesAggregatePageBudget(t *testing.T) {
 		items[index].Text = strings.Repeat("x", maxObjectConfigKeywordTextRunes)
 	}
 	client := &recordingJSONGetter{
-		t: t, path: "/api/object/path/lab/svc/redis/config/keywords", query: url.Values{},
+		t: t, path: "/api/object/path/example/svc/cache/config/keywords", query: url.Values{},
 		payload: marshalObjectConfigKeywordResponse(t, items),
 	}
-	result, err := New(client).ListObjectConfigKeywords(context.Background(), ListObjectConfigKeywordsOptions{Path: "lab/svc/redis", Limit: 100})
+	result, err := New(client).ListObjectConfigKeywords(context.Background(), ListObjectConfigKeywordsOptions{Path: "example/svc/cache", Limit: 100})
 	if err != nil {
 		t.Fatalf("list object config keywords: %v", err)
 	}
@@ -188,10 +188,10 @@ func TestListObjectConfigKeywordsAppliesAggregatePageBudget(t *testing.T) {
 
 func TestListObjectConfigKeywordsRejectsStaleCursor(t *testing.T) {
 	client := &recordingJSONGetter{
-		t: t, path: "/api/object/path/lab/svc/redis/config/keywords", query: url.Values{},
+		t: t, path: "/api/object/path/example/svc/cache/config/keywords", query: url.Values{},
 		payload: marshalObjectConfigKeywordResponse(t, []daemonObjectConfigKeywordDefinition{validDaemonObjectConfigKeywordDefinition()}),
 	}
-	_, err := New(client).ListObjectConfigKeywords(context.Background(), ListObjectConfigKeywordsOptions{Path: "lab/svc/redis", Cursor: "missing.0"})
+	_, err := New(client).ListObjectConfigKeywords(context.Background(), ListObjectConfigKeywordsOptions{Path: "example/svc/cache", Cursor: "missing.0"})
 	if err == nil || !strings.Contains(err.Error(), "no longer present") {
 		t.Fatalf("got stale cursor error %v", err)
 	}

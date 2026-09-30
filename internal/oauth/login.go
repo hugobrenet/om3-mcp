@@ -30,6 +30,7 @@ type loginPage struct {
 	ClusterName   string
 	Username      string
 	ExpiresAt     string
+	ClientID      string
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -60,8 +61,12 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		if sessionCookie, err := r.Cookie(sessionCookieName); err == nil {
 			if session, ok := s.sessions[sessionCookie.Value]; ok {
 				s.mu.Unlock()
+				callback, _ := url.Parse(session.Authorization.RedirectURI)
+				// Some browsers check form redirect destinations against form-action.
+				// Permit only the callback origin already validated for this client.
+				w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' "+callback.Scheme+"://"+callback.Host+"; base-uri 'none'; frame-ancestors 'none'")
 				cluster, _ := s.cfg.Clusters.Lookup(session.Daemon.ClusterRef)
-				renderLogin(w, http.StatusOK, loginPage{Authenticated: true, ClientName: session.Authorization.ClientName, ClusterName: cluster.Name, Username: session.Daemon.Username, ExpiresAt: session.Daemon.ExpiresAt.UTC().Format(time.RFC3339)})
+				renderLogin(w, http.StatusOK, loginPage{Authenticated: true, ClientName: session.Authorization.ClientName, ClusterName: cluster.Name, Username: session.Daemon.Username, ExpiresAt: session.Daemon.ExpiresAt.UTC().Format(time.RFC3339), CSRFToken: session.CSRFToken, ClientID: session.Authorization.ClientID})
 				return
 			}
 			clearCookie(w, sessionCookieName)
@@ -133,6 +138,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	result, authErr := daemonlogin.Authenticate(r.Context(), cluster, username, password)
 	password = ""
 	sessionID, randomErr := randomID()
+	consentCSRF, csrfErr := randomID()
 	s.mu.Lock()
 	s.inFlight--
 	s.prune(s.now())
@@ -159,7 +165,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		renderLogin(w, status, page)
 		return
 	}
-	if !live || !s.now().Before(result.ExpiresAt) || randomErr != nil || len(s.sessions) >= maxSessions {
+	if !live || !s.now().Before(result.ExpiresAt) || randomErr != nil || csrfErr != nil || len(s.sessions) >= maxSessions {
 		s.mu.Unlock()
 		oauthError(w, 400, "invalid_request", "This connection request expired or could not be completed. Start a new connection.")
 		return
@@ -171,10 +177,14 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if previous, err := r.Cookie(sessionCookieName); err == nil {
 		delete(s.sessions, previous.Value)
 	}
-	s.sessions[sessionID] = authenticatedSession{Authorization: current, Daemon: result}
+	expiresAt := s.now().Add(consentLifetime)
+	if result.ExpiresAt.Before(expiresAt) {
+		expiresAt = result.ExpiresAt
+	}
+	s.sessions[sessionID] = authenticatedSession{Authorization: current, Daemon: result, CSRFToken: consentCSRF, ExpiresAt: expiresAt}
 	s.mu.Unlock()
 	clearCookie(w, loginCookieName)
-	http.SetCookie(w, &http.Cookie{Name: sessionCookieName, Value: sessionID, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: max(1, int(result.ExpiresAt.Sub(s.now()).Seconds())), Expires: result.ExpiresAt})
+	http.SetCookie(w, &http.Cookie{Name: sessionCookieName, Value: sessionID, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: max(1, int(expiresAt.Sub(s.now()).Seconds())), Expires: expiresAt})
 	http.Redirect(w, r, s.cfg.PublicURL+"/login", http.StatusSeeOther)
 }
 

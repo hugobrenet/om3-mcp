@@ -56,7 +56,7 @@ func loginFixture(t *testing.T, afterToken func(http.ResponseWriter, *http.Reque
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := New(Config{PublicURL: "https://192.0.2.10", Clusters: catalog})
+	server, err := New(Config{PublicURL: "https://192.0.2.10", Clusters: catalog}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestLoginStoresJWTServerSideAndRotatesCookie(t *testing.T) {
 		t.Fatal("authenticated session lost its identity or authorization binding")
 	}
 	confirmation := request(s, "GET", "/login", "", sessionCookie)
-	if confirmation.Code != 200 || !strings.Contains(confirmation.Body.String(), "Authentification OpenSVC réussie") || !strings.Contains(confirmation.Body.String(), "alice") || !strings.Contains(confirmation.Body.String(), "Example cluster") || strings.Contains(confirmation.Body.String(), "<form") {
+	if confirmation.Code != 200 || !strings.Contains(confirmation.Body.String(), "Authentification OpenSVC réussie") || !strings.Contains(confirmation.Body.String(), "alice") || !strings.Contains(confirmation.Body.String(), "Example cluster") || !strings.Contains(confirmation.Body.String(), `action="/consent"`) || !strings.Contains(confirmation.Body.String(), `value="allow"`) || !strings.Contains(confirmation.Body.String(), `value="deny"`) {
 		t.Fatal("confirmation is missing")
 	}
 	for _, response := range []*httptest.ResponseRecorder{w, confirmation} {
@@ -138,11 +138,11 @@ func TestLoginStoresJWTServerSideAndRotatesCookie(t *testing.T) {
 			}
 		}
 	}
-	// Browser state does not grant MCP access or issue an OAuth token yet.
-	if request(s, "GET", "/mcp", "", sessionCookie).Code != 401 || request(s, "POST", "/token", "", sessionCookie).Code != 503 {
+	// Browser state alone does not authorize MCP or redeem a code.
+	if request(s, "GET", "/mcp", "", sessionCookie).Code != 401 || request(s, "POST", "/token", "", sessionCookie).Code != 400 {
 		t.Fatal("OpenSVC JWT escaped into MCP authorization")
 	}
-	restarted, err := New(s.cfg)
+	restarted, err := New(s.cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,6 +232,7 @@ func TestLoginFailureAndAttemptBounds(t *testing.T) {
 	// Give the fabricated entries a future JWT expiry so pruning retains them.
 	for key, session := range s.sessions {
 		session.Daemon.ExpiresAt = s.now().Add(time.Hour)
+		session.ExpiresAt = s.now().Add(time.Hour)
 		s.sessions[key] = session
 	}
 	if w := postLogin(s, cookie, form.Encode(), s.cfg.PublicURL); w.Code != 429 || calls.Load() != maxLoginAttempts {

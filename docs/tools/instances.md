@@ -354,8 +354,8 @@ resource, resource-info, or schedule tools for larger inventories.
 
 #### Errors
 
-Remote tool access is not enabled yet; `/mcp` returns `401`. In the tool
-implementation, daemon errors become tool results with
+Missing, invalid or expired MCP tokens return HTTP `401`. With valid MCP
+authorization, daemon errors become tool results with
 `isError=true`, preserving the daemon HTTP status and bounded RFC 7807 detail.
 Examples include invalid object kinds or names (`400`), namespace access
 denied (`403`), and a missing object/node cache entry (`404`). These tool

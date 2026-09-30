@@ -417,7 +417,7 @@ unbounded response.
 
 | Condition | Result |
 |---|---|
-| Remote MCP authorization unavailable | MCP HTTP `401`; tool access is not enabled yet |
+| Missing, invalid or expired MCP token | MCP HTTP `401` |
 | Invisible or unauthorized object | Tool error from the daemon; commonly HTTP `403` or an empty selection |
 | Invalid selector, path, limit, cursor, or keyword filter | Tool validation or daemon error |
 | Conflicting definition `driver` and `section` filters | Tool validation error before calling the daemon |

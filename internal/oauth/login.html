@@ -30,7 +30,14 @@
       <dt>Expiration de la connexion (UTC)</dt><dd>{{.ExpiresAt}}</dd>{{end}}
     </dl>
     {{if .Authenticated}}
-    <p>Votre connexion au cluster est validée. Le retour vers l’agent sera disponible dans une prochaine version.</p>
+    <p>Autorisez-vous cette application à utiliser vos droits OpenSVC sur ce cluster ? Le mot de passe et le jeton OpenSVC restent sur ce serveur.</p>
+    <p>Le nom de l’application est fourni par celle-ci. N’autorisez cette demande que si vous venez de lancer sa connexion.</p>
+    <dl><dt>Identifiant de l’application</dt><dd>{{.ClientID}}</dd></dl>
+    <form method="post" action="/consent">
+      <input name="csrf_token" type="hidden" value="{{.CSRFToken}}">
+      <button type="submit" name="decision" value="allow">Autoriser et revenir à l’agent</button>
+      <button type="submit" name="decision" value="deny">Refuser</button>
+    </form>
     {{else}}
     {{if .Error}}<p class="notice" role="alert">{{.Error}}</p>{{end}}
     <form method="post" action="/login" autocomplete="off">

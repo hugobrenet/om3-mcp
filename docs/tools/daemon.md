@@ -118,7 +118,7 @@ reclassified as stopped or unhealthy.
 
 | Condition | Result |
 |---|---|
-| Remote MCP authorization unavailable | MCP HTTP `401`; tool access is not enabled yet |
+| Missing, invalid or expired MCP token | MCP HTTP `401` |
 | Insufficient daemon grants | Tool error containing daemon HTTP `403` |
 | Daemon unavailable or malformed response | Tool error with transport or decoding context |
 | Missing local nodename, node status, or agent version | Tool error; no partial status |

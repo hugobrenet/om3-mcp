@@ -2,7 +2,7 @@
 
 A Go-based Model Context Protocol server that gives AI agents a controlled, typed interface to the OpenSVC v3 daemon API.
 
-The project is intended to become the low-level operational MCP layer for AI-assisted inspection, diagnosis, and administration of OpenSVC clusters. One MCP server is expected to run close to each OpenSVC daemon and expose carefully designed tools instead of a generic raw API proxy.
+The project is intended to become the low-level operational MCP layer for AI-assisted inspection, diagnosis, and administration of OpenSVC clusters. It exposes carefully designed tools instead of a generic raw API proxy. The existing local mode runs close to an OpenSVC daemon. A remote HTTPS mode over TCP is being built for a dedicated MCP service connecting to remote clusters.
 
 ## Tool documentation
 
@@ -29,6 +29,10 @@ representative input/output examples:
 - The public certificate or RSA public key of the OpenSVC cluster CA
 - An OpenSVC access JWT for the MCP client
 - Git
+
+The OpenSVC CA and JWT requirements apply to the existing Unix transport.
+The initial HTTPS transport requires a server certificate and private key;
+remote OAuth and daemon delegation are still being implemented.
 
 ## Installation from source
 
@@ -58,6 +62,10 @@ The server supports these environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
+| OPENSVC_MCP_TRANSPORT | unix | Listener mode: `unix` for the existing local MCP or `https` for TLS over TCP |
+| OPENSVC_MCP_LISTEN_ADDR | 127.0.0.1:8443 in https mode | TCP bind address, written as IPv4:port or [IPv6]:port; requires explicit https mode |
+| OPENSVC_MCP_TLS_CERT_FILE | empty | Absolute path to the HTTPS server certificate PEM, followed by intermediate certificates if needed; required in https mode |
+| OPENSVC_MCP_TLS_KEY_FILE | empty | Absolute path to the HTTPS server private key PEM; required in https mode |
 | OPENSVC_DAEMON_URL | https://127.0.0.1:1215 | Base URL of the local OpenSVC daemon API |
 | OPENSVC_DAEMON_REQUEST_TIMEOUT | 20s | Whole-request timeout for daemon JSON, SSE, and bounded stream calls; accepted range 1s to 2m |
 | OPENSVC_MCP_SOCKET_PATH | /run/opensvc-daemon-mcp/mcp.sock | Local Unix socket carrying Streamable HTTP |
@@ -83,7 +91,7 @@ This disables certificate-chain and hostname verification. Never enable it when 
 
 The configured verification file contains public material only, but it must be readable by the MCP process. Never expose or mount `/var/lib/opensvc/certs/ca_private_key` into the MCP server.
 
-Each MCP HTTP request must contain:
+In Unix mode, each MCP HTTP request must contain:
 
 ~~~text
 Authorization: Bearer <jwt>
@@ -91,9 +99,16 @@ Authorization: Bearer <jwt>
 
 The middleware accepts only JWTs signed with RS256 by the configured cluster CA. It requires valid `exp`, `sub`, `iss`, and `token_use=access` claims. The authenticated subject is bound to the MCP session to prevent session hijacking. The raw JWT remains request-scoped and is forwarded to the daemon, which independently validates it and applies its `grant` claims.
 
-There is no Basic Auth, X.509 client-authentication, local token file, unauthenticated mode, or fallback service credential.
+The local mode has no Basic Auth, X.509 client-authentication, local token file, unauthenticated mode, or fallback service credential.
 
-## Run
+HTTPS mode is a transport-only increment. `/mcp` returns `503` with an
+`application/problem+json` explanation until the integrated OAuth layer is
+implemented. It does not accept or forward a client Bearer token, call any
+daemon, or require the local OpenSVC JWT verification key. Discovery, DCR,
+`/authorize`, `/login`, and `/token` are not exposed yet. The planned remote
+mode will use separate MCP OAuth tokens and per-user OpenSVC credentials.
+
+## Run locally over a Unix socket
 
 Start the Streamable HTTP MCP server:
 
@@ -105,13 +120,54 @@ OPENSVC_DAEMON_TLS_INSECURE=true \
   ./bin/opensvc-daemon-mcp
 ~~~
 
-The server exposes its `/mcp` HTTP route only through the configured Unix
+In this mode, the server exposes its `/mcp` HTTP route through the configured Unix
 socket. The parent directory must already exist; the supplied systemd unit
 creates it with `RuntimeDirectory=opensvc-daemon-mcp`. The server validates the
 path, refuses to replace an ordinary file or active socket, removes a proven
 stale socket, applies mode `0660`, and cleans the socket up on a graceful stop.
 `OPENSVC_DAEMON_TLS_INSECURE` affects only the separate MCP-to-daemon HTTPS
 connection.
+
+## Run the HTTPS listener over TCP
+
+Select HTTPS explicitly and supply a certificate and matching private key:
+
+~~~bash
+OPENSVC_MCP_TRANSPORT=https \
+OPENSVC_MCP_LISTEN_ADDR=127.0.0.1:8443 \
+OPENSVC_MCP_TLS_CERT_FILE=/etc/opensvc-mcp/tls/server.crt \
+OPENSVC_MCP_TLS_KEY_FILE=/etc/opensvc-mcp/tls/server.key \
+  ./bin/opensvc-daemon-mcp
+~~~
+
+The certificate is loaded before the TCP socket is opened. Invalid or unreadable
+TLS material, a mismatched private key, or a bind failure stops startup.
+The listener requires TLS 1.2 or later and does not serve plaintext HTTP.
+Certificate files are loaded at startup; restart the process after replacing
+them. Shutdown drains active requests with the same 30-second deadline as
+the local transport.
+
+Only the selected listener is opened. HTTPS does not create a Unix socket.
+Providing TCP or TLS settings without selecting `https` is a configuration
+error. TCP ports must be numeric and between 1 and 65535, with an explicit IP
+host; use `0.0.0.0` or `[::]` when binding all interfaces intentionally.
+`OPENSVC_DAEMON_TLS_INSECURE` affects daemon connections only, never this listener.
+
+For the lab, the planned bind address is `192.168.1.213:443`, and the canonical
+MCP URL is `https://192.168.1.213/mcp`. The floating IP must be present on the
+active node before binding. Port 443 requires an appropriate execution context
+or `CAP_NET_BIND_SERVICE`. The certificate must include an IP SAN for
+`192.168.1.213`, and its issuing CA must be trusted by both the client and browser.
+The existing systemd unit below is for the local mode and grants no capabilities.
+
+With a trusted certificate covering the configured address, check the listener:
+
+~~~bash
+curl --cacert /path/to/mcp-ca.pem https://127.0.0.1:8443/mcp
+~~~
+
+At this stage, the expected application response is `503`; it confirms HTTPS
+connectivity, not a completed MCP or OAuth session.
 
 ## systemd
 
@@ -162,6 +218,9 @@ The test suite covers:
 - the current core use cases and their bounded response shaping;
 - fail-fast validation of tool names, descriptions, annotations, schemas, and duplicate names;
 - end-to-end Streamable HTTP MCP calls over a Unix socket to every registered tool using a delegated JWT against a fake OpenSVC daemon.
+- HTTPS over TCP with certificate verification, rejection of untrusted certificates, wrong certificate identity, TLS 1.1 and plaintext HTTP;
+- startup rejection for missing, malformed or mismatched TLS material and an occupied TCP address;
+- blocked remote MCP requests without any daemon call while OAuth is pending.
 
 ## Design principles
 

@@ -35,81 +35,40 @@ func main() {
 		log.Fatal(err)
 	}
 
-	verifier, err := auth.NewJWTVerifier(cfg.JWTVerifyKeyFile)
+	handler, err := newMCPHandler(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	httpClient, err := client.NewHTTPClient(cfg.HTTP)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	apiClient, err := client.New(cfg.DaemonURL, httpClient)
-	if err != nil {
-		log.Fatal(err)
-	}
-	service := core.New(apiClient)
-
-	server := mcp.NewServer(
-		&mcp.Implementation{
-			Name:    serverName,
-			Version: serverVersion,
-		},
-		nil,
-	)
-	registrar, err := tools.NewRegistrar(server)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err := tools.RegisterDaemonTools(registrar, service); err != nil {
-		log.Fatal(err)
-	}
-	if err := tools.RegisterClusterTools(registrar, service); err != nil {
-		log.Fatal(err)
-	}
-	if err := tools.RegisterNodeTools(registrar, service); err != nil {
-		log.Fatal(err)
-	}
-	if err := tools.RegisterObjectTools(registrar, service); err != nil {
-		log.Fatal(err)
-	}
-	if err := tools.RegisterInstanceTools(registrar, service); err != nil {
-		log.Fatal(err)
-	}
-	if err := tools.RegisterResourceTools(registrar, service); err != nil {
-		log.Fatal(err)
-	}
-	if err := tools.RegisterScheduleTools(registrar, service); err != nil {
-		log.Fatal(err)
-	}
-
-	streamHandler := mcp.NewStreamableHTTPHandler(
-		func(*http.Request) *mcp.Server { return server },
-		nil,
-	)
-	mux := http.NewServeMux()
-	mux.Handle("/mcp", auth.Middleware(verifier.Verify)(streamHandler))
-
-	listener, err := listenUnixSocket(cfg.SocketPath)
+	listener, tlsConfig, err := listenMCP(cfg)
 	if err != nil {
 		log.Fatalf("listen for MCP HTTP API: %v", err)
 	}
+	defer listener.Close()
 	httpServer := &http.Server{
 		Addr:              listener.Addr().String(),
-		Handler:           mux,
+		Handler:           handler,
+		TLSConfig:         tlsConfig,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		MaxHeaderBytes:    maxHTTPHeaderBytes,
 	}
 	serveErrors := make(chan error, 1)
 	go func() {
-		serveErrors <- httpServer.Serve(listener)
+		if tlsConfig != nil {
+			serveErrors <- httpServer.ServeTLS(listener, "", "")
+		} else {
+			serveErrors <- httpServer.Serve(listener)
+		}
 	}()
 
 	signalContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
-	log.Printf("%s %s listening on unix://%s (HTTP /mcp)", serverName, serverVersion, cfg.SocketPath)
+	if cfg.Transport == "https" {
+		log.Printf("%s %s listening on https://%s/mcp (TCP; remote OAuth pending)", serverName, serverVersion, listener.Addr())
+	} else {
+		log.Printf("%s %s listening on unix://%s (HTTP /mcp)", serverName, serverVersion, cfg.SocketPath)
+	}
 	select {
 	case err := <-serveErrors:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -125,6 +84,79 @@ func main() {
 			log.Printf("serve MCP HTTP API during shutdown: %v", err)
 		}
 	}
+}
+
+// The remote transport is introduced before its OAuth authorization layer.
+// Keep it closed to MCP operations until that layer can resolve a user's
+// separate OpenSVC credentials. Local JWT delegation remains Unix-only.
+func newMCPHandler(cfg config.Config) (http.Handler, error) {
+	if cfg.Transport == "https" {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"type":"about:blank","title":"Service Unavailable","status":503,"detail":"Remote MCP authorization is not implemented yet."}`))
+		})
+		return mux, nil
+	}
+	verifier, err := auth.NewJWTVerifier(cfg.JWTVerifyKeyFile)
+	if err != nil {
+		return nil, err
+	}
+
+	httpClient, err := client.NewHTTPClient(cfg.HTTP)
+	if err != nil {
+		return nil, err
+	}
+
+	apiClient, err := client.New(cfg.DaemonURL, httpClient)
+	if err != nil {
+		return nil, err
+	}
+	service := core.New(apiClient)
+
+	server := mcp.NewServer(
+		&mcp.Implementation{
+			Name:    serverName,
+			Version: serverVersion,
+		},
+		nil,
+	)
+	registrar, err := tools.NewRegistrar(server)
+	if err != nil {
+		return nil, err
+	}
+	if err := tools.RegisterDaemonTools(registrar, service); err != nil {
+		return nil, err
+	}
+	if err := tools.RegisterClusterTools(registrar, service); err != nil {
+		return nil, err
+	}
+	if err := tools.RegisterNodeTools(registrar, service); err != nil {
+		return nil, err
+	}
+	if err := tools.RegisterObjectTools(registrar, service); err != nil {
+		return nil, err
+	}
+	if err := tools.RegisterInstanceTools(registrar, service); err != nil {
+		return nil, err
+	}
+	if err := tools.RegisterResourceTools(registrar, service); err != nil {
+		return nil, err
+	}
+	if err := tools.RegisterScheduleTools(registrar, service); err != nil {
+		return nil, err
+	}
+
+	streamHandler := mcp.NewStreamableHTTPHandler(
+		func(*http.Request) *mcp.Server { return server },
+		nil,
+	)
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", auth.Middleware(verifier.Verify)(streamHandler))
+
+	return mux, nil
 }
 
 func listenUnixSocket(path string) (*net.UnixListener, error) {

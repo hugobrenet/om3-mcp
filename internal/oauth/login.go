@@ -5,6 +5,8 @@ import (
 	_ "embed"
 	"html/template"
 	"net/http"
+
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
 )
 
 //go:embed login.html
@@ -31,13 +33,16 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	s.prune(s.now())
 	a, exists := s.requests[cookie.Value]
 	s.mu.Unlock()
-	if !exists || a.ClusterRef != s.cfg.ClusterRef {
+	if !exists {
 		http.SetCookie(w, &http.Cookie{Name: loginCookieName, Value: "", Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1})
 		oauthError(w, 400, "invalid_request", "This connection request is missing or expired. Start a new connection from your MCP client.")
 		return
 	}
 	var page bytes.Buffer
-	if err := loginTemplate.Execute(&page, struct{ ClientName, ClusterName string }{a.ClientName, s.cfg.ClusterName}); err != nil {
+	if err := loginTemplate.Execute(&page, struct {
+		ClientName string
+		Clusters   []clusterconfig.ClusterSummary
+	}{a.ClientName, s.cfg.Clusters.Summaries()}); err != nil {
 		oauthError(w, 500, "server_error", "Unable to display the login form.")
 		return
 	}

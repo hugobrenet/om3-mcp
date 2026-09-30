@@ -9,16 +9,17 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
 )
 
 const Scope = "mcp:access"
 
-// Config deliberately contains no credentials. Cluster fields identify the
-// target displayed in the prototype; daemon transport configuration comes later.
+// Config contains the canonical origin and immutable administrator catalogue.
+// The target is chosen on /login; authentication and its binding come later.
 type Config struct {
-	PublicURL   string
-	ClusterRef  string
-	ClusterName string
+	PublicURL string
+	Clusters  *clusterconfig.Catalog
 }
 
 // Validate requires an explicit HTTPS origin, independent of the TCP bind
@@ -34,16 +35,8 @@ func (c Config) Validate() error {
 			return fmt.Errorf("public URL port must be between 1 and 65535")
 		}
 	}
-	if len(c.ClusterRef) == 0 || len(c.ClusterRef) > 64 {
-		return fmt.Errorf("cluster reference must contain 1 to 64 ASCII letters, digits, hyphens or underscores")
-	}
-	for _, r := range c.ClusterRef {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
-			return fmt.Errorf("cluster reference must contain 1 to 64 ASCII letters, digits, hyphens or underscores")
-		}
-	}
-	if !validDisplayName(c.ClusterName) {
-		return fmt.Errorf("cluster name must contain 1 to 128 bytes of text without control characters")
+	if c.Clusters.Len() == 0 {
+		return fmt.Errorf("a validated cluster catalogue is required")
 	}
 	return nil
 }

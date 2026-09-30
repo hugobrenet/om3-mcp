@@ -68,9 +68,8 @@ The server supports these environment variables:
 | OPENSVC_MCP_LISTEN_ADDR | 127.0.0.1:8443 in https mode | TCP bind address, written as IPv4:port or [IPv6]:port; requires explicit https mode |
 | OPENSVC_MCP_TLS_CERT_FILE | empty | Absolute path to the HTTPS server certificate PEM, followed by intermediate certificates if needed; required in https mode |
 | OPENSVC_MCP_TLS_KEY_FILE | empty | Absolute path to the HTTPS server private key PEM; required in https mode |
-| OPENSVC_MCP_PUBLIC_URL | empty | Canonical HTTPS origin visible to the agent and browser, without a path or trailing slash; enables the login prototype together with the two cluster fields |
-| OPENSVC_MCP_CLUSTER_REF | empty | Stable target reference for the prototype, 1–64 ASCII letters, digits, hyphens or underscores |
-| OPENSVC_MCP_CLUSTER_NAME | empty | Target name displayed on the form, 1–128 bytes of text without control characters |
+| OPENSVC_MCP_PUBLIC_URL | empty | Canonical HTTPS origin visible to the agent and browser, without a path or trailing slash; enables the login prototype together with the cluster configuration file |
+| OPENSVC_MCP_CLUSTER_CONFIG_FILE | empty | Absolute path to the administrator's YAML cluster catalogue and public CA references; loaded and validated before opening the HTTPS listener |
 | OPENSVC_DAEMON_URL | https://127.0.0.1:1215 | Base URL of the local OpenSVC daemon API |
 | OPENSVC_DAEMON_REQUEST_TIMEOUT | 20s | Whole-request timeout for daemon JSON, SSE, and bounded stream calls; accepted range 1s to 2m |
 | OPENSVC_MCP_SOCKET_PATH | /run/opensvc-daemon-mcp/mcp.sock | Local Unix socket carrying Streamable HTTP |
@@ -186,8 +185,7 @@ OPENSVC_MCP_LISTEN_ADDR=127.0.0.1:8443 \
 OPENSVC_MCP_TLS_CERT_FILE=/etc/opensvc-mcp/tls/server.crt \
 OPENSVC_MCP_TLS_KEY_FILE=/etc/opensvc-mcp/tls/server.key \
 OPENSVC_MCP_PUBLIC_URL=https://127.0.0.1:8443 \
-OPENSVC_MCP_CLUSTER_REF=cluster-a \
-OPENSVC_MCP_CLUSTER_NAME='Example cluster' \
+OPENSVC_MCP_CLUSTER_CONFIG_FILE=/etc/opensvc-mcp/clusters.yaml \
   ./bin/opensvc-daemon-mcp
 ~~~
 
@@ -200,10 +198,13 @@ from the listener bind address: binding `0.0.0.0:8443` does not make that addres
 the issuer. Discovery and redirects always use the configured origin, never
 the request Host or forwarded headers.
 
-The configuration remains on the MCP hosts. In this increment, the cluster
-environment fields only identify the target displayed on the form. A proposed
-target configuration file is documented below; loading its daemon endpoints,
-CA and expected OpenSVC cluster ID is not implemented yet.
+The configuration remains on the MCP hosts. Install the cluster file and its
+trusted public CA files before starting the process; the format is documented
+below. `OPENSVC_MCP_PUBLIC_URL` and `OPENSVC_MCP_CLUSTER_CONFIG_FILE` must both be
+supplied to enable the prototype. With neither, HTTPS retains its transport-only
+`503` response. The former `OPENSVC_MCP_CLUSTER_REF` and
+`OPENSVC_MCP_CLUSTER_NAME` settings have been removed: a nonempty value causes
+a startup error explaining the migration to the file.
 
 | Route | Prototype behavior |
 |---|---|
@@ -212,7 +213,7 @@ CA and expected OpenSVC cluster ID is not implemented yet.
 | `/.well-known/oauth-authorization-server` | Integrated issuer, discovery endpoints and PKCE `S256`; explicitly marked `opensvc_login_prototype` |
 | `/register` | POST DCR for public clients, with no client secret |
 | `/authorize` | GET validates the registered client, callback, resource, scope, state and S256 challenge, then redirects to `/login` |
-| `/login` | GET displays the target and declared application name from the validated request; POST returns `405` |
+| `/login` | GET displays the declared application name and an enabled dropdown of configured clusters; credentials and submit remain disabled, POST returns `405` |
 | `/token` | POST returns `503 temporarily_unavailable` without reading credentials or issuing tokens |
 
 Registration accepts only HTTP callbacks on loopback addresses or `localhost`.
@@ -223,7 +224,12 @@ this prototype. The only provisioned grant is `authorization_code`.
 
 The validated request is held on the server and associated with an opaque,
 Secure, HttpOnly, SameSite=Lax cookie. The login URL contains no request context.
-An absent or expired context is rejected, and application names are HTML-escaped.
+An absent or expired context is rejected; application and cluster names are
+HTML-escaped. Each cluster option displays its `name` and carries its stable
+reference. No target is preselected, and `/authorize` does not bind a cluster.
+Only names and references appear in the page, never daemon endpoints, IDs,
+CA paths or certificates. Binding the selected target to the authorization
+request will be implemented with successful OpenSVC login.
 Client names are self-declared metadata, not verified identities.
 The form clearly identifies itself as a prototype; its username, secret and
 submit controls are disabled. No OpenSVC credentials, authorization codes or
@@ -261,10 +267,10 @@ Codex performed discovery and DCR; following its authorization URL reached the
 disabled form over verified TLS. This verifies the journey to the form, not a
 completed OAuth login or access to a real cluster.
 
-## Target cluster configuration (prepared format)
+## Target cluster configuration
 
 [deploy/examples/clusters.yaml](deploy/examples/clusters.yaml) documents the
-proposed file format with fictitious names, a synthetic cluster ID and reserved
+supported version 1 format with fictitious names, a synthetic cluster ID and reserved
 documentation IP addresses. The deployment file belongs on the MCP hosts at
 `/etc/opensvc-mcp/clusters.yaml`; do not commit your actual cluster configuration.
 
@@ -274,19 +280,38 @@ The format contains:
 - `clusters`: a map keyed by stable cluster reference, separate from the display name;
 - `name`: the cluster name shown to the user;
 - `expected_cluster_id`: the OpenSVC cluster ID to check during authenticated exchanges;
-- `endpoints`: ordered HTTPS daemon base URLs, without credentials;
+- `endpoints`: ordered HTTPS daemon origins, without credentials, API paths, query strings or fragments;
 - `tls.ca_file`: an absolute path on the MCP host to the trusted public CA certificate or certificate chain;
 - `request_timeout`: the daemon request timeout, for example `20s`.
 
-The file contains no user credentials or private keys. The trusted public CA
-must validate the daemon certificate and the certificate must cover the IP or
-hostname used in the endpoint URL. Endpoint selection and failover rules will
-be implemented with the loader.
+The file contains no user credentials or private keys. The loader rejects
+unknown fields, duplicate keys, additional YAML documents, invalid value types,
+unsupported versions and empty catalogues. References contain 1–64 ASCII
+letters, digits, hyphens or underscores; names contain 1–128 bytes and IDs
+1–256 bytes, with no surrounding whitespace or control characters. Cluster
+IDs are required and preserved exactly; they are not assumed to be UUIDs.
+Equivalent endpoints are normalized and duplicates rejected; order is preserved.
+Timeouts must be between `1s` and `2m`.
 
-**The current binary does not read this file.** Preparing it does not enable
-remote daemon access or complete OAuth authentication. Runtime support will be
-added in the next increment. The future OpenSVC service must provide consistent
-configuration and CA files on whichever host runs the MCP.
+Configuration is bounded to 256 KiB, 64 clusters and 8 endpoints per cluster.
+Each CA file must be an absolute path to a readable regular file of at most
+1 MiB, containing only valid public PEM CA certificates. Private keys, leaf
+certificates and extra text are rejected. Both configuration and CA files are
+read once into an immutable snapshot; restart the process to apply changes.
+
+Startup performs these checks locally, before opening the listener. It creates
+no daemon transport and makes no daemon request. The trusted public CA must
+eventually validate the daemon certificate, which must cover the endpoint IP
+or hostname. Certificate trust and `expected_cluster_id` will be checked during
+the future authenticated exchange. The daemon transport is needed after
+cluster selection, before submitting credentials to that daemon; session
+binding follows successful authentication. Endpoint selection and failover
+remain to be implemented.
+
+Loading the catalogue enables cluster choices on the prototype form; it does
+not yet enable remote daemon access or complete OAuth authentication. The
+future OpenSVC service must provide consistent configuration and CA files on
+whichever host runs the MCP.
 
 ## systemd
 
@@ -343,6 +368,8 @@ The test suite covers:
 - OAuth metadata and public DCR, callback validation, resource and PKCE binding;
 - invalid or expired requests, bounded concurrent state and HTML escaping;
 - the journey from discovery to the associated disabled login form over verified TLS;
+- strict cluster catalogue and public CA validation, immutable snapshots and migration errors for removed settings;
+- cluster choices and HTML escaping without exposing internal target settings or contacting a configured daemon;
 - rejection of credential submission without reading the request body.
 
 ## Design principles

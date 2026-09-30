@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/client"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/oauth"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/testutil"
 )
 
 func TestLoadDefaults(t *testing.T) {
@@ -70,7 +70,7 @@ func TestLoadFromEnvironment(t *testing.T) {
 
 func clearListenerEnvironment(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"OPENSVC_MCP_TRANSPORT", "OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_PUBLIC_URL", "OPENSVC_MCP_CLUSTER_REF", "OPENSVC_MCP_CLUSTER_NAME"} {
+	for _, name := range []string{"OPENSVC_MCP_TRANSPORT", "OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_PUBLIC_URL", "OPENSVC_MCP_CLUSTER_CONFIG_FILE", "OPENSVC_MCP_CLUSTER_REF", "OPENSVC_MCP_CLUSTER_NAME"} {
 		t.Setenv(name, "")
 	}
 }
@@ -82,13 +82,12 @@ func TestLoadRemoteOAuthPrototype(t *testing.T) {
 	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
 	t.Setenv("OPENSVC_MCP_LISTEN_ADDR", "0.0.0.0:8443")
 	t.Setenv("OPENSVC_MCP_PUBLIC_URL", "https://192.0.2.10")
-	t.Setenv("OPENSVC_MCP_CLUSTER_REF", "cluster-a")
-	t.Setenv("OPENSVC_MCP_CLUSTER_NAME", "Example cluster")
+	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster"}))
 	got, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.OAuth != (oauth.Config{PublicURL: "https://192.0.2.10", ClusterRef: "cluster-a", ClusterName: "Example cluster"}) || got.ListenAddress != "0.0.0.0:8443" {
+	if got.OAuth.PublicURL != "https://192.0.2.10" || got.OAuth.Clusters.Len() != 1 || got.ListenAddress != "0.0.0.0:8443" {
 		t.Fatalf("public origin must be independent of bind address: %+v", got)
 	}
 }
@@ -96,8 +95,7 @@ func TestLoadRemoteOAuthPrototype(t *testing.T) {
 func TestLoadRejectsIncompleteOrLocalOAuthConfig(t *testing.T) {
 	for _, tc := range []struct{ variable, value string }{
 		{"OPENSVC_MCP_PUBLIC_URL", ""},
-		{"OPENSVC_MCP_CLUSTER_REF", ""},
-		{"OPENSVC_MCP_CLUSTER_NAME", ""},
+		{"OPENSVC_MCP_CLUSTER_CONFIG_FILE", ""},
 		{"OPENSVC_MCP_TRANSPORT", "unix"},
 	} {
 		t.Run(tc.variable, func(t *testing.T) {
@@ -106,8 +104,7 @@ func TestLoadRejectsIncompleteOrLocalOAuthConfig(t *testing.T) {
 			t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
 			t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
 			t.Setenv("OPENSVC_MCP_PUBLIC_URL", "https://192.0.2.10")
-			t.Setenv("OPENSVC_MCP_CLUSTER_REF", "cluster-a")
-			t.Setenv("OPENSVC_MCP_CLUSTER_NAME", "Example cluster")
+			t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster"}))
 			if tc.value == "unix" {
 				t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "")
 				t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "")
@@ -117,6 +114,32 @@ func TestLoadRejectsIncompleteOrLocalOAuthConfig(t *testing.T) {
 				t.Fatalf("got error %v", err)
 			}
 		})
+	}
+}
+
+func TestLoadRejectsRemovedClusterVariables(t *testing.T) {
+	for _, name := range []string{"OPENSVC_MCP_CLUSTER_REF", "OPENSVC_MCP_CLUSTER_NAME"} {
+		t.Run(name, func(t *testing.T) {
+			clearListenerEnvironment(t)
+			t.Setenv(name, "old-value")
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), name+" has been removed") || !strings.Contains(err.Error(), "OPENSVC_MCP_CLUSTER_CONFIG_FILE") {
+				t.Fatalf("expected explicit migration error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidClusterConfigBeforeListening(t *testing.T) {
+	clearListenerEnvironment(t)
+	t.Setenv("OPENSVC_MCP_TRANSPORT", "https")
+	t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
+	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
+	t.Setenv("OPENSVC_MCP_PUBLIC_URL", "https://192.0.2.10")
+	for _, path := range []string{"relative.yaml", "/nonexistent/clusters.yaml", t.TempDir()} {
+		t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", path)
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OPENSVC_MCP_CLUSTER_CONFIG_FILE") {
+			t.Fatalf("invalid file %q accepted: %v", path, err)
+		}
 	}
 }
 

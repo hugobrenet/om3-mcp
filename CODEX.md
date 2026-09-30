@@ -23,221 +23,71 @@ are documented by domain in:
 - [Instance tools](docs/tools/instances.md)
 - [Resource tools](docs/tools/resources.md)
 
-Streamable HTTP and delegated OpenSVC access JWT authentication are implemented. Every MCP request requires a Bearer token, the middleware validates it, and the same request-scoped token authenticates the tool's daemon API calls. Do not add additional tools, authentication modes, configuration frameworks, or generated API clients unless the user explicitly expands the scope.
+The runtime uses HTTPS over TCP with integrated OAuth discovery, DCR and
+OpenSVC user login. The browser flow stops at confirmation: callbacks, MCP
+tokens and remote tool sessions are not implemented yet. `/mcp` remains closed.
+The diagnostic tool library remains implemented and covered by unit tests.
+Do not expand tools or authentication scope without user direction.
 
-## Technology
+## Technology and layout
 
-- Language: Go
-- Minimum current toolchain: Go 1.25.5
-- MCP SDK: github.com/modelcontextprotocol/go-sdk
-- MCP transport: Streamable HTTP over a local Unix socket
-- HTTP client: Go standard library
-- Tests: Go testing and httptest
+- Go 1.25.5 or later; Go standard library where practical.
+- MCP SDK: `github.com/modelcontextprotocol/go-sdk`.
+- Tests: Go testing and httptest.
+- `cmd/opensvc-daemon-mcp`: HTTPS composition root, listener and lifecycle tests.
+- `internal/config`: process environment and startup validation.
+- `internal/clusterconfig`: strict YAML catalogue and immutable public trust snapshot.
+- `internal/oauth`: integrated authorization routes and bounded in-memory state.
+- `internal/daemonlogin`: credentials exchange, daemon JWT verification and cluster identity check.
+- `internal/client`: bounded daemon HTTP transport, independent of caller authentication.
+- `internal/core`: deterministic OpenSVC use cases and private raw API shapes.
+- `internal/tools`: typed MCP contracts, registrar and unit tests.
+- `docs`: configuration, authentication and domain contracts.
 
-Prefer the Go standard library and keep dependencies minimal.
-
-## Repository layout
-
-~~~text
-cmd/
-  om3-mcp/
-    main.go
-    main_test.go
-
-docs/
-  tools/
-    README.md
-    daemon.md
-    cluster.md
-    node.md
-    objects.md
-    instances.md
-    resources.md
-
-internal/
-  auth/
-    context.go
-    context_test.go
-    jwt.go
-    jwt_test.go
-    middleware.go
-    middleware_test.go
-  client/
-    client.go
-    client_test.go
-    http.go
-    http_test.go
-    file_test.go
-    sse.go
-    sse_test.go
-    stream_test.go
-  config/
-    config.go
-    config_test.go
-  core/
-    provenance.go
-    provenance_test.go
-    daemon.go
-    daemon_test.go
-    cluster.go
-    cluster_test.go
-    config_file.go
-    config_file_test.go
-    node.go
-    node_test.go
-    node_logs_test.go
-    object.go
-    object_test.go
-    object_config.go
-    object_config_test.go
-    object_status.go
-    object_status_test.go
-    instance.go
-    instance_test.go
-    instance_status.go
-    instance_status_test.go
-    instance_logs.go
-    instance_logs_test.go
-    container_logs.go
-    container_logs_test.go
-    cluster_ip_resource.go
-    cluster_ip_resource_test.go
-    resource.go
-    resource_test.go
-  tools/
-    annotations.go
-    daemon.go
-    cluster.go
-    node.go
-    object.go
-    instance.go
-    resource.go
-~~~
-
-Do not reintroduce an internal/mcpserver package. The MCP server is intentionally created in main.go, similarly to the existing Python Collector MCP server entrypoint.
-
-Do not add a global models package without a demonstrated shared-model requirement.
+Do not introduce a generic models package or an `internal/mcpserver` package
+without a demonstrated need. Keep authentication out of core and tool handlers.
 
 ## Architecture
 
-The package dependency flow is:
+### Entrypoint and configuration
 
-~~~text
-main
-  -> config
-  -> auth middleware and JWT verifier
-  -> client -> delegated auth context
-  -> tools -> core
-~~~
+`main` loads configuration, builds the OAuth handler and starts HTTPS. Validate
+TLS material and the cluster catalogue before binding. There is no transport
+selector, local socket mode, plaintext listener or local daemon dependency.
+Read settings once and restart to apply changes. Preserve bounded HTTP headers,
+timeouts and graceful shutdown.
 
-### main
+Configuration uses the environment settings documented in
+[docs/configuration.md](docs/configuration.md). Cluster endpoints, public CA
+bundles, expected identity and timeouts belong in the administrator's catalogue.
+Startup must not contact daemons. Reject obsolete variables with migration errors.
 
-cmd/opensvc-daemon-mcp/main.go is the composition root.
+### Authentication
 
-Keep this package limited to main.go and its end-to-end main_test.go. Dependency factories and configuration parsing belong to their responsible internal packages.
+Authenticate users only after a valid same-origin `/login` submission with
+CSRF protection. Use the selected cluster's first endpoint and immutable CA
+snapshot, verified TLS, no environment proxy and no redirect or implicit retry.
+Basic authentication is used only to exchange the user's credentials with the
+daemon. Verify the returned RS256 access JWT, its required claims, exact subject
+and the authenticated cluster ID before retaining a session.
 
-It is responsible for:
+Keep the daemon JWT server-side in bounded memory. Never accept an agent's
+daemon JWT as an MCP credential or forward its Authorization header to a daemon.
+OAuth completion must associate the future MCP credential with its server-held
+session; do not bypass the current closed `/mcp` handler. No refresh or durable
+session storage exists yet. Secrets must not enter tool inputs, outputs or logs.
 
-- reading process configuration;
-- creating the JWT verifier and authentication middleware;
-- creating the HTTP client;
-- creating the core service;
-- creating the MCP server;
-- explicitly registering each tool domain;
-- starting the Streamable HTTP transport.
+### HTTP client
 
-The expected registration style is:
+The low-level client uses the supplied `http.Client` and transport. It does not
+read a bearer token from request context. Future session integration must supply
+cluster-bound daemon credentials outside tool inputs and outputs.
 
-~~~go
-registrar, err := tools.NewRegistrar(server)
-if err != nil {
-    log.Fatal(err)
-}
-if err := tools.RegisterDaemonTools(registrar, service); err != nil {
-    log.Fatal(err)
-}
-// Register the other implemented domains explicitly and handle every error.
-~~~
-
-Only uncomment or add a domain when that domain actually exists.
-
-### config
-
-internal/config owns environment-variable loading, defaults, parsing, and the
-exported process Config type. It validates the local Unix socket path used by
-the MCP listener.
-
-### client
-
-internal/client is transport-only.
-
-Client.NewHTTPClient constructs the standard HTTP client, timeout, server trust roots, and optional development-only TLS verification bypass. It must fail fast on invalid TLS CA files.
-
-Client.GetJSON, Client.PostJSON, Client.GetFile, Client.GetSSE, and Client.GetStream are responsible for:
-
-- resolving a path against the daemon base URL;
-- encoding query parameters;
-- sending the requested HTTP operation;
-- applying the delegated Bearer token from request context;
-- checking the HTTP status.
-
-Client.GetJSON and Client.PostJSON set JSON request headers and decode bounded
-JSON responses.
-
-Client.GetFile requests `application/octet-stream`, validates the response
-media type, and reads at most 1 MiB. The cluster and node configuration core
-use cases always send `redact-secrets=true`, reject invalid UTF-8, and expose at
-most 65,536 bytes with explicit size and truncation metadata. They do not offer
-an MCP argument that can disable daemon-side redaction.
-
-Client.GetSSE additionally validates `text/event-stream`, parses bounded SSE
-framing, and invokes a caller-provided event consumer. It does not reconnect or
-follow a stream after EOF. OpenSVC event payload interpretation remains in the
-core package.
-
-Client.GetStream validates the same media type but delivers bounded opaque
-chunks for daemon endpoints, such as container logs, that declare SSE while
-returning raw stream bytes. It does not interpret or retain application logs.
-
-Non-success responses are returned as `client.APIError`. The HTTP status is
-authoritative. Optional RFC 7807 `title` and `detail` fields are read with
-strict size limits, normalized, and exposed to the authenticated MCP caller.
-Never retain or expose raw response bodies, authorization headers, or JWTs in
-an API error.
-
-The client must not know about MCP tools or business use cases.
-
-Do not add a generic MCP tool that exposes Client.GetJSON.
-
-### auth
-
-internal/auth owns the delegated authentication flow.
-
-The JWT verifier loads an RSA public key from the configured OpenSVC cluster CA certificate or public-key file. It accepts only RS256 access tokens with valid expiration and non-empty `sub` and `iss` claims plus `token_use=access`.
-
-The middleware uses the MCP SDK bearer-auth middleware so authenticated subjects are bound to MCP sessions. It also retains the raw token in a private request-context value for delegation. The token must never be stored globally, written to disk, logged, returned, or placed in MCP arguments.
-
-The daemon client reads the delegated token from context and sets `Authorization: Bearer <jwt>`. The OpenSVC daemon independently verifies the token and enforces its grants.
-
-Basic Auth and X.509 client authentication are intentionally unsupported. Do not reintroduce them as daemon authentication alternatives or as fallback credentials.
-
-### delegated JWT flow
-
-The agreed HTTP architecture is:
-
-~~~text
-AI agent
-  -> Authorization: Bearer <OpenSVC access JWT>
-  -> MCP HTTP authentication middleware
-  -> request context
-  -> MCP tool
-  -> OpenSVC API client with the same JWT
-  -> OpenSVC daemon authorization
-~~~
-
-The middleware validates the RS256 signature using the public certificate of the OpenSVC cluster CA, requires a valid expiration and `token_use=access`, and exposes the authenticated subject and grants through MCP token metadata. The raw token remains request-scoped and must never be exposed to the model.
-
-The MCP must not accept Basic Auth or X.509 client authentication as caller authentication. It must not fall back to a token file or service credential when a caller JWT is absent, invalid, expired, or unauthorized.
+Keep URL encoding, content negotiation, bounded response parsing, context
+cancellation and useful errors here. JSON, text, files, SSE and opaque streams
+must preserve their existing limits. Daemon status codes are authoritative.
+Bound and normalize RFC 7807 title/detail; never retain raw error bodies or
+expose authorization headers, passwords or JWTs. Keep credentials out of errors.
 
 ### core
 
@@ -300,7 +150,7 @@ design and document its source identifier explicitly before adding it.
 
 All tool declarations must be added through `Registrar`. Registration validates
 the declaration and generated schemas, rejects duplicate names, and returns an
-error before the HTTP server starts. Do not call `mcp.AddTool` directly from a
+error before exposing tools. Do not call `mcp.AddTool` directly from a
 domain registration function.
 
 Read-only tools contact only the configured OpenSVC daemon. Use
@@ -343,7 +193,7 @@ documented tool must cover:
 
 - when to use the tool and when not to use it;
 - MCP title, side-effect annotations, and their non-authoritative nature;
-- delegated JWT authorization and visibility boundaries;
+- OpenSVC grants and visibility boundaries;
 - exact OpenSVC endpoint and data freshness semantics;
 - whether the endpoint reads last-known daemon state or actively refreshes drivers;
 - input fields, defaults, validation, pagination, and selector behavior;
@@ -355,8 +205,7 @@ Keep verification reports, test results, and lab build details out of tool
 documentation.
 
 Keep declarations, implementation, tests, and documentation synchronized in
-the same change. The end-to-end `tools/list` test must assert the title,
-description, output schema, and safety annotations of every registered tool.
+the same change. Unit tests must validate tool declarations, generated schemas and safety annotations.
 
 ## Type placement
 
@@ -390,51 +239,38 @@ Explain non-obvious Go idioms when introducing them.
 
 ## Testing
 
-Every change must preserve the complete vertical slice:
+Preserve unit coverage for core use cases, bounded daemon responses, tool
+registration and generated schemas. The old Unix transport integration test
+has been removed along with that runtime path.
 
-~~~text
-MCP client with Bearer JWT
-  -> Streamable HTTP authentication middleware
-    -> MCP server
-    -> tool handler
-      -> core use case
-        -> HTTP client
-          -> fake OpenSVC daemon
-~~~
+Cover HTTPS startup and rejection, OAuth discovery, DCR, login controls, native
+daemon JWT validation and cluster identity separately. Use generated certificates,
+fictitious identities and reserved documentation addresses only; never copy lab
+configuration, passwords, tokens or certificates into public tests or docs.
+Normal tests must not require a real OpenSVC cluster.
 
-Required validation:
+For code changes, run appropriate tests and the complete suite:
 
 ~~~bash
-go fmt ./...
-go test -v ./...
+go test ./...
 go vet ./...
 go build -o /tmp/opensvc-daemon-mcp ./cmd/opensvc-daemon-mcp
 git diff --check
 ~~~
 
-Keep unit tests beside the package they test.
-
-Use httptest.Server for HTTP behavior. Do not require a live OpenSVC daemon for normal unit tests.
-
-The end-to-end Streamable HTTP test in cmd/opensvc-daemon-mcp/main_test.go must continue to:
-
-- build and start the real MCP binary on a temporary Unix socket;
-- sign a test access JWT and send it on every MCP request;
-- list tools;
-- call every registered tool;
-- validate structured output;
-- validate bounded daemon API errors through real MCP tool calls, including
-  malformed, oversized, and interrupted responses.
+Use gofmt and run race checks for changed stateful/authentication code. Keep unit
+tests beside their package. README stays concise; deployment and authentication
+details belong under docs. Keep lab records outside the public repository.
 
 ## API and security rules
 
-The client supports only delegated OpenSVC access JWTs received from authenticated MCP requests. Secrets must never enter MCP tool arguments or results.
+Daemon credentials belong to the server-held authenticated session. Secrets must never enter MCP tool arguments or results.
 
 Do not silently disable TLS certificate verification.
 
 Future authentication material must remain outside tool input and output. Language models must never receive daemon tokens, passwords, or private keys.
 
-The delegated JWT identifies the caller and lets the daemon enforce its OpenSVC grants. Until tool-specific policy and audit are designed:
+The daemon JWT identifies the OpenSVC user and lets the daemon enforce its OpenSVC grants. Until tool-specific policy and audit are designed:
 
 - keep active operations limited to the explicit, non-destructive instance status refresh;
 - do not add lifecycle, configuration, provisioning, or other state-changing actions;
@@ -453,7 +289,7 @@ Before adding a tool:
 3. define a bounded typed output;
 4. decide which fields are safe and useful for an LLM;
 5. implement the core use case;
-6. register the tool explicitly in main.go;
+6. register the tool through its domain registrar;
 7. add unit and end-to-end coverage.
 8. update the matching domain document under `docs/tools/`.
 
@@ -501,20 +337,9 @@ network-membership, or reachability conclusions to this tool.
 
 ## Configuration
 
-Environment variables:
-
-| Variable | Default |
-|---|---|
-| OPENSVC_DAEMON_URL | https://127.0.0.1:1215 |
-| OPENSVC_DAEMON_REQUEST_TIMEOUT | 20s |
-| OPENSVC_MCP_SOCKET_PATH | /run/opensvc-daemon-mcp/mcp.sock |
-| OPENSVC_MCP_JWT_VERIFY_KEY_FILE | /var/lib/opensvc/certs/ca_certificates |
-| OPENSVC_DAEMON_TLS_CA_FILE | empty |
-| OPENSVC_DAEMON_TLS_INSECURE | false |
-
-Do not add configuration libraries for a small number of settings. Prefer the standard library until configuration complexity justifies another dependency.
-
-`OPENSVC_DAEMON_TLS_INSECURE=true` is an explicit development-only escape hatch for local self-signed daemon certificates. It must remain disabled by default and must never be enabled silently.
+See [configuration](docs/configuration.md) for the supported HTTPS environment
+and cluster catalogue. Do not add a configuration framework for a few settings.
+TLS certificate verification is mandatory; do not add an insecure escape hatch.
 
 ## Dependency policy
 
@@ -541,7 +366,8 @@ Before adding a Go module:
 
 ## Known limitations
 
-- JWT creation and refresh remain the agent's responsibility;
+- OAuth callbacks, MCP token issuance, remote tool access and refresh are pending;
+- sessions and DCR state are lost on process restart or failover;
 - a limited, mostly read-only diagnostic tool set;
 - no tool-specific policy engine;
 - no audit subsystem;

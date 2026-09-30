@@ -2,24 +2,6 @@
 
 [Back to README](../README.md) · [Configuration](configuration.md)
 
-## Unix socket
-
-Every MCP HTTP request requires:
-
-```text
-Authorization: Bearer <OpenSVC access JWT>
-```
-
-The MCP verifies the JWT with the configured public cluster CA or RSA key,
-using RS256 and valid `exp`, `sub`, `iss` and `token_use=access` claims.
-The subject is bound to the MCP session. The JWT remains request-scoped and is
-forwarded to the daemon, which validates it and enforces the caller's grants.
-
-Local mode accepts no Basic authentication or fallback service credential.
-JWT creation and refresh remain the client's responsibility. See the
-[tool contracts](tools/README.md#authentication-and-visibility) for visibility
-and authorization details.
-
 ## HTTPS login prototype
 
 Remote authentication is integrated into the MCP. The current flow is:

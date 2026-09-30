@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/auth"
 )
 
 const (
@@ -36,9 +34,6 @@ func (c *Client) GetSSE(
 		return fmt.Errorf("create OpenSVC daemon GET request: %w", err)
 	}
 	request.Header.Set("Accept", "text/event-stream")
-	if err := auth.ApplyBearerFromContext(request); err != nil {
-		return fmt.Errorf("authenticate OpenSVC daemon request: %w", err)
-	}
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {

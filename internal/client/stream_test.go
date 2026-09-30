@@ -11,8 +11,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/auth"
 )
 
 func TestGetStream(t *testing.T) {
@@ -26,20 +24,20 @@ func TestGetStream(t *testing.T) {
 		if got := request.Header.Get("Accept"); got != "text/event-stream" {
 			t.Errorf("got Accept %q, want text/event-stream", got)
 		}
-		if got := request.Header.Get("Authorization"); got != "Bearer delegated-token" {
-			t.Errorf("got Authorization %q, want delegated token", got)
+		if got := request.Header.Get("Authorization"); got != "Bearer test-daemon-token" {
+			t.Errorf("got Authorization %q, want daemon token", got)
 		}
 		response.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(response, "redis ready\naccepting connections\n")
 	}))
 	defer server.Close()
 
-	apiClient, err := New(server.URL, server.Client())
+	apiClient, err := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
 	if err != nil {
 		t.Fatalf("create API client: %v", err)
 	}
 	var output bytes.Buffer
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	ctx := context.Background()
 	err = apiClient.GetStream(ctx, "/api/container/log", url.Values{"rid": {"container#redis"}}, func(chunk []byte) error {
 		_, _ = output.Write(chunk)
 		return nil
@@ -60,8 +58,8 @@ func TestGetStreamHTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, _ := New(server.URL, server.Client())
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	apiClient, _ := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
+	ctx := context.Background()
 	err := apiClient.GetStream(ctx, "/api/container/log", nil, func([]byte) error { return nil })
 	var apiError *APIError
 	if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusForbidden || apiError.Detail != "need one of [root] grant" {
@@ -76,8 +74,8 @@ func TestGetStreamRejectsUnexpectedContentType(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, _ := New(server.URL, server.Client())
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	apiClient, _ := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
+	ctx := context.Background()
 	err := apiClient.GetStream(ctx, "/api/container/log", nil, func([]byte) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), "unexpected content type") {
 		t.Fatalf("got error %v, want content type error", err)
@@ -92,8 +90,8 @@ func TestGetStreamBoundsResponseAndPropagatesConsumerError(t *testing.T) {
 		}))
 		defer server.Close()
 
-		apiClient, _ := New(server.URL, server.Client())
-		ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+		apiClient, _ := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
+		ctx := context.Background()
 		err := apiClient.GetStream(ctx, "/api/container/log", nil, func([]byte) error { return nil })
 		if err == nil || !strings.Contains(err.Error(), "exceeds") {
 			t.Fatalf("got error %v, want oversized response error", err)
@@ -107,8 +105,8 @@ func TestGetStreamBoundsResponseAndPropagatesConsumerError(t *testing.T) {
 		}))
 		defer server.Close()
 
-		apiClient, _ := New(server.URL, server.Client())
-		ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+		apiClient, _ := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
+		ctx := context.Background()
 		want := errors.New("stop")
 		err := apiClient.GetStream(ctx, "/api/container/log", nil, func([]byte) error { return want })
 		if !errors.Is(err, want) {
@@ -130,7 +128,7 @@ func TestGetStreamProcessesDataBeforeReadError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create API client: %v", err)
 	}
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	ctx := context.Background()
 	var output bytes.Buffer
 	err = apiClient.GetStream(ctx, "/api/container/log", nil, func(chunk []byte) error {
 		_, _ = output.Write(chunk)

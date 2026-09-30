@@ -10,8 +10,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/auth"
 )
 
 func TestGetJSON(t *testing.T) {
@@ -28,22 +26,22 @@ func TestGetJSON(t *testing.T) {
 		if got := request.Header.Get("Accept"); got != "application/json" {
 			t.Errorf("got Accept header %q, want application/json", got)
 		}
-		if got := request.Header.Get("Authorization"); got != "Bearer delegated-token" {
-			t.Errorf("got Authorization header %q, want delegated Bearer token", got)
+		if got := request.Header.Get("Authorization"); got != "Bearer test-daemon-token" {
+			t.Errorf("got Authorization header %q, want daemon Bearer token", got)
 		}
 		response.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(response, `{"value":"ok"}`)
 	}))
 	defer server.Close()
 
-	apiClient, err := New(server.URL, server.Client())
+	apiClient, err := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
 	if err != nil {
 		t.Fatalf("create API client: %v", err)
 	}
 	var output struct {
 		Value string `json:"value"`
 	}
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	ctx := context.Background()
 	err = apiClient.GetJSON(ctx, "/api/test", url.Values{"selector": {"**"}}, &output)
 	if err != nil {
 		t.Fatalf("GET JSON: %v", err)
@@ -61,8 +59,8 @@ func TestPostJSON(t *testing.T) {
 		if request.URL.Path != "/api/action/status" {
 			t.Errorf("got path %q, want /api/action/status", request.URL.Path)
 		}
-		if got := request.Header.Get("Authorization"); got != "Bearer delegated-token" {
-			t.Errorf("got Authorization header %q, want delegated Bearer token", got)
+		if got := request.Header.Get("Authorization"); got != "Bearer test-daemon-token" {
+			t.Errorf("got Authorization header %q, want daemon Bearer token", got)
 		}
 		var input struct {
 			Reason string `json:"reason"`
@@ -78,14 +76,14 @@ func TestPostJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, err := New(server.URL, server.Client())
+	apiClient, err := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
 	if err != nil {
 		t.Fatalf("create API client: %v", err)
 	}
 	var output struct {
 		SessionID string `json:"session_id"`
 	}
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	ctx := context.Background()
 	if err := apiClient.PostJSON(ctx, "/api/action/status", nil, map[string]string{"reason": "test"}, &output); err != nil {
 		t.Fatalf("POST JSON: %v", err)
 	}
@@ -100,11 +98,11 @@ func TestGetJSONHTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, err := New(server.URL, server.Client())
+	apiClient, err := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
 	if err != nil {
 		t.Fatalf("create API client: %v", err)
 	}
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	ctx := context.Background()
 	err = apiClient.GetJSON(ctx, "/api/test", nil, &struct{}{})
 	if err == nil {
 		t.Fatal("GET JSON succeeded, want an error")
@@ -135,11 +133,11 @@ func TestPostJSONProblemError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, err := New(server.URL, server.Client())
+	apiClient, err := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
 	if err != nil {
 		t.Fatalf("create API client: %v", err)
 	}
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	ctx := context.Background()
 	err = apiClient.PostJSON(ctx, "/api/action/status", nil, nil, &struct{}{})
 	if err == nil {
 		t.Fatal("POST JSON succeeded, want an error")
@@ -169,11 +167,11 @@ func TestGetJSONIgnoresOversizedProblemBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, err := New(server.URL, server.Client())
+	apiClient, err := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
 	if err != nil {
 		t.Fatalf("create API client: %v", err)
 	}
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	ctx := context.Background()
 	err = apiClient.GetJSON(ctx, "/api/test", nil, &struct{}{})
 	if err == nil {
 		t.Fatal("GET JSON succeeded, want an error")
@@ -207,30 +205,16 @@ func TestGetJSONDoesNotExposeJWTInHTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, err := New(server.URL, server.Client())
+	apiClient, err := New(server.URL, daemonTestHTTPClient(server.Client(), token))
 	if err != nil {
 		t.Fatalf("create API client: %v", err)
 	}
-	ctx := auth.WithBearerToken(context.Background(), token)
+	ctx := context.Background()
 	err = apiClient.GetJSON(ctx, "/api/test", nil, &struct{}{})
 	if err == nil {
 		t.Fatal("GET JSON succeeded, want an error")
 	}
 	if strings.Contains(err.Error(), token) {
 		t.Fatalf("error exposes JWT: %q", err)
-	}
-}
-
-func TestGetJSONRejectsMissingDelegatedJWT(t *testing.T) {
-	apiClient, err := New("https://127.0.0.1:1215", http.DefaultClient)
-	if err != nil {
-		t.Fatalf("create API client: %v", err)
-	}
-	err = apiClient.GetJSON(context.Background(), "/api/test", nil, &struct{}{})
-	if err == nil {
-		t.Fatal("GET JSON succeeded, want an error")
-	}
-	if !strings.Contains(err.Error(), "delegated OpenSVC access JWT is missing") {
-		t.Fatalf("got error %q, want missing delegated JWT", err)
 	}
 }

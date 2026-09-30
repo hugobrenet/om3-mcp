@@ -76,7 +76,7 @@ local default was used. The 65,536-byte MCP output limit, 1 MiB transport ceilin
 | Open world | No; only the configured daemon and its OpenSVC proxy path are used |
 | Side effects | None |
 
-Annotations are client hints; OpenSVC enforces access using the delegated JWT.
+Annotations are client hints; OpenSVC enforces access using the OpenSVC JWT.
 
 #### Example
 
@@ -104,7 +104,7 @@ Output:
 
 | Condition | Result |
 |---|---|
-| Invalid MCP JWT | MCP HTTP `401` |
+| Remote MCP authorization unavailable | MCP HTTP `401`; tool access is not enabled yet |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | Oversized or non-exact non-empty `node` | Tool error before the daemon request |
 | Node or node configuration file missing | Tool error containing daemon HTTP `404` |
@@ -131,7 +131,7 @@ GET /api/cluster/status
 The request has no query parameters. The MCP selects the exact `node` key from
 `cluster.node` after the daemon returns its last-known cluster view. The call
 does not contact the selected node directly or run status drivers. The endpoint
-accepts a global `guest` or higher grant; the delegated JWT and the daemon's
+accepts a global `guest` or higher grant; the OpenSVC JWT and the daemon's
 authorization remain authoritative. The result excludes other nodes, objects,
 hooks, keys, and other node configuration fields.
 
@@ -191,7 +191,7 @@ synthetic heartbeat issues.
 | Open world | No; only the configured daemon is contacted |
 | Side effects | None |
 
-Annotations are client hints; OpenSVC enforces access using the delegated JWT.
+Annotations are client hints; OpenSVC enforces access using the OpenSVC JWT.
 
 #### Example
 
@@ -315,7 +315,7 @@ representative:
 
 | Condition | Result |
 |---|---|
-| Invalid MCP JWT | MCP HTTP `401` |
+| Remote MCP authorization unavailable | MCP HTTP `401`; tool access is not enabled yet |
 | Insufficient daemon grants | Tool error containing daemon HTTP `403` |
 | Empty, oversized, or non-exact `node` | Tool error before the daemon request |
 | Configured node with no published data | Tool error naming the node |
@@ -454,7 +454,7 @@ Representative output:
 
 | Condition | Result |
 |---|---|
-| Invalid MCP JWT | MCP HTTP `401` |
+| Remote MCP authorization unavailable | MCP HTTP `401`; tool access is not enabled yet |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | System cache not yet populated | Tool error preserving daemon HTTP `404` and `Load system cache` detail |
 | Invalid node, filters, page size, or cursor | Tool validation error before the daemon request |
@@ -570,7 +570,7 @@ Representative output:
 
 | Condition | Result |
 |---|---|
-| Invalid MCP JWT | MCP HTTP `401` |
+| Remote MCP authorization unavailable | MCP HTTP `401`; tool access is not enabled yet |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | System cache not yet populated | Tool error preserving daemon HTTP `404` and `Load system cache` detail |
 | Invalid node, filters, page size, or cursor | Tool validation error before the daemon request |
@@ -691,7 +691,7 @@ Representative output:
 
 | Condition | Result |
 |---|---|
-| Invalid MCP JWT | MCP HTTP `401` |
+| Remote MCP authorization unavailable | MCP HTTP `401`; tool access is not enabled yet |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | Package cache not yet populated | Tool error preserving daemon HTTP `404` and `Load package cache` detail |
 | Invalid node, filters, page size, or cursor | Tool validation error before the daemon request |
@@ -790,7 +790,7 @@ The MCP does not translate these markers into availability or health verdicts.
 
 | Condition | Result |
 |---|---|
-| Invalid MCP JWT | MCP HTTP `401` |
+| Remote MCP authorization unavailable | MCP HTTP `401`; tool access is not enabled yet |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | Oversized or non-exact non-empty `node` | Tool error before the daemon request |
 | Invalid page size or cursor | Tool validation error |
@@ -889,7 +889,7 @@ Representative driver registry output:
 
 | Condition | Result |
 |---|---|
-| Invalid MCP JWT | MCP HTTP `401` |
+| Remote MCP authorization unavailable | MCP HTTP `401`; tool access is not enabled yet |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | Oversized or non-exact non-empty `node` | Tool error before the daemon request |
 | Invalid page size or cursor | Tool validation error |
@@ -913,8 +913,7 @@ Accept: text/plain
 ```
 
 The optional `node` input replaces `_` with one exact node name; OpenSVC may
-proxy the read to that node. The MCP delegates the request JWT and leaves the
-authorization decision to the daemon. The request does not probe resources or
+proxy the read to that node. The daemon authorizes requests using the server-held OpenSVC JWT. The request does not probe resources or
 change daemon state.
 
 The endpoint exports metrics of the OpenSVC daemon process, including its Go
@@ -996,8 +995,8 @@ Abbreviated output:
 
 | Condition | Result |
 |---|---|
-| Invalid MCP JWT | MCP HTTP `401` |
-| Daemon refuses the delegated JWT | Tool error preserving the daemon status and bounded problem detail |
+| Remote MCP authorization unavailable | MCP HTTP `401`; tool access is not enabled yet |
+| Daemon refuses the OpenSVC JWT | Tool error preserving the daemon status and bounded problem detail |
 | Invalid node, filter, page size, or cursor | Tool validation error |
 | Cursor no longer present with the same filters | Explicit stale-cursor tool error |
 | Unexpected media type or malformed Prometheus text | Tool error; no partial metrics are returned |
@@ -1022,7 +1021,7 @@ explicitly for a deliberate local control probe.
 
 For a remote target, the contacted daemon first verifies that it has status
 data for the node and that the node belongs to the cluster, then calls the
-remote daemon with the delegated JWT. A successful result means the complete
+remote daemon with the OpenSVC JWT. A successful result means the complete
 path returned HTTP `204 No Content`:
 
 ```text
@@ -1088,7 +1087,7 @@ Output:
 
 | Condition | Result |
 |---|---|
-| Invalid MCP JWT | MCP HTTP `401` |
+| Remote MCP authorization unavailable | MCP HTTP `401`; tool access is not enabled yet |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | Empty, oversized, or non-exact `node` | Tool validation error before the daemon request |
 | Node has no status data | Tool error containing daemon HTTP `404` |

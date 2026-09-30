@@ -1,16 +1,11 @@
-package auth
+package daemonlogin
 
 import (
-	"context"
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"net/http"
-	"os"
-	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
-	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 )
 
 type jwtClaims struct {
@@ -19,27 +14,13 @@ type jwtClaims struct {
 	jwt.RegisteredClaims
 }
 
-// JWTVerifier validates OpenSVC access JWTs signed by the cluster CA.
-type JWTVerifier struct {
-	publicKeys jwt.VerificationKeySet
-}
+// jwtVerifier checks daemon-issued access tokens against the selected cluster's CA.
+type jwtVerifier struct{ publicKeys jwt.VerificationKeySet }
 
-// NewJWTVerifier loads the RSA public key from an OpenSVC cluster CA certificate or public-key file.
-func NewJWTVerifier(verifyKeyFile string) (*JWTVerifier, error) {
-	if strings.TrimSpace(verifyKeyFile) == "" {
-		return nil, fmt.Errorf("OpenSVC JWT verification key file path is empty")
-	}
-	keyPEM, err := os.ReadFile(verifyKeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("read OpenSVC JWT verification key file %q: %w", verifyKeyFile, err)
-	}
-	return NewJWTVerifierFromPEM(keyPEM)
-}
-
-// NewJWTVerifierFromPEM uses the already loaded public trust snapshot. All RSA
+// newJWTVerifier uses the already loaded public trust snapshot. All RSA
 // keys in the bundle are considered, including during a CA rollover.
-func NewJWTVerifierFromPEM(keyPEM []byte) (*JWTVerifier, error) {
-	v := &JWTVerifier{}
+func newJWTVerifier(keyPEM []byte) (*jwtVerifier, error) {
+	v := &jwtVerifier{}
 	for len(keyPEM) > 0 {
 		block, rest := pem.Decode(keyPEM)
 		if block == nil {
@@ -57,8 +38,8 @@ func NewJWTVerifierFromPEM(keyPEM []byte) (*JWTVerifier, error) {
 	return v, nil
 }
 
-// Verify implements the MCP SDK bearer-token verifier contract.
-func (v *JWTVerifier) Verify(_ context.Context, rawToken string, _ *http.Request) (*mcpauth.TokenInfo, error) {
+// verify validates the daemon token before creating a server-side session.
+func (v *jwtVerifier) verify(rawToken string) (*jwtClaims, error) {
 	claims := &jwtClaims{}
 	token, err := jwt.ParseWithClaims(
 		rawToken,
@@ -88,17 +69,9 @@ func (v *JWTVerifier) Verify(_ context.Context, rawToken string, _ *http.Request
 		return nil, invalidToken("expiration claim is missing")
 	}
 
-	return &mcpauth.TokenInfo{
-		UserID:     claims.Subject,
-		Scopes:     append([]string(nil), claims.Grant...),
-		Expiration: claims.ExpiresAt.Time,
-		Extra: map[string]any{
-			"issuer":    claims.Issuer,
-			"token_use": claims.TokenUse,
-		},
-	}, nil
+	return claims, nil
 }
 
 func invalidToken(reason string) error {
-	return errors.Join(mcpauth.ErrInvalidToken, errors.New(reason))
+	return errors.New("invalid OpenSVC access JWT: " + reason)
 }

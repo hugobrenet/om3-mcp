@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/auth"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
 )
 
@@ -45,7 +44,7 @@ func Authenticate(ctx context.Context, cluster clusterconfig.Cluster, username, 
 	if !roots.AppendCertsFromPEM(cluster.CAPEM) {
 		return Session{}, ErrInvalidResponse
 	}
-	verifier, err := auth.NewJWTVerifierFromPEM(cluster.CAPEM)
+	verifier, err := newJWTVerifier(cluster.CAPEM)
 	if err != nil {
 		return Session{}, ErrInvalidResponse
 	}
@@ -69,8 +68,8 @@ func Authenticate(ctx context.Context, cluster clusterconfig.Cluster, username, 
 	if err := exchange(client, req, 64<<10, &token); err != nil {
 		return Session{}, err
 	}
-	info, err := verifier.Verify(ctx, token.AccessToken, nil)
-	if err != nil || info.UserID != username || len(info.Scopes) == 0 {
+	info, err := verifier.verify(token.AccessToken)
+	if err != nil || info.Subject != username || len(info.Grant) == 0 {
 		return Session{}, ErrInvalidResponse
 	}
 	// The JWT issuer is a node name, not the OpenSVC cluster ID. Read identity
@@ -90,10 +89,10 @@ func Authenticate(ctx context.Context, cluster clusterconfig.Cluster, username, 
 	if err := exchange(client, req, 4<<20, &status); err != nil {
 		return Session{}, err
 	}
-	if status.Cluster.Config.ID != cluster.ExpectedClusterID || !time.Now().Before(info.Expiration) {
+	if status.Cluster.Config.ID != cluster.ExpectedClusterID || !time.Now().Before(info.ExpiresAt.Time) {
 		return Session{}, ErrInvalidResponse
 	}
-	return Session{ClusterRef: cluster.Ref, ClusterID: cluster.ExpectedClusterID, Endpoint: endpoint, Username: info.UserID, AccessToken: token.AccessToken, ExpiresAt: info.Expiration}, nil
+	return Session{ClusterRef: cluster.Ref, ClusterID: cluster.ExpectedClusterID, Endpoint: endpoint, Username: info.Subject, AccessToken: token.AccessToken, ExpiresAt: info.ExpiresAt.Time}, nil
 }
 
 func exchange(client *http.Client, req *http.Request, limit int64, target any) error {

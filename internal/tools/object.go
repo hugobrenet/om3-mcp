@@ -110,7 +110,7 @@ func RegisterObjectTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:  "list_cluster_objects",
 			Title: "List cluster objects",
-			Description: "Discover OpenSVC object paths visible to the delegated caller using a native selector and bounded cursor pagination. " +
+			Description: "Discover OpenSVC object paths visible to the authenticated OpenSVC user using a native selector and bounded cursor pagination. " +
 				"Use returned paths as identifiers for object-specific tools; no status or configuration is returned.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},

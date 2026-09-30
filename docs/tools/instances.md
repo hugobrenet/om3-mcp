@@ -71,7 +71,7 @@ Use `refresh_instance_status` when a new driver probe is needed.
 
 The runtime title is **Get instance status**. The tool declares
 `readOnlyHint=true`, `destructiveHint=false`, and `openWorldHint=false`.
-Annotations are client hints; delegated JWT checks and daemon authorization
+Annotations are client hints; session authentication and daemon authorization
 remain authoritative.
 
 #### Input
@@ -354,8 +354,8 @@ resource, resource-info, or schedule tools for larger inventories.
 
 #### Errors
 
-Missing or invalid caller JWTs are rejected by the MCP HTTP transport with
-`401`. With a valid JWT, daemon errors become tool results with
+Remote tool access is not enabled yet; `/mcp` returns `401`. In the tool
+implementation, daemon errors become tool results with
 `isError=true`, preserving the daemon HTTP status and bounded RFC 7807 detail.
 Examples include invalid object kinds or names (`400`), namespace access
 denied (`403`), and a missing object/node cache entry (`404`). These tool
@@ -516,7 +516,7 @@ GET /api/instance?path=<exact-path>[&node=<node>]
 This endpoint returns the last-known daemon status and does not execute the
 instance `status` action. `updated_at` is the authoritative age indicator.
 
-OpenSVC filters instances according to delegated JWT namespace grants. The tool
+OpenSVC filters instances according to OpenSVC JWT namespace grants. The tool
 is read-only, non-destructive, closed-world, and has no side effects.
 
 #### Input
@@ -616,7 +616,7 @@ POST /api/node/name/<node>/instance/path/<namespace>/<kind>/<name>/action/status
 GET  /api/instance?path=<path>&node=<node>
 ```
 
-The delegated subject needs `operator`, `admin`, or `root` access for the
+The authenticated OpenSVC user needs `operator`, `admin`, or `root` access for the
 namespace. A `guest` JWT can inspect instances but cannot trigger the action.
 
 #### Input

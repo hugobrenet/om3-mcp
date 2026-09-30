@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,6 +17,8 @@ const (
 	defaultSocketPath       = "/run/opensvc-daemon-mcp/mcp.sock"
 	defaultJWTVerifyKeyFile = "/var/lib/opensvc/certs/ca_certificates"
 	defaultTLSInsecure      = false
+	defaultTransport        = "unix"
+	defaultListenAddress    = "127.0.0.1:8443"
 	maximumUnixPathBytes    = 107
 	minDaemonRequestTimeout = time.Second
 	maxDaemonRequestTimeout = 2 * time.Minute
@@ -23,6 +26,10 @@ const (
 
 // Config contains the runtime configuration of the MCP server process.
 type Config struct {
+	Transport        string
+	ListenAddress    string
+	TLSCertFile      string
+	TLSKeyFile       string
 	DaemonURL        string
 	SocketPath       string
 	JWTVerifyKeyFile string
@@ -31,6 +38,27 @@ type Config struct {
 
 // Load reads and validates process configuration from environment variables.
 func Load() (Config, error) {
+	transport := strings.TrimSpace(getenv("OPENSVC_MCP_TRANSPORT", defaultTransport))
+	if transport != "unix" && transport != "https" {
+		return Config{}, fmt.Errorf("OPENSVC_MCP_TRANSPORT must be unix or https")
+	}
+	listenAddress := strings.TrimSpace(os.Getenv("OPENSVC_MCP_LISTEN_ADDR"))
+	certFile := strings.TrimSpace(os.Getenv("OPENSVC_MCP_TLS_CERT_FILE"))
+	keyFile := strings.TrimSpace(os.Getenv("OPENSVC_MCP_TLS_KEY_FILE"))
+	if transport == "unix" && (listenAddress != "" || certFile != "" || keyFile != "") {
+		return Config{}, fmt.Errorf("OPENSVC_MCP_LISTEN_ADDR and OPENSVC_MCP_TLS_CERT_FILE/KEY_FILE require OPENSVC_MCP_TRANSPORT=https")
+	}
+	if transport == "https" {
+		if listenAddress == "" {
+			listenAddress = defaultListenAddress
+		}
+		if err := validateListenAddress(listenAddress); err != nil {
+			return Config{}, fmt.Errorf("parse OPENSVC_MCP_LISTEN_ADDR: %w", err)
+		}
+		if !filepath.IsAbs(certFile) || !filepath.IsAbs(keyFile) {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_TLS_CERT_FILE and OPENSVC_MCP_TLS_KEY_FILE must be absolute file paths in https mode")
+		}
+	}
 	tlsInsecure, err := strconv.ParseBool(
 		getenv("OPENSVC_DAEMON_TLS_INSECURE", strconv.FormatBool(defaultTLSInsecure)),
 	)
@@ -50,11 +78,18 @@ func Load() (Config, error) {
 			maxDaemonRequestTimeout,
 		)
 	}
-	socketPath, err := cleanUnixSocketPath(getenv("OPENSVC_MCP_SOCKET_PATH", defaultSocketPath))
-	if err != nil {
-		return Config{}, fmt.Errorf("parse OPENSVC_MCP_SOCKET_PATH: %w", err)
+	var socketPath string
+	if transport == "unix" {
+		socketPath, err = cleanUnixSocketPath(getenv("OPENSVC_MCP_SOCKET_PATH", defaultSocketPath))
+		if err != nil {
+			return Config{}, fmt.Errorf("parse OPENSVC_MCP_SOCKET_PATH: %w", err)
+		}
 	}
 	return Config{
+		Transport:        transport,
+		ListenAddress:    listenAddress,
+		TLSCertFile:      certFile,
+		TLSKeyFile:       keyFile,
 		DaemonURL:        getenv("OPENSVC_DAEMON_URL", defaultDaemonURL),
 		SocketPath:       socketPath,
 		JWTVerifyKeyFile: getenv("OPENSVC_MCP_JWT_VERIFY_KEY_FILE", defaultJWTVerifyKeyFile),
@@ -64,6 +99,21 @@ func Load() (Config, error) {
 			Timeout:     daemonRequestTimeout,
 		},
 	}, nil
+}
+
+func validateListenAddress(address string) error {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("expected IP:port: %w", err)
+	}
+	if net.ParseIP(host) == nil {
+		return fmt.Errorf("host must be an explicit IPv4 or IPv6 address")
+	}
+	portNumber, err := strconv.Atoi(port)
+	if err != nil || portNumber < 1 || portNumber > 65535 {
+		return fmt.Errorf("port must be a number between 1 and 65535")
+	}
+	return nil
 }
 
 func cleanUnixSocketPath(value string) (string, error) {

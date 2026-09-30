@@ -10,8 +10,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/auth"
 )
 
 func TestGetSSE(t *testing.T) {
@@ -25,7 +23,7 @@ func TestGetSSE(t *testing.T) {
 		if got := request.Header.Get("Accept"); got != "text/event-stream" {
 			t.Errorf("got Accept %q, want text/event-stream", got)
 		}
-		if got := request.Header.Get("Authorization"); got != "Bearer delegated-token" {
+		if got := request.Header.Get("Authorization"); got != "Bearer test-daemon-token" {
 			t.Errorf("got Authorization %q", got)
 		}
 		response.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -33,7 +31,7 @@ func TestGetSSE(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, err := New(server.URL, server.Client())
+	apiClient, err := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
 	if err != nil {
 		t.Fatalf("create API client: %v", err)
 	}
@@ -43,7 +41,7 @@ func TestGetSSE(t *testing.T) {
 		data string
 	}
 	var events []event
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	ctx := context.Background()
 	err = apiClient.GetSSE(ctx, "/api/log", url.Values{"lines": {"2"}}, func(kind string, id string, data []byte) error {
 		events = append(events, event{kind: kind, id: id, data: string(data)})
 		return nil
@@ -65,11 +63,11 @@ func TestGetSSEHTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, err := New(server.URL, server.Client())
+	apiClient, err := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
 	if err != nil {
 		t.Fatalf("create API client: %v", err)
 	}
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	ctx := context.Background()
 	err = apiClient.GetSSE(ctx, "/api/log", nil, func(string, string, []byte) error { return nil })
 	var apiError *APIError
 	if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusForbidden || apiError.Detail != "need one of [root] grant" {
@@ -84,8 +82,8 @@ func TestGetSSERejectsUnexpectedContentType(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, _ := New(server.URL, server.Client())
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	apiClient, _ := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
+	ctx := context.Background()
 	err := apiClient.GetSSE(ctx, "/api/log", nil, func(string, string, []byte) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), "unexpected content type") {
 		t.Fatalf("got error %v, want content type error", err)
@@ -99,8 +97,8 @@ func TestGetSSEPropagatesConsumerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, _ := New(server.URL, server.Client())
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	apiClient, _ := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
+	ctx := context.Background()
 	want := errors.New("reject event")
 	err := apiClient.GetSSE(ctx, "/api/log", nil, func(string, string, []byte) error { return want })
 	if !errors.Is(err, want) {
@@ -115,8 +113,8 @@ func TestGetSSERejectsOversizedResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, _ := New(server.URL, server.Client())
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	apiClient, _ := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
+	ctx := context.Background()
 	err := apiClient.GetSSE(ctx, "/api/log", nil, func(string, string, []byte) error { return nil })
 	if err == nil {
 		t.Fatal("GET SSE succeeded, want oversized response error")

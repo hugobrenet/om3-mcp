@@ -5,28 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/auth"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/client"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/config"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/core"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/oauth"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/tools"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
 	serverName         = "opensvc-daemon-mcp"
 	serverVersion      = "v0.1.0"
-	unixSocketMode     = 0o660
 	maxHTTPHeaderBytes = 64 << 10
-	socketProbeTimeout = 100 * time.Millisecond
 	shutdownTimeout    = 30 * time.Second
 )
 
@@ -56,20 +48,12 @@ func main() {
 	}
 	serveErrors := make(chan error, 1)
 	go func() {
-		if tlsConfig != nil {
-			serveErrors <- httpServer.ServeTLS(listener, "", "")
-		} else {
-			serveErrors <- httpServer.Serve(listener)
-		}
+		serveErrors <- httpServer.ServeTLS(listener, "", "")
 	}()
 
 	signalContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
-	if cfg.Transport == "https" {
-		log.Printf("%s %s listening on https://%s/mcp (TCP; remote login prototype)", serverName, serverVersion, listener.Addr())
-	} else {
-		log.Printf("%s %s listening on unix://%s (HTTP /mcp)", serverName, serverVersion, cfg.SocketPath)
-	}
+	log.Printf("%s %s listening on https://%s/mcp", serverName, serverVersion, listener.Addr())
 	select {
 	case err := <-serveErrors:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -87,140 +71,24 @@ func main() {
 	}
 }
 
-// The remote transport is introduced before its OAuth authorization layer.
-// Keep it closed to MCP operations until that layer can resolve a user's
-// separate OpenSVC credentials. Local JWT delegation remains Unix-only.
+// Keep MCP operations closed until OAuth authorization can resolve the
+// authenticated session and its server-held OpenSVC credentials.
 func newMCPHandler(cfg config.Config) (http.Handler, error) {
-	if cfg.Transport == "https" {
-		if cfg.OAuth.PublicURL != "" {
-			server, err := oauth.New(cfg.OAuth)
-			if err != nil {
-				return nil, fmt.Errorf("configure remote OAuth prototype: %w", err)
-			}
-			return server.Handler(), nil
+	if cfg.OAuth.PublicURL != "" {
+		server, err := oauth.New(cfg.OAuth)
+		if err != nil {
+			return nil, fmt.Errorf("configure remote OAuth prototype: %w", err)
 		}
-		mux := http.NewServeMux()
-		mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/problem+json")
-			w.Header().Set("Cache-Control", "no-store")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte(`{"type":"about:blank","title":"Service Unavailable","status":503,"detail":"Remote MCP authorization is not implemented yet."}`))
-		})
-		return mux, nil
+		return server.Handler(), nil
 	}
-	verifier, err := auth.NewJWTVerifier(cfg.JWTVerifyKeyFile)
-	if err != nil {
-		return nil, err
-	}
-
-	httpClient, err := client.NewHTTPClient(cfg.HTTP)
-	if err != nil {
-		return nil, err
-	}
-
-	apiClient, err := client.New(cfg.DaemonURL, httpClient)
-	if err != nil {
-		return nil, err
-	}
-	service := core.New(apiClient)
-
-	server := mcp.NewServer(
-		&mcp.Implementation{
-			Name:    serverName,
-			Version: serverVersion,
-		},
-		nil,
-	)
-	registrar, err := tools.NewRegistrar(server)
-	if err != nil {
-		return nil, err
-	}
-	if err := tools.RegisterDaemonTools(registrar, service); err != nil {
-		return nil, err
-	}
-	if err := tools.RegisterClusterTools(registrar, service); err != nil {
-		return nil, err
-	}
-	if err := tools.RegisterNodeTools(registrar, service); err != nil {
-		return nil, err
-	}
-	if err := tools.RegisterObjectTools(registrar, service); err != nil {
-		return nil, err
-	}
-	if err := tools.RegisterInstanceTools(registrar, service); err != nil {
-		return nil, err
-	}
-	if err := tools.RegisterResourceTools(registrar, service); err != nil {
-		return nil, err
-	}
-	if err := tools.RegisterScheduleTools(registrar, service); err != nil {
-		return nil, err
-	}
-
-	streamHandler := mcp.NewStreamableHTTPHandler(
-		func(*http.Request) *mcp.Server { return server },
-		nil,
-	)
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", auth.Middleware(verifier.Verify)(streamHandler))
-
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"type":"about:blank","title":"Service Unavailable","status":503,"detail":"Remote MCP authorization is not implemented yet."}`))
+	})
 	return mux, nil
-}
-
-func listenUnixSocket(path string) (*net.UnixListener, error) {
-	if err := removeStaleUnixSocket(path); err != nil {
-		return nil, err
-	}
-	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
-	if err != nil {
-		return nil, fmt.Errorf("listen on Unix socket %s: %w", path, err)
-	}
-	listener.SetUnlinkOnClose(true)
-	if err := os.Chmod(path, unixSocketMode); err != nil {
-		_ = listener.Close()
-		return nil, fmt.Errorf("set Unix socket %s mode to %04o: %w", path, unixSocketMode, err)
-	}
-	return listener, nil
-}
-
-func removeStaleUnixSocket(path string) error {
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("inspect Unix socket path %s: %w", path, err)
-	}
-	if info.Mode()&os.ModeSocket == 0 {
-		return fmt.Errorf("refuse to remove non-socket path %s", path)
-	}
-
-	connection, probeErr := net.DialTimeout("unix", path, socketProbeTimeout)
-	if probeErr == nil {
-		_ = connection.Close()
-		return fmt.Errorf("Unix socket %s is already accepting connections", path)
-	}
-	if errors.Is(probeErr, os.ErrNotExist) {
-		return nil
-	}
-	if !errors.Is(probeErr, syscall.ECONNREFUSED) {
-		return fmt.Errorf("probe existing Unix socket %s: %w", path, probeErr)
-	}
-
-	currentInfo, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("reinspect stale Unix socket %s: %w", path, err)
-	}
-	if currentInfo.Mode()&os.ModeSocket == 0 || !os.SameFile(info, currentInfo) {
-		return fmt.Errorf("Unix socket path %s changed while checking whether it was stale", path)
-	}
-	if err := os.Remove(path); err != nil {
-		return fmt.Errorf("remove stale Unix socket %s: %w", path, err)
-	}
-	return nil
 }
 
 func shutdownHTTPServer(server *http.Server, timeout time.Duration) error {

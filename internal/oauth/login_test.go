@@ -123,6 +123,21 @@ func TestLoginStoresJWTServerSideAndRotatesCookie(t *testing.T) {
 	if replay := postLogin(s, cookie, form.Encode(), s.cfg.PublicURL); replay.Code != 400 || calls.Load() != 2 {
 		t.Fatal("consumed form was replayed")
 	}
+	// A verified daemon token is never an MCP credential, even after login.
+	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
+		for _, cookie := range []*http.Cookie{nil, sessionCookie} {
+			r := httptest.NewRequest(method, s.cfg.PublicURL+"/mcp", nil)
+			r.Header.Set("Authorization", "Bearer "+token)
+			if cookie != nil {
+				r.AddCookie(cookie)
+			}
+			w := httptest.NewRecorder()
+			s.Handler().ServeHTTP(w, r)
+			if w.Code != http.StatusUnauthorized || !strings.Contains(w.Header().Get("WWW-Authenticate"), s.cfg.PublicURL+"/.well-known/oauth-protected-resource/mcp") || strings.Contains(w.Body.String(), token) {
+				t.Fatal("daemon JWT bypassed the OAuth challenge")
+			}
+		}
+	}
 	// Browser state does not grant MCP access or issue an OAuth token yet.
 	if request(s, "GET", "/mcp", "", sessionCookie).Code != 401 || request(s, "POST", "/token", "", sessionCookie).Code != 503 {
 		t.Fatal("OpenSVC JWT escaped into MCP authorization")

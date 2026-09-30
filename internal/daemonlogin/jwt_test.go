@@ -1,4 +1,4 @@
-package auth
+package daemonlogin
 
 import (
 	"crypto/rand"
@@ -17,7 +17,7 @@ import (
 
 func TestJWTVerifier(t *testing.T) {
 	privateKey, certificateFile := writeJWTTestCertificate(t)
-	verifier, err := NewJWTVerifier(certificateFile)
+	verifier, err := testJWTVerifier(t, certificateFile)
 	if err != nil {
 		t.Fatalf("create JWT verifier: %v", err)
 	}
@@ -29,21 +29,21 @@ func TestJWTVerifier(t *testing.T) {
 		"token_use": "access",
 	})
 
-	info, err := verifier.Verify(t.Context(), token, nil)
+	info, err := verifier.verify(token)
 	if err != nil {
 		t.Fatalf("verify JWT: %v", err)
 	}
-	if info.UserID != "alice" {
-		t.Errorf("got user ID %q, want alice", info.UserID)
+	if info.Subject != "alice" {
+		t.Errorf("got user ID %q, want alice", info.Subject)
 	}
-	if len(info.Scopes) != 2 || info.Scopes[0] != "guest" || info.Scopes[1] != "operator" {
-		t.Errorf("got scopes %#v, want OpenSVC grants", info.Scopes)
+	if len(info.Grant) != 2 || info.Grant[0] != "guest" || info.Grant[1] != "operator" {
+		t.Errorf("got scopes %#v, want OpenSVC grants", info.Grant)
 	}
 }
 
 func TestJWTVerifierRejectsInvalidClaims(t *testing.T) {
 	privateKey, certificateFile := writeJWTTestCertificate(t)
-	verifier, err := NewJWTVerifier(certificateFile)
+	verifier, err := testJWTVerifier(t, certificateFile)
 	if err != nil {
 		t.Fatalf("create JWT verifier: %v", err)
 	}
@@ -60,6 +60,8 @@ func TestJWTVerifierRejectsInvalidClaims(t *testing.T) {
 		change func(jwt.MapClaims)
 	}{
 		{name: "expired", change: func(claims jwt.MapClaims) { claims["exp"] = time.Now().Add(-time.Minute).Unix() }},
+		{name: "missing expiration", change: func(claims jwt.MapClaims) { delete(claims, "exp") }},
+		{name: "not yet valid", change: func(claims jwt.MapClaims) { claims["nbf"] = time.Now().Add(time.Hour).Unix() }},
 		{name: "missing subject", change: func(claims jwt.MapClaims) { delete(claims, "sub") }},
 		{name: "missing issuer", change: func(claims jwt.MapClaims) { delete(claims, "iss") }},
 		{name: "refresh token", change: func(claims jwt.MapClaims) { claims["token_use"] = "refresh" }},
@@ -71,7 +73,7 @@ func TestJWTVerifierRejectsInvalidClaims(t *testing.T) {
 			}
 			test.change(claims)
 			token := signTestJWT(t, privateKey, claims)
-			if _, err := verifier.Verify(t.Context(), token, nil); err == nil {
+			if _, err := verifier.verify(token); err == nil {
 				t.Fatal("Verify succeeded, want an error")
 			}
 		})
@@ -80,7 +82,7 @@ func TestJWTVerifierRejectsInvalidClaims(t *testing.T) {
 
 func TestJWTVerifierRejectsInvalidSignatureAndAlgorithm(t *testing.T) {
 	_, certificateFile := writeJWTTestCertificate(t)
-	verifier, err := NewJWTVerifier(certificateFile)
+	verifier, err := testJWTVerifier(t, certificateFile)
 	if err != nil {
 		t.Fatalf("create JWT verifier: %v", err)
 	}
@@ -96,7 +98,7 @@ func TestJWTVerifierRejectsInvalidSignatureAndAlgorithm(t *testing.T) {
 		t.Fatalf("generate untrusted RSA key: %v", err)
 	}
 	wrongSignature := signTestJWT(t, untrustedKey, claims)
-	if _, err := verifier.Verify(t.Context(), wrongSignature, nil); err == nil {
+	if _, err := verifier.verify(wrongSignature); err == nil {
 		t.Fatal("Verify accepted a token signed by an untrusted key")
 	}
 
@@ -104,14 +106,8 @@ func TestJWTVerifierRejectsInvalidSignatureAndAlgorithm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sign HMAC test JWT: %v", err)
 	}
-	if _, err := verifier.Verify(t.Context(), wrongAlgorithm, nil); err == nil {
+	if _, err := verifier.verify(wrongAlgorithm); err == nil {
 		t.Fatal("Verify accepted a token using HS256")
-	}
-}
-
-func TestNewJWTVerifierRejectsMissingFile(t *testing.T) {
-	if _, err := NewJWTVerifier(filepath.Join(t.TempDir(), "missing.pem")); err == nil {
-		t.Fatal("NewJWTVerifier succeeded, want an error")
 	}
 }
 
@@ -126,17 +122,17 @@ func TestJWTVerifierFromPublicBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := NewJWTVerifierFromPEM(append(firstPEM, secondPEM...))
+	verifier, err := newJWTVerifier(append(firstPEM, secondPEM...))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, key := range []*rsa.PrivateKey{firstKey, secondKey} {
 		token := signTestJWT(t, key, jwt.MapClaims{"sub": "alice", "iss": "node-a", "exp": time.Now().Add(time.Minute).Unix(), "token_use": "access"})
-		if _, err := verifier.Verify(t.Context(), token, nil); err != nil {
+		if _, err := verifier.verify(token); err != nil {
 			t.Fatal("trusted bundle key was not accepted")
 		}
 	}
-	if _, err := NewJWTVerifierFromPEM([]byte("invalid public key")); err == nil {
+	if _, err := newJWTVerifier([]byte("invalid public key")); err == nil {
 		t.Fatal("invalid public material accepted")
 	}
 }
@@ -175,4 +171,13 @@ func signTestJWT(t *testing.T, privateKey *rsa.PrivateKey, claims jwt.MapClaims)
 		t.Fatalf("sign test JWT: %v", err)
 	}
 	return token
+}
+
+func testJWTVerifier(t *testing.T, filename string) (*jwtVerifier, error) {
+	t.Helper()
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return newJWTVerifier(data)
 }

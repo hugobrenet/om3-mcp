@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/auth"
 )
 
 const (
@@ -35,9 +33,6 @@ func (c *Client) GetText(ctx context.Context, path string, query url.Values) ([]
 		return nil, fmt.Errorf("create OpenSVC daemon GET request: %w", err)
 	}
 	request.Header.Set("Accept", "text/plain")
-	if err := auth.ApplyBearerFromContext(request); err != nil {
-		return nil, fmt.Errorf("authenticate OpenSVC daemon request: %w", err)
-	}
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {
@@ -92,9 +87,6 @@ func (c *Client) GetNoContent(ctx context.Context, path string, query url.Values
 		return fmt.Errorf("create OpenSVC daemon GET request: %w", err)
 	}
 	request.Header.Set("Accept", "*/*")
-	if err := auth.ApplyBearerFromContext(request); err != nil {
-		return fmt.Errorf("authenticate OpenSVC daemon request: %w", err)
-	}
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {
@@ -131,9 +123,6 @@ func (c *Client) GetFile(ctx context.Context, path string, query url.Values) ([]
 		return nil, fmt.Errorf("create OpenSVC daemon GET request: %w", err)
 	}
 	request.Header.Set("Accept", "application/octet-stream")
-	if err := auth.ApplyBearerFromContext(request); err != nil {
-		return nil, fmt.Errorf("authenticate OpenSVC daemon request: %w", err)
-	}
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {
@@ -172,9 +161,6 @@ func (c *Client) GetStream(ctx context.Context, path string, query url.Values, c
 		return fmt.Errorf("create OpenSVC daemon GET request: %w", err)
 	}
 	request.Header.Set("Accept", "text/event-stream")
-	if err := auth.ApplyBearerFromContext(request); err != nil {
-		return fmt.Errorf("authenticate OpenSVC daemon request: %w", err)
-	}
 
 	response, err := c.httpClient.Do(request)
 	if err != nil {
@@ -223,9 +209,6 @@ func (c *Client) doJSON(ctx context.Context, method string, path string, query u
 	request.Header.Set("Accept", "application/json")
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
-	}
-	if err := auth.ApplyBearerFromContext(request); err != nil {
-		return fmt.Errorf("authenticate OpenSVC daemon request: %w", err)
 	}
 
 	response, err := c.httpClient.Do(request)

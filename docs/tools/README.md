@@ -1,9 +1,10 @@
 # OpenSVC Daemon MCP Tools
 
 This directory documents the human-facing contracts of the OpenSVC daemon MCP
-tools. Runtime names, descriptions, annotations, and JSON Schemas remain
-available through MCP `tools/list`; these documents explain how to select and
-combine the tools during operations.
+tools. Names, descriptions, annotations and JSON Schemas are defined in
+`internal/tools`. Remote runtime
+access through `tools/list` awaits OAuth completion. These documents describe
+the implemented tool contracts.
 
 ## Domains
 
@@ -19,14 +20,15 @@ combine the tools during operations.
 
 ## Authentication and visibility
 
-Every MCP HTTP request requires an OpenSVC access JWT. The MCP validates the JWT
-and delegates the same request-scoped token to the daemon API. OpenSVC remains
-the source of truth for grants and namespace visibility.
+Remote `/mcp` remains closed while OAuth callbacks and MCP tokens are not yet
+implemented. See [authentication](../authentication.md) for the current flow.
+An OpenSVC daemon JWT supplied by an agent does not authorize MCP access.
 
-Missing, invalid, expired, or non-access JWTs are rejected by the MCP transport
-with HTTP `401`. A valid JWT that cannot execute a daemon operation produces an
-MCP tool result with `isError=true`; the error preserves the HTTP status and
-bounded RFC 7807 `title` and `detail` fields returned by OpenSVC.
+Login stores a verified daemon JWT in server memory for the selected cluster
+and user. Future remote tool integration must bind this state to the agent's
+MCP authorization. OpenSVC enforces daemon grants and namespace visibility.
+The tool implementations preserve daemon failures as `isError=true` results,
+including HTTP status and bounded RFC 7807 `title` and `detail` fields.
 
 ## Freshness model
 
@@ -88,7 +90,7 @@ are representative and will differ between calls.
 | `list_node_packages` | Yes | No | `root` |
 | `list_node_capabilities` | Yes | No | `root` |
 | `list_node_drivers` | Yes | No | `root` |
-| `get_node_daemon_metrics` | Yes | No | Delegated JWT; daemon endpoint policy |
+| `get_node_daemon_metrics` | Yes | No | OpenSVC JWT; daemon endpoint policy |
 | `probe_node_reachability` | Yes | No | `root` |
 | `get_node_logs` | Yes | No | `root` |
 | `list_cluster_objects` | Yes | No | Visible namespaces |

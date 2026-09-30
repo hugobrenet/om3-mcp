@@ -118,12 +118,12 @@ reclassified as stopped or unhealthy.
 
 | Condition | Result |
 |---|---|
-| Invalid MCP JWT | MCP HTTP `401` |
+| Remote MCP authorization unavailable | MCP HTTP `401`; tool access is not enabled yet |
 | Insufficient daemon grants | Tool error containing daemon HTTP `403` |
 | Daemon unavailable or malformed response | Tool error with transport or decoding context |
 | Missing local nodename, node status, or agent version | Tool error; no partial status |
 
-Errors never include the delegated JWT.
+Errors never include the OpenSVC JWT.
 
 ### `list_daemon_executions`
 

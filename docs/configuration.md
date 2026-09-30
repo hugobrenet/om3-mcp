@@ -6,45 +6,14 @@
 
 | Variable | Default | Description |
 |---|---|---|
-| OPENSVC_MCP_TRANSPORT | unix | Listener mode: `unix` for the existing local MCP or `https` for TLS over TCP |
-| OPENSVC_MCP_LISTEN_ADDR | 127.0.0.1:8443 in https mode | TCP bind address, written as IPv4:port or [IPv6]:port; requires explicit https mode |
-| OPENSVC_MCP_TLS_CERT_FILE | empty | Absolute path to the HTTPS server certificate PEM, followed by intermediate certificates if needed; required in https mode |
-| OPENSVC_MCP_TLS_KEY_FILE | empty | Absolute path to the HTTPS server private key PEM; required in https mode |
-| OPENSVC_MCP_PUBLIC_URL | empty | Canonical HTTPS origin visible to the agent and browser, without a path or trailing slash; enables the login prototype together with the cluster configuration file |
-| OPENSVC_MCP_CLUSTER_CONFIG_FILE | empty | Absolute path to the administrator's YAML cluster catalogue and public CA references; loaded and validated before opening the HTTPS listener |
-| OPENSVC_DAEMON_URL | https://127.0.0.1:1215 | Base URL of the local OpenSVC daemon API |
-| OPENSVC_DAEMON_REQUEST_TIMEOUT | 20s | Whole-request timeout for daemon JSON, SSE, and bounded stream calls; accepted range 1s to 2m |
-| OPENSVC_MCP_SOCKET_PATH | /run/opensvc-daemon-mcp/mcp.sock | Local Unix socket carrying Streamable HTTP |
-| OPENSVC_MCP_JWT_VERIFY_KEY_FILE | /var/lib/opensvc/certs/ca_certificates | OpenSVC cluster CA certificate or RSA public key used to verify JWT signatures |
-| OPENSVC_DAEMON_TLS_CA_FILE | empty | PEM CA certificates appended to the system trust store |
-| OPENSVC_DAEMON_TLS_INSECURE | false | Disable daemon certificate verification. Development only. |
+| OPENSVC_MCP_LISTEN_ADDR | 127.0.0.1:8443 | TCP bind address, written as IPv4:port or [IPv6]:port |
+| OPENSVC_MCP_TLS_CERT_FILE | empty | Absolute path to the server certificate PEM, followed by intermediate certificates if needed; required |
+| OPENSVC_MCP_TLS_KEY_FILE | empty | Absolute path to the server private key PEM; required |
+| OPENSVC_MCP_PUBLIC_URL | empty | Canonical HTTPS origin visible to the agent and browser, without a path or trailing slash; enables login together with the cluster catalogue |
+| OPENSVC_MCP_CLUSTER_CONFIG_FILE | empty | Absolute path to the administrator's YAML cluster catalogue and public CA references; validated before opening the listener |
 
-The `OPENSVC_DAEMON_*` settings and `OPENSVC_MCP_JWT_VERIFY_KEY_FILE` configure
-local Unix mode. Remote login uses the selected cluster's settings from the
-catalogue instead. `OPENSVC_DAEMON_TLS_INSECURE` never affects the MCP listener
-or remote login; TLS verification is enabled by default.
-
-## Unix socket
-
-```bash
-OPENSVC_DAEMON_URL=https://127.0.0.1:1215 \
-OPENSVC_MCP_SOCKET_PATH=/run/opensvc-daemon-mcp/mcp.sock \
-OPENSVC_MCP_JWT_VERIFY_KEY_FILE=/var/lib/opensvc/certs/ca_certificates \
-OPENSVC_DAEMON_TLS_CA_FILE=/etc/opensvc-mcp/trust/cluster-ca.pem \
-  ./bin/opensvc-daemon-mcp
-```
-
-The parent directory must exist and be writable by the process. The server
-uses socket mode `0660`, refuses to replace an ordinary file or active socket,
-removes a stale socket and cleans up on graceful shutdown.
-
-The configured JWT verification file contains public material only and must
-be readable by the process. Keep the cluster CA private key on the target
-cluster. See [local authentication](authentication.md#unix-socket).
-
-For local development only, `OPENSVC_DAEMON_TLS_INSECURE=true` disables
-certificate-chain and hostname verification on the local daemon connection.
-Prefer supplying the daemon's public CA through `OPENSVC_DAEMON_TLS_CA_FILE`.
+HTTPS is the only transport. Daemon endpoints, trust and request timeouts come
+from the selected cluster's catalogue entry. TLS verification is mandatory.
 
 ## HTTPS
 
@@ -52,7 +21,6 @@ Install the server certificate, matching private key, cluster catalogue and
 public target CA files before starting the listener:
 
 ```bash
-OPENSVC_MCP_TRANSPORT=https \
 OPENSVC_MCP_LISTEN_ADDR=127.0.0.1:8443 \
 OPENSVC_MCP_TLS_CERT_FILE=/etc/opensvc-mcp/tls/server.crt \
 OPENSVC_MCP_TLS_KEY_FILE=/etc/opensvc-mcp/tls/server.key \
@@ -75,9 +43,8 @@ Certificate serial numbers must be unique for their issuer, including across
 CA and server certificates. The leaf PEM may include intermediate certificates.
 
 TLS 1.2 or later is required. Certificate loading and catalogue validation
-happen before opening the listener; invalid settings stop startup. Only the
-selected transport is opened. TLS files and the catalogue are loaded once:
-restart the process to apply changes. Shutdown drains requests for up to
+happen before opening the listener; invalid settings stop startup. TLS files
+and the catalogue are loaded once: restart the process to apply changes. Shutdown drains requests for up to
 30 seconds.
 
 `OPENSVC_MCP_PUBLIC_URL` and `OPENSVC_MCP_CLUSTER_CONFIG_FILE` must be supplied
@@ -86,8 +53,16 @@ together to enable remote login. With neither, the HTTPS listener exposes
 challenge; [remote authentication](authentication.md#https-login-prototype)
 describes the available flow.
 
-The removed settings `OPENSVC_MCP_CLUSTER_REF` and `OPENSVC_MCP_CLUSTER_NAME`
-cause a startup error when nonempty. Define clusters in the catalogue instead.
+### Migration from local mode
+
+Remove `OPENSVC_MCP_TRANSPORT`, `OPENSVC_MCP_SOCKET_PATH`,
+`OPENSVC_MCP_JWT_VERIFY_KEY_FILE`, `OPENSVC_DAEMON_URL`,
+`OPENSVC_DAEMON_TLS_CA_FILE`, `OPENSVC_DAEMON_TLS_INSECURE`,
+`OPENSVC_DAEMON_REQUEST_TIMEOUT`, `OPENSVC_MCP_CLUSTER_REF` and
+`OPENSVC_MCP_CLUSTER_NAME`. Any nonempty removed setting stops startup with
+an explicit migration error. This also applies to `OPENSVC_MCP_TRANSPORT=https`.
+Supply the TLS listener settings and move target configuration to the catalogue.
+The MCP no longer accepts a daemon JWT as its caller credential.
 
 For a floating IP deployment, assign the IP to the active host before binding
 and include it in the certificate's IP SAN. Port 443 requires an appropriate
@@ -138,11 +113,10 @@ configuration and CA files on each host.
 
 ## systemd
 
-The supplied [systemd unit](../deploy/systemd/opensvc-daemon-mcp.service) is for
-local Unix mode. It runs as `opensvc-mcp:opensvc-mcp`, reads
-`/etc/opensvc-ai/mcp.env`, and expects the binary at
-`/usr/local/libexec/opensvc-daemon-mcp`.
-
-Systemd creates `/run/opensvc-daemon-mcp` with mode `0750`; the MCP creates its
-socket with mode `0660`. Local client services need the supplementary
-`opensvc-mcp` group to connect. The unit grants no capabilities.
+The supplied [systemd unit](../deploy/systemd/opensvc-daemon-mcp.service) runs
+as `opensvc-mcp:opensvc-mcp`, reads `/etc/opensvc-mcp/mcp.env`, and expects the
+binary at `/usr/local/libexec/opensvc-daemon-mcp`. Put the HTTPS environment
+settings above in that file. The account must be able to read the certificate,
+private key, catalogue and public CA files; restrict private-key access to the
+service account. The unit grants no capabilities and does not depend on a local
+OpenSVC daemon. Use an unprivileged port such as `8443` with this unit.

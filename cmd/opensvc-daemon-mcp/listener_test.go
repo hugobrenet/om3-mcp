@@ -17,9 +17,11 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -28,7 +30,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 )
 
-func TestRemoteLoginPrototypeOverVerifiedTLS(t *testing.T) {
+func TestHTTPSBinaryDiscoveryRegistrationAndLogin(t *testing.T) {
 	certFile, keyFile, roots := writeListenerCertificate(t)
 	var daemonCalls atomic.Int32
 	var daemonConnections atomic.Int32
@@ -39,14 +41,6 @@ func TestRemoteLoginPrototypeOverVerifiedTLS(t *testing.T) {
 	daemon.Listener = &countingListener{Listener: daemon.Listener, connections: &daemonConnections}
 	daemon.StartTLS()
 	t.Cleanup(daemon.Close)
-	clear := []string{"OPENSVC_MCP_CLUSTER_REF", "OPENSVC_MCP_CLUSTER_NAME", "OPENSVC_MCP_PUBLIC_URL", "OPENSVC_MCP_CLUSTER_CONFIG_FILE"}
-	for _, key := range clear {
-		t.Setenv(key, "")
-	}
-	t.Setenv("OPENSVC_MCP_TRANSPORT", "https")
-	t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", certFile)
-	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", keyFile)
-	t.Setenv("OPENSVC_MCP_PUBLIC_URL", "https://127.0.0.1:8443")
 	clusterFile := testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster", "cluster-b": "Second example cluster"})
 	clusterData, err := os.ReadFile(clusterFile)
 	if err != nil {
@@ -56,35 +50,6 @@ func TestRemoteLoginPrototypeOverVerifiedTLS(t *testing.T) {
 	if err := os.WriteFile(clusterFile, clusterData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", clusterFile)
-	t.Setenv("OPENSVC_DAEMON_URL", daemon.URL)
-	t.Setenv("OPENSVC_MCP_JWT_VERIFY_KEY_FILE", "/nonexistent/local-key")
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.ListenAddress = "127.0.0.1:0"
-	listener, tlsConfig, err := listenMCP(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.OAuth.PublicURL = "https://" + listener.Addr().String()
-	handler, err := newMCPHandler(cfg)
-	if err != nil {
-		_ = listener.Close()
-		t.Fatal(err)
-	}
-	server := &http.Server{Handler: handler, TLSConfig: tlsConfig, ReadHeaderTimeout: time.Second}
-	done := make(chan error, 1)
-	go func() { done <- server.ServeTLS(listener, "", "") }()
-	t.Cleanup(func() {
-		if err := shutdownHTTPServer(server, time.Second); err != nil {
-			t.Error(err)
-		}
-		if err := <-done; err != http.ErrServerClosed {
-			t.Error(err)
-		}
-	})
 	tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}}
 	t.Cleanup(tr.CloseIdleConnections)
 	jar, err := cookiejar.New(nil)
@@ -92,16 +57,32 @@ func TestRemoteLoginPrototypeOverVerifiedTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &http.Client{Transport: tr, Jar: jar, Timeout: 2 * time.Second}
+	origin := startHTTPSBinary(t, c, certFile, keyFile, clusterFile)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	resource, err := oauthex.GetProtectedResourceMetadata(ctx, cfg.OAuth.PublicURL+"/.well-known/oauth-protected-resource/mcp", cfg.OAuth.PublicURL+"/mcp", c)
+	for _, bearer := range []string{"", "Bearer synthetic-daemon-token"} {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, origin+"/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", bearer)
+		response, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusUnauthorized || !strings.Contains(response.Header.Get("WWW-Authenticate"), origin+"/.well-known/oauth-protected-resource/mcp") {
+			t.Fatal("HTTPS binary did not require OAuth authorization")
+		}
+	}
+	resource, err := oauthex.GetProtectedResourceMetadata(ctx, origin+"/.well-known/oauth-protected-resource/mcp", origin+"/mcp", c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(resource.AuthorizationServers) != 1 || resource.AuthorizationServers[0] != cfg.OAuth.PublicURL {
+	if len(resource.AuthorizationServers) != 1 || resource.AuthorizationServers[0] != origin {
 		t.Fatalf("resource metadata: %+v", resource)
 	}
-	meta, err := oauthex.GetAuthServerMeta(ctx, cfg.OAuth.PublicURL+"/.well-known/oauth-authorization-server", cfg.OAuth.PublicURL, c)
+	meta, err := oauthex.GetAuthServerMeta(ctx, origin+"/.well-known/oauth-authorization-server", origin, c)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +97,7 @@ func TestRemoteLoginPrototypeOverVerifiedTLS(t *testing.T) {
 	}
 	page, err := io.ReadAll(response.Body)
 	_ = response.Body.Close()
-	if err != nil || response.StatusCode != 200 || response.Request.URL.String() != cfg.OAuth.PublicURL+"/login" || !strings.Contains(string(page), "Example agent") || !strings.Contains(string(page), "Example cluster") || !strings.Contains(string(page), "<fieldset>") {
+	if err != nil || response.StatusCode != 200 || response.Request.URL.String() != origin+"/login" || !strings.Contains(string(page), "Example agent") || !strings.Contains(string(page), "Example cluster") || !strings.Contains(string(page), "<fieldset>") {
 		t.Fatalf("TLS login journey failed: status=%d error=%v", response.StatusCode, err)
 	}
 	if !strings.Contains(string(page), `<select id="cluster" name="cluster_ref" required>`) || !strings.Contains(string(page), `<option value="cluster-b">Second example cluster</option>`) {
@@ -142,17 +123,9 @@ func (l *countingListener) Accept() (net.Conn, error) {
 
 func TestHTTPSListenerRequiresTrustedTLSAndBlocksRemoteMCP(t *testing.T) {
 	certFile, keyFile, roots := writeListenerCertificate(t)
-	var daemonCalls atomic.Int32
-	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		daemonCalls.Add(1)
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(daemon.Close)
 	cfg := config.Config{
-		Transport: "https", ListenAddress: "127.0.0.1:0",
-		TLSCertFile: certFile, TLSKeyFile: keyFile,
-		DaemonURL: daemon.URL, JWTVerifyKeyFile: "/nonexistent/local-cluster-key",
-		SocketPath: filepath.Join(t.TempDir(), "must-not-exist.sock"),
+		ListenAddress: "127.0.0.1:0",
+		TLSCertFile:   certFile, TLSKeyFile: keyFile,
 	}
 	handler, err := newMCPHandler(cfg)
 	if err != nil {
@@ -203,9 +176,6 @@ func TestHTTPSListenerRequiresTrustedTLSAndBlocksRemoteMCP(t *testing.T) {
 			t.Fatalf("unexpected response headers: %v", response.Header)
 		}
 	}
-	if _, err := os.Stat(cfg.SocketPath); !os.IsNotExist(err) {
-		t.Fatalf("HTTPS mode created a Unix socket: %v", err)
-	}
 	for _, tc := range []struct {
 		name string
 		tls  *tls.Config
@@ -232,9 +202,6 @@ func TestHTTPSListenerRequiresTrustedTLSAndBlocksRemoteMCP(t *testing.T) {
 			t.Fatalf("plaintext request was not rejected: %d", response.StatusCode)
 		}
 	}
-	if daemonCalls.Load() != 0 {
-		t.Fatal("remote transport forwarded a request to the daemon")
-	}
 }
 
 func TestHTTPSListenerRejectsInvalidMaterialBeforeBinding(t *testing.T) {
@@ -258,7 +225,7 @@ func TestHTTPSListenerRejectsInvalidMaterialBeforeBinding(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer occupied.Close()
-			listener, _, err := listenMCP(config.Config{Transport: "https", ListenAddress: occupied.Addr().String(), TLSCertFile: tc.cert, TLSKeyFile: tc.key})
+			listener, _, err := listenMCP(config.Config{ListenAddress: occupied.Addr().String(), TLSCertFile: tc.cert, TLSKeyFile: tc.key})
 			if listener != nil {
 				_ = listener.Close()
 				t.Fatal("invalid material opened a listener")
@@ -273,7 +240,7 @@ func TestHTTPSListenerRejectsInvalidMaterialBeforeBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer occupied.Close()
-	listener, _, err := listenMCP(config.Config{Transport: "https", ListenAddress: occupied.Addr().String(), TLSCertFile: certFile, TLSKeyFile: keyFile})
+	listener, _, err := listenMCP(config.Config{ListenAddress: occupied.Addr().String(), TLSCertFile: certFile, TLSKeyFile: keyFile})
 	if listener != nil {
 		_ = listener.Close()
 		t.Fatal("occupied address opened a listener")
@@ -318,4 +285,76 @@ func writeListenerCertificate(t *testing.T) (string, string, *x509.CertPool) {
 		t.Fatal("load generated certificate into trust store")
 	}
 	return certFile, keyFile, roots
+}
+
+// Start the compiled entrypoint with only the new HTTPS configuration. Keep
+// process output in a file so failed-start diagnostics do not race with writes.
+func startHTTPSBinary(t *testing.T, c *http.Client, certFile, keyFile, clusterFile string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	t.Cleanup(cancel)
+	binary := filepath.Join(t.TempDir(), "opensvc-daemon-mcp")
+	if output, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build MCP: %v\n%s", err, output)
+	}
+	reserved, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := reserved.Addr().String()
+	if err := reserved.Close(); err != nil {
+		t.Fatal(err)
+	}
+	origin := "https://" + address
+	command := exec.CommandContext(ctx, binary)
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "OPENSVC_") {
+			command.Env = append(command.Env, entry)
+		}
+	}
+	command.Env = append(command.Env,
+		"OPENSVC_MCP_LISTEN_ADDR="+address,
+		"OPENSVC_MCP_TLS_CERT_FILE="+certFile,
+		"OPENSVC_MCP_TLS_KEY_FILE="+keyFile,
+		"OPENSVC_MCP_PUBLIC_URL="+origin,
+		"OPENSVC_MCP_CLUSTER_CONFIG_FILE="+clusterFile,
+	)
+	logFile, err := os.Create(filepath.Join(t.TempDir(), "server.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = logFile.Close() })
+	command.Stdout, command.Stderr = logFile, logFile
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- command.Wait() }()
+	t.Cleanup(func() {
+		_ = command.Process.Signal(syscall.SIGTERM)
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("MCP exit: %v", err)
+			}
+		case <-time.After(3 * time.Second):
+			_ = command.Process.Kill()
+			<-done
+			t.Error("MCP did not shut down on SIGTERM")
+		}
+	})
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		response, err := c.Get(origin + "/.well-known/oauth-authorization-server")
+		if err == nil {
+			_ = response.Body.Close()
+			if response.StatusCode == http.StatusOK {
+				return origin
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	output, _ := os.ReadFile(logFile.Name())
+	t.Fatalf("HTTPS binary did not start: %s", output)
+	return ""
 }

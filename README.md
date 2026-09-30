@@ -201,8 +201,9 @@ the issuer. Discovery and redirects always use the configured origin, never
 the request Host or forwarded headers.
 
 The configuration remains on the MCP hosts. In this increment, the cluster
-fields only identify the target displayed on the form; remote daemon endpoints,
-their CA and the expected OpenSVC cluster ID are not configured yet.
+environment fields only identify the target displayed on the form. A proposed
+target configuration file is documented below; loading its daemon endpoints,
+CA and expected OpenSVC cluster ID is not implemented yet.
 
 | Route | Prototype behavior |
 |---|---|
@@ -259,6 +260,33 @@ localhost listener with a generated test CA and fictitious cluster identity.
 Codex performed discovery and DCR; following its authorization URL reached the
 disabled form over verified TLS. This verifies the journey to the form, not a
 completed OAuth login or access to a real cluster.
+
+## Target cluster configuration (prepared format)
+
+[deploy/examples/clusters.yaml](deploy/examples/clusters.yaml) documents the
+proposed file format with fictitious names, a synthetic cluster ID and reserved
+documentation IP addresses. The deployment file belongs on the MCP hosts at
+`/etc/opensvc-mcp/clusters.yaml`; do not commit your actual cluster configuration.
+
+The format contains:
+
+- `version`: the configuration schema version;
+- `clusters`: a map keyed by stable cluster reference, separate from the display name;
+- `name`: the cluster name shown to the user;
+- `expected_cluster_id`: the OpenSVC cluster ID to check during authenticated exchanges;
+- `endpoints`: ordered HTTPS daemon base URLs, without credentials;
+- `tls.ca_file`: an absolute path on the MCP host to the trusted public CA certificate or certificate chain;
+- `request_timeout`: the daemon request timeout, for example `20s`.
+
+The file contains no user credentials or private keys. The trusted public CA
+must validate the daemon certificate and the certificate must cover the IP or
+hostname used in the endpoint URL. Endpoint selection and failover rules will
+be implemented with the loader.
+
+**The current binary does not read this file.** Preparing it does not enable
+remote daemon access or complete OAuth authentication. Runtime support will be
+added in the next increment. The future OpenSVC service must provide consistent
+configuration and CA files on whichever host runs the MCP.
 
 ## systemd
 

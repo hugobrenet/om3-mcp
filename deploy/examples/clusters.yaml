@@ -1,0 +1,18 @@
+# Proposed target cluster configuration; the server does not load this file yet.
+# All values are fictional. Replace them with your deployment's configuration.
+# Keep the real file on the MCP hosts, outside the repository.
+version: 1
+
+clusters:
+  cluster-a:
+    name: Example cluster
+    expected_cluster_id: 00000000-0000-4000-8000-000000000001
+
+    endpoints:
+      - https://192.0.2.20:1215
+      - https://192.0.2.21:1215
+
+    tls:
+      ca_file: /etc/opensvc-mcp/trust/cluster-a-ca.pem
+
+    request_timeout: 20s

@@ -22,29 +22,35 @@
 <body>
   <main>
     <h1>Connexion OpenSVC</h1>
-    <p>Demande de connexion à votre cluster.</p>
+    {{if .Authenticated}}<p class="notice" role="status">Authentification OpenSVC réussie.</p>{{else}}<p>Demande de connexion à votre cluster.</p>{{end}}
     <dl>
       <dt>Application déclarée</dt><dd>{{.ClientName}}</dd>
+      {{if .Authenticated}}<dt>Cluster</dt><dd>{{.ClusterName}}</dd>
+      <dt>Utilisateur OpenSVC</dt><dd>{{.Username}}</dd>
+      <dt>Expiration de la connexion (UTC)</dt><dd>{{.ExpiresAt}}</dd>{{end}}
     </dl>
-    <p class="notice" role="status">Prototype : le parcours arrive au formulaire de connexion.
-      L’authentification sera disponible dans une prochaine version.
-      Vous pouvez choisir un cluster. Les identifiants et la soumission sont désactivés.</p>
+    {{if .Authenticated}}
+    <p>Votre connexion au cluster est validée. Le retour vers l’agent sera disponible dans une prochaine version.</p>
+    {{else}}
+    {{if .Error}}<p class="notice" role="alert">{{.Error}}</p>{{end}}
     <form method="post" action="/login" autocomplete="off">
+      <input name="csrf_token" type="hidden" value="{{.CSRFToken}}">
       <label for="cluster">Cluster cible</label>
       <select id="cluster" name="cluster_ref" required>
         <option value="" disabled selected>Choisissez un cluster</option>
         {{range .Clusters}}<option value="{{.Ref}}">{{.Name}}</option>
         {{end}}
       </select>
-      <fieldset disabled>
+      <fieldset>
         <legend>Identifiants OpenSVC</legend>
         <label for="username">Utilisateur OpenSVC</label>
-        <input id="username" name="username" type="text" autocomplete="off" disabled>
-        <label for="secret">Secret OpenSVC</label>
-        <input id="secret" name="secret" type="password" autocomplete="off" disabled>
-        <button type="submit" disabled>Se connecter</button>
+        <input id="username" name="username" type="text" autocomplete="username" maxlength="128" required>
+        <label for="secret">Mot de passe OpenSVC</label>
+        <input id="secret" name="secret" type="password" autocomplete="current-password" maxlength="4096" required>
+        <button type="submit">Se connecter</button>
       </fieldset>
     </form>
+    {{end}}
     <footer>Cette demande est temporaire. Vous pouvez fermer cette page pour annuler la connexion.</footer>
   </main>
 </body>

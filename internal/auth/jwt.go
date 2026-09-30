@@ -2,7 +2,7 @@ package auth
 
 import (
 	"context"
-	"crypto/rsa"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net/http"
@@ -21,7 +21,7 @@ type jwtClaims struct {
 
 // JWTVerifier validates OpenSVC access JWTs signed by the cluster CA.
 type JWTVerifier struct {
-	publicKey *rsa.PublicKey
+	publicKeys jwt.VerificationKeySet
 }
 
 // NewJWTVerifier loads the RSA public key from an OpenSVC cluster CA certificate or public-key file.
@@ -33,11 +33,28 @@ func NewJWTVerifier(verifyKeyFile string) (*JWTVerifier, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read OpenSVC JWT verification key file %q: %w", verifyKeyFile, err)
 	}
-	publicKey, err := jwt.ParseRSAPublicKeyFromPEM(keyPEM)
-	if err != nil {
-		return nil, fmt.Errorf("parse OpenSVC JWT RSA verification key file %q: %w", verifyKeyFile, err)
+	return NewJWTVerifierFromPEM(keyPEM)
+}
+
+// NewJWTVerifierFromPEM uses the already loaded public trust snapshot. All RSA
+// keys in the bundle are considered, including during a CA rollover.
+func NewJWTVerifierFromPEM(keyPEM []byte) (*JWTVerifier, error) {
+	v := &JWTVerifier{}
+	for len(keyPEM) > 0 {
+		block, rest := pem.Decode(keyPEM)
+		if block == nil {
+			break
+		}
+		keyPEM = rest
+		key, err := jwt.ParseRSAPublicKeyFromPEM(pem.EncodeToMemory(block))
+		if err == nil {
+			v.publicKeys.Keys = append(v.publicKeys.Keys, key)
+		}
 	}
-	return &JWTVerifier{publicKey: publicKey}, nil
+	if len(v.publicKeys.Keys) == 0 {
+		return nil, fmt.Errorf("OpenSVC JWT trust material contains no RSA verification key")
+	}
+	return v, nil
 }
 
 // Verify implements the MCP SDK bearer-token verifier contract.
@@ -50,7 +67,7 @@ func (v *JWTVerifier) Verify(_ context.Context, rawToken string, _ *http.Request
 			if token.Method != jwt.SigningMethodRS256 {
 				return nil, fmt.Errorf("unexpected signing method %q", token.Method.Alg())
 			}
-			return v.publicKey, nil
+			return v.publicKeys, nil
 		},
 		jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}),
 		jwt.WithExpirationRequired(),

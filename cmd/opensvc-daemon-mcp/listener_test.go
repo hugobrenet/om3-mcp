@@ -116,7 +116,7 @@ func TestRemoteLoginPrototypeOverVerifiedTLS(t *testing.T) {
 	}
 	page, err := io.ReadAll(response.Body)
 	_ = response.Body.Close()
-	if err != nil || response.StatusCode != 200 || response.Request.URL.String() != cfg.OAuth.PublicURL+"/login" || !strings.Contains(string(page), "Example agent") || !strings.Contains(string(page), "Example cluster") || !strings.Contains(string(page), "<fieldset disabled>") {
+	if err != nil || response.StatusCode != 200 || response.Request.URL.String() != cfg.OAuth.PublicURL+"/login" || !strings.Contains(string(page), "Example agent") || !strings.Contains(string(page), "Example cluster") || !strings.Contains(string(page), "<fieldset>") {
 		t.Fatalf("TLS login journey failed: status=%d error=%v", response.StatusCode, err)
 	}
 	if !strings.Contains(string(page), `<select id="cluster" name="cluster_ref" required>`) || !strings.Contains(string(page), `<option value="cluster-b">Second example cluster</option>`) {

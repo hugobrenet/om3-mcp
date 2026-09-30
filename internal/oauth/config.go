@@ -1,5 +1,5 @@
 // Package oauth implements the remote MCP authorization prototype through login.
-// It does not authenticate OpenSVC users or issue OAuth codes or tokens yet.
+// It authenticates OpenSVC users but does not issue OAuth codes or MCP tokens yet.
 package oauth
 
 import (
@@ -16,7 +16,7 @@ import (
 const Scope = "mcp:access"
 
 // Config contains the canonical origin and immutable administrator catalogue.
-// The target is chosen on /login; authentication and its binding come later.
+// The target is chosen on /login and bound after verified OpenSVC authentication.
 type Config struct {
 	PublicURL string
 	Clusters  *clusterconfig.Catalog

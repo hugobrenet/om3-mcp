@@ -248,7 +248,7 @@ Abbreviated representative output for a two-node cluster:
 {
   "provenance": {"source":"opensvc_daemon","observed_at":"2026-09-23T15:00:33Z"},
   "cluster": {
-    "id":"a9601756-8a8a-440c-a2bb-1721b73dd280",
+    "id":"00000000-0000-4000-8000-000000000001",
     "name":"cluster-a",
     "quorum_enabled":false,
     "is_compatible":true,

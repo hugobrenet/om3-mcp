@@ -2,9 +2,8 @@
 
 This directory documents the human-facing contracts of the OpenSVC daemon MCP
 tools. Names, descriptions, annotations and JSON Schemas are defined in
-`internal/tools`. Remote runtime
-access through `tools/list` awaits OAuth completion. These documents describe
-the implemented tool contracts.
+`internal/tools` and exposed by authenticated `tools/list` calls. These
+documents describe the implemented tool contracts.
 
 ## Domains
 
@@ -20,15 +19,16 @@ the implemented tool contracts.
 
 ## Authentication and visibility
 
-Remote `/mcp` remains closed while OAuth callbacks and MCP tokens are not yet
-implemented. See [authentication](../authentication.md) for the current flow.
-An OpenSVC daemon JWT supplied by an agent does not authorize MCP access.
+Remote agents authenticate and authorize the selected cluster through
+[OAuth and OpenSVC login](../authentication.md). Each `/mcp` request requires a
+valid MCP bearer token. The daemon JWT stays on the server and authenticates
+the grant's fixed user and target cluster; an agent-supplied daemon JWT is not
+an MCP credential.
 
-Login stores a verified daemon JWT in server memory for the selected cluster
-and user. Future remote tool integration must bind this state to the agent's
-MCP authorization. OpenSVC enforces daemon grants and namespace visibility.
-The tool implementations preserve daemon failures as `isError=true` results,
-including HTTP status and bounded RFC 7807 `title` and `detail` fields.
+Missing, invalid and expired MCP tokens return HTTP `401` with OAuth metadata.
+The daemon enforces grants and namespace visibility. Tool failures preserve
+`isError=true`, HTTP status and bounded RFC 7807 `title` and `detail` fields.
+New browser logins do not change an existing token's user or cluster.
 
 ## Freshness model
 

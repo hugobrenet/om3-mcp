@@ -104,7 +104,7 @@ func TestHTTPSBinaryDiscoveryRegistrationAndLogin(t *testing.T) {
 		t.Fatal("TLS login journey did not expose the configured cluster choices")
 	}
 	if daemonCalls.Load() != 0 || daemonConnections.Load() != 0 {
-		t.Fatal("catalogue loading or login prototype contacted the daemon")
+		t.Fatal("catalogue loading or login form contacted the daemon")
 	}
 }
 

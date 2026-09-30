@@ -48,9 +48,9 @@ and the catalogue are loaded once: restart the process to apply changes. Shutdow
 30 seconds.
 
 `OPENSVC_MCP_PUBLIC_URL` and `OPENSVC_MCP_CLUSTER_CONFIG_FILE` must be supplied
-together to enable remote login. With neither, the HTTPS listener exposes
+together to enable remote authorization. With neither, the HTTPS listener exposes
 `/mcp` with `503` and no OAuth routes. With both, `/mcp` returns an OAuth `401`
-challenge; [remote authentication](authentication.md#https-login-prototype)
+challenge; [remote authentication](authentication.md#https-authorization)
 describes the available flow.
 
 ### Migration from local mode
@@ -106,9 +106,10 @@ CA validates the daemon certificate, which must cover the endpoint IP or
 hostname. The signed access JWT and `expected_cluster_id` are checked before
 creating the session. Endpoint failover remains to be implemented.
 
-Loading the catalogue enables cluster choices and login. Remote MCP tool access
-is not available yet. For deployment on multiple MCP hosts, provide consistent
-configuration and CA files on each host.
+Loading the catalogue enables cluster choices, OAuth and authenticated tools.
+For deployment on multiple MCP hosts, provide consistent configuration and CA
+files on each host. OAuth state remains local to the process; failover requires
+a new login until shared state is implemented.
 
 
 ## systemd

@@ -17,13 +17,13 @@ import (
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/testutil"
 )
 
-func prototype(t *testing.T) *Server {
+func oauthFixture(t *testing.T) *Server {
 	t.Helper()
 	catalog, err := clusterconfig.Load(testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster", "cluster-b": "Second example cluster"}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := New(Config{PublicURL: "https://192.0.2.10", Clusters: catalog})
+	s, err := New(Config{PublicURL: "https://192.0.2.10", Clusters: catalog}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,8 +90,8 @@ func loginCookie(t *testing.T, w *httptest.ResponseRecorder) *http.Cookie {
 	return c
 }
 
-func TestPrototypeDiscoveryRegistrationAuthorizationAndLogin(t *testing.T) {
-	s := prototype(t)
+func TestOAuthDiscoveryRegistrationAuthorizationAndLogin(t *testing.T) {
+	s := oauthFixture(t)
 	for _, bearer := range []string{"", "Bearer downstream-token-must-never-be-accepted"} {
 		r := httptest.NewRequest("POST", s.cfg.PublicURL+"/mcp", nil)
 		r.Header.Set("Authorization", bearer)
@@ -122,7 +122,7 @@ func TestPrototypeDiscoveryRegistrationAuthorizationAndLogin(t *testing.T) {
 	if err := json.Unmarshal(meta.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
-	if metadata["issuer"] != s.cfg.PublicURL || metadata["registration_endpoint"] != s.cfg.PublicURL+"/register" || metadata["token_endpoint"] != s.cfg.PublicURL+"/token" || metadata["opensvc_login_prototype"] != true {
+	if metadata["issuer"] != s.cfg.PublicURL || metadata["registration_endpoint"] != s.cfg.PublicURL+"/register" || metadata["token_endpoint"] != s.cfg.PublicURL+"/token" || metadata["authorization_response_iss_parameter_supported"] != true {
 		t.Fatalf("bad authorization metadata: %+v", metadata)
 	}
 	id := registerClient(t, s, "Codex")
@@ -163,7 +163,7 @@ func TestPrototypeDiscoveryRegistrationAuthorizationAndLogin(t *testing.T) {
 }
 
 func TestAuthorizeRejectsInvalidRequestsWithoutRedirect(t *testing.T) {
-	s := prototype(t)
+	s := oauthFixture(t)
 	id := registerClient(t, s, "Codex")
 	for _, tc := range []struct{ key, value string }{
 		{"client_id", "unknown"}, {"redirect_uri", "http://127.0.0.1:5432/other"},
@@ -197,7 +197,7 @@ func TestAuthorizeRejectsInvalidRequestsWithoutRedirect(t *testing.T) {
 }
 
 func TestRegistrationRejectsUnsafeOrMalformedMetadata(t *testing.T) {
-	s := prototype(t)
+	s := oauthFixture(t)
 	for _, body := range []string{
 		`null`, `[]`, `{}`, `{"redirect_uris":null}`, `{"redirect_uris":["http://attacker.example/callback"]}`,
 		`{"redirect_uris":["javascript:alert(1)"]}`, `{"redirect_uris":["http://user@127.0.0.1:4321/callback"]}`,
@@ -223,7 +223,7 @@ func TestRegistrationRejectsUnsafeOrMalformedMetadata(t *testing.T) {
 }
 
 func TestLoginRequiresLiveContextAndEscapesClientName(t *testing.T) {
-	s := prototype(t)
+	s := oauthFixture(t)
 	catalog, err := clusterconfig.Load(testutil.WriteClusters(t, map[string]string{"cluster-a": `<script>alert("cluster")</script>`}))
 	if err != nil {
 		t.Fatal(err)
@@ -268,17 +268,17 @@ func TestLoginRequiresLiveContextAndEscapesClientName(t *testing.T) {
 type forbiddenBody struct{ t *testing.T }
 
 func (b forbiddenBody) Read([]byte) (int, error) {
-	b.t.Error("prototype read a credential body")
+	b.t.Error("oauthFixture read a credential body without valid form context")
 	return 0, io.EOF
 }
 func (forbiddenBody) Close() error { return nil }
 
-func TestPrototypeDoesNotReadInvalidContextCredentialsOrIssueMCPTokens(t *testing.T) {
-	s := prototype(t)
+func TestDoesNotReadCredentialsWithoutValidFormContext(t *testing.T) {
+	s := oauthFixture(t)
 	for _, tc := range []struct {
 		path   string
 		status int
-	}{{"/login", 400}, {"/token", 503}} {
+	}{{"/login", 400}, {"/token", 400}} {
 		r := httptest.NewRequest("POST", s.cfg.PublicURL+tc.path, nil)
 		r.Body = forbiddenBody{t}
 		w := httptest.NewRecorder()
@@ -287,13 +287,13 @@ func TestPrototypeDoesNotReadInvalidContextCredentialsOrIssueMCPTokens(t *testin
 			t.Fatalf("%s returned %d", tc.path, w.Code)
 		}
 		if strings.Contains(w.Body.String(), "access_token") || strings.Contains(w.Body.String(), "refresh_token") {
-			t.Fatal("prototype issued tokens")
+			t.Fatal("oauthFixture issued tokens")
 		}
 	}
 }
 
-func TestPrototypeBoundsStateAndConcurrentRegistration(t *testing.T) {
-	s := prototype(t)
+func TestOAuthBoundsStateAndConcurrentRegistration(t *testing.T) {
+	s := oauthFixture(t)
 	var wg sync.WaitGroup
 	for i := 0; i < 32; i++ {
 		wg.Add(1)
@@ -343,11 +343,11 @@ func TestCallbackMatching(t *testing.T) {
 
 func TestRejectInvalidPublicConfiguration(t *testing.T) {
 	for _, origin := range []string{"", "http://192.0.2.10", "https://192.0.2.10/mcp", "https://user:secret@192.0.2.10", "https://192.0.2.10?x=y", "https://192.0.2.10#fragment", "https://192.0.2.10:65536", "https:///"} {
-		if _, err := New(Config{PublicURL: origin, Clusters: prototype(t).cfg.Clusters}); err == nil {
+		if _, err := New(Config{PublicURL: origin, Clusters: oauthFixture(t).cfg.Clusters}, nil); err == nil {
 			t.Fatalf("accepted public URL %q", origin)
 		}
 	}
-	if _, err := New(Config{PublicURL: "https://192.0.2.10"}); err == nil {
+	if _, err := New(Config{PublicURL: "https://192.0.2.10"}, nil); err == nil {
 		t.Fatal("accepted missing catalogue")
 	}
 }

@@ -9,8 +9,9 @@ The OpenSVC daemon enforces the caller's grants.
 ## Status
 
 The server uses HTTPS over TCP. Remote agents can discover OAuth metadata,
-register with DCR and reach `/login` to authenticate an OpenSVC user.
-OAuth callbacks, MCP token issuance and remote tool access are not available yet.
+register with DCR, authenticate an OpenSVC user and authorize access to the
+selected cluster. Authorization Code with PKCE returns a separate MCP access
+token to the agent, which can then call the tools. Refresh is not supported yet.
 
 See the [tool documentation](docs/tools/README.md) for inputs, outputs and usage.
 
@@ -35,10 +36,10 @@ Configure the HTTPS listener with its certificate, canonical URL and cluster
 catalogue. The [configuration guide](docs/configuration.md#https) provides a
 complete example and the [cluster template](deploy/examples/clusters.yaml).
 
-The current flow reaches `/login` and validates an OpenSVC user against the
-selected cluster. It stops at the browser confirmation; the MCP client remains
-waiting for its OAuth callback. See [authentication](docs/authentication.md)
-for client setup, TLS trust and current limitations.
+After `/login`, the user authorizes the application and returns to its OAuth
+callback. The agent exchanges the code for an MCP token and calls `/mcp`.
+See [authentication](docs/authentication.md) for client setup, TLS trust and
+current limitations.
 
 ## Documentation
 

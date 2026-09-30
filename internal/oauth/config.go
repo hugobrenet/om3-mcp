@@ -1,5 +1,5 @@
-// Package oauth implements the remote MCP authorization prototype through login.
-// It authenticates OpenSVC users but does not issue OAuth codes or MCP tokens yet.
+// Package oauth implements integrated MCP authorization with OpenSVC login,
+// explicit consent, Authorization Code with PKCE and opaque MCP access tokens.
 package oauth
 
 import (

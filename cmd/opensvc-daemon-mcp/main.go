@@ -11,8 +11,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/client"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/config"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/core"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/daemonlogin"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/oauth"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/tools"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
@@ -71,13 +77,12 @@ func main() {
 	}
 }
 
-// Keep MCP operations closed until OAuth authorization can resolve the
-// authenticated session and its server-held OpenSVC credentials.
+// OAuth authorization resolves a cluster-bound, server-held daemon session.
 func newMCPHandler(cfg config.Config) (http.Handler, error) {
 	if cfg.OAuth.PublicURL != "" {
-		server, err := oauth.New(cfg.OAuth)
+		server, err := oauth.New(cfg.OAuth, newSessionMCPHandler)
 		if err != nil {
-			return nil, fmt.Errorf("configure remote OAuth prototype: %w", err)
+			return nil, fmt.Errorf("configure remote OAuth server: %w", err)
 		}
 		return server.Handler(), nil
 	}
@@ -86,7 +91,7 @@ func newMCPHandler(cfg config.Config) (http.Handler, error) {
 		w.Header().Set("Content-Type", "application/problem+json")
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(`{"type":"about:blank","title":"Service Unavailable","status":503,"detail":"Remote MCP authorization is not implemented yet."}`))
+		_, _ = w.Write([]byte(`{"type":"about:blank","title":"Service Unavailable","status":503,"detail":"Remote MCP authorization is not configured."}`))
 	})
 	return mux, nil
 }
@@ -102,4 +107,28 @@ func shutdownHTTPServer(server *http.Server, timeout time.Duration) error {
 		return shutdownErr
 	}
 	return nil
+}
+
+func newSessionMCPHandler(cluster clusterconfig.Cluster, session daemonlogin.Session) (http.Handler, error) {
+	api, err := client.NewSession(cluster, session)
+	if err != nil {
+		return nil, err
+	}
+	service := core.New(api)
+	server := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: serverVersion}, nil)
+	registrar, err := tools.NewRegistrar(server)
+	if err != nil {
+		return nil, err
+	}
+	for _, register := range []func(*tools.Registrar, *core.Service) error{
+		tools.RegisterDaemonTools, tools.RegisterClusterTools, tools.RegisterNodeTools,
+		tools.RegisterObjectTools, tools.RegisterInstanceTools, tools.RegisterResourceTools, tools.RegisterScheduleTools,
+	} {
+		if err := register(registrar, service); err != nil {
+			return nil, err
+		}
+	}
+	// Tools require no persistent protocol session. Authorization is resolved on
+	// every request, and each token owns its fixed cluster/user tool instance.
+	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true}), nil
 }

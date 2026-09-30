@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/daemonlogin"
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
@@ -33,6 +35,10 @@ const (
 	maxLoginAttempts    = 5
 	maxConcurrentLogins = 16
 	maxSessions         = 256
+	maxCodes            = 256
+	maxAccessTokens     = 256
+	consentLifetime     = 5 * time.Minute
+	codeLifetime        = time.Minute
 )
 
 type client struct {
@@ -61,25 +67,51 @@ type authorization struct {
 type authenticatedSession struct {
 	Authorization authorization
 	Daemon        daemonlogin.Session
+	CSRFToken     string
+	ExpiresAt     time.Time
+}
+
+// MCPHandlerFactory binds tools to a verified cluster/user session. It must
+// not make daemon requests while constructing the handler.
+type MCPHandlerFactory func(clusterconfig.Cluster, daemonlogin.Session) (http.Handler, error)
+
+type authorizationCode struct {
+	Session   authenticatedSession
+	ExpiresAt time.Time
+}
+
+type accessGrant struct {
+	Session   authenticatedSession
+	ExpiresAt time.Time
+	Handler   http.Handler
 }
 
 // Server owns bounded, expiring state. OpenSVC JWTs stay in memory, associated
-// with the original authorization request. There is no MCP token issuer yet.
+// with the original authorization request and an opaque MCP access token.
 type Server struct {
-	cfg      Config
-	now      func() time.Time
-	mu       sync.Mutex
-	clients  map[string]client
-	requests map[string]authorization
-	sessions map[string]authenticatedSession
-	inFlight int
+	cfg            Config
+	now            func() time.Time
+	mu             sync.Mutex
+	clients        map[string]client
+	requests       map[string]authorization
+	sessions       map[string]authenticatedSession
+	inFlight       int
+	codes          map[[sha256.Size]byte]authorizationCode
+	tokens         map[[sha256.Size]byte]accessGrant
+	handlerFactory MCPHandlerFactory
 }
 
-func New(cfg Config) (*Server, error) {
+func New(cfg Config, factory MCPHandlerFactory) (*Server, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	return &Server{cfg: cfg, now: time.Now, clients: make(map[string]client), requests: make(map[string]authorization), sessions: make(map[string]authenticatedSession)}, nil
+	return &Server{
+		cfg: cfg, now: time.Now, handlerFactory: factory,
+		clients: make(map[string]client), requests: make(map[string]authorization),
+		sessions: make(map[string]authenticatedSession),
+		codes:    make(map[[sha256.Size]byte]authorizationCode),
+		tokens:   make(map[[sha256.Size]byte]accessGrant),
+	}, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -91,18 +123,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/.well-known/oauth-protected-resource/mcp", metadata)
 	mux.Handle("/.well-known/oauth-protected-resource", metadata)
 	mux.HandleFunc("/.well-known/oauth-authorization-server", s.metadata)
-	mux.HandleFunc("/mcp", s.challenge)
+	mux.HandleFunc("/mcp", s.mcp)
 	mux.HandleFunc("/register", s.register)
 	mux.HandleFunc("/authorize", s.authorize)
 	mux.HandleFunc("/login", s.login)
-	// Discovery requires a token_endpoint. This explicit prototype endpoint
-	// never reads credentials and returns an OAuth temporarily_unavailable error.
-	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
-		if !method(w, r, http.MethodPost) {
-			return
-		}
-		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "OpenSVC login is available; MCP token issuance is not available yet.")
-	})
+	mux.HandleFunc("/consent", s.consent)
+	mux.HandleFunc("/token", s.token)
 	return mux
 }
 
@@ -118,25 +144,24 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"issuer":                                s.cfg.PublicURL,
-		"authorization_endpoint":                s.cfg.PublicURL + "/authorize",
-		"registration_endpoint":                 s.cfg.PublicURL + "/register",
-		"token_endpoint":                        s.cfg.PublicURL + "/token",
-		"scopes_supported":                      []string{Scope},
-		"response_types_supported":              []string{"code"},
-		"response_modes_supported":              []string{"query"},
-		"grant_types_supported":                 []string{"authorization_code"},
-		"token_endpoint_auth_methods_supported": []string{"none"},
-		"code_challenge_methods_supported":      []string{"S256"},
-		"client_id_metadata_document_supported": false,
-		"opensvc_login_prototype":               true,
+		"issuer":                                         s.cfg.PublicURL,
+		"authorization_endpoint":                         s.cfg.PublicURL + "/authorize",
+		"registration_endpoint":                          s.cfg.PublicURL + "/register",
+		"token_endpoint":                                 s.cfg.PublicURL + "/token",
+		"scopes_supported":                               []string{Scope},
+		"response_types_supported":                       []string{"code"},
+		"response_modes_supported":                       []string{"query"},
+		"grant_types_supported":                          []string{"authorization_code"},
+		"token_endpoint_auth_methods_supported":          []string{"none"},
+		"code_challenge_methods_supported":               []string{"S256"},
+		"client_id_metadata_document_supported":          false,
+		"authorization_response_iss_parameter_supported": true,
 	})
 }
 
 func (s *Server) challenge(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+s.cfg.PublicURL+`/.well-known/oauth-protected-resource/mcp", scope="`+Scope+`"`)
-	// No token is valid until the next increment adds an issuer and verifier.
-	oauthError(w, http.StatusUnauthorized, "invalid_token", "OAuth authorization is required; MCP token issuance is not available yet.")
+	oauthError(w, http.StatusUnauthorized, "invalid_token", "A valid MCP access token is required.")
 }
 
 type registration struct {
@@ -168,7 +193,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, uri := range data.RedirectURIs {
 		if _, err := callbackURL(uri); err != nil {
-			oauthError(w, 400, "invalid_redirect_uri", "Only loopback HTTP callbacks without credentials or fragments are accepted by this prototype.")
+			oauthError(w, 400, "invalid_redirect_uri", "Only loopback HTTP callbacks without credentials or fragments are accepted.")
 			return
 		}
 	}
@@ -180,12 +205,12 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(data.GrantTypes) > 4 || len(data.ResponseTypes) > 1 || len(data.ResponseTypes) == 1 && data.ResponseTypes[0] != "code" {
-		oauthError(w, 400, "invalid_client_metadata", "Only the authorization code flow is available in this prototype.")
+		oauthError(w, 400, "invalid_client_metadata", "Only the authorization code flow is supported.")
 		return
 	}
 	for _, grant := range data.GrantTypes {
 		if grant != "authorization_code" && grant != "refresh_token" {
-			oauthError(w, 400, "invalid_client_metadata", "Only the authorization code flow is available in this prototype.")
+			oauthError(w, 400, "invalid_client_metadata", "Only the authorization code flow is supported.")
 			return
 		}
 	}
@@ -313,10 +338,23 @@ func (s *Server) prune(now time.Time) {
 	}
 	for id, session := range s.sessions {
 		_, exists := s.clients[session.Authorization.ClientID]
-		if !now.Before(session.Daemon.ExpiresAt) || !exists {
+		if !now.Before(session.ExpiresAt) || !now.Before(session.Daemon.ExpiresAt) || !exists {
 			delete(s.sessions, id)
 		}
 	}
+	for hash, code := range s.codes {
+		_, exists := s.clients[code.Session.Authorization.ClientID]
+		if !now.Before(code.ExpiresAt) || !now.Before(code.Session.Daemon.ExpiresAt) || !exists {
+			delete(s.codes, hash)
+		}
+	}
+	for hash, grant := range s.tokens {
+		_, exists := s.clients[grant.Session.Authorization.ClientID]
+		if !now.Before(grant.ExpiresAt) || !exists {
+			delete(s.tokens, hash)
+		}
+	}
+
 }
 
 func callbackURL(raw string) (*url.URL, error) {
@@ -331,6 +369,15 @@ func callbackURL(raw string) (*url.URL, error) {
 		port, err := strconv.Atoi(u.Port())
 		if err != nil || port < 1 || port > 65535 {
 			return nil, errors.New("invalid callback port")
+		}
+	}
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return nil, errors.New("invalid callback query")
+	}
+	for _, name := range []string{"code", "state", "iss", "error", "error_description", "access_token"} {
+		if _, exists := q[name]; exists {
+			return nil, errors.New("callback contains reserved OAuth parameters")
 		}
 	}
 	return u, nil

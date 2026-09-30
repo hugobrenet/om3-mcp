@@ -24,8 +24,9 @@ are documented by domain in:
 - [Resource tools](docs/tools/resources.md)
 
 The runtime uses HTTPS over TCP with integrated OAuth discovery, DCR and
-OpenSVC user login. The browser flow stops at confirmation: callbacks, MCP
-tokens and remote tool sessions are not implemented yet. `/mcp` remains closed.
+OpenSVC user login, explicit consent and Authorization Code with PKCE S256.
+An opaque MCP token authorizes calls to the selected cluster with the server-held
+daemon JWT. Refresh and shared HA state are not implemented.
 The diagnostic tool library remains implemented and covered by unit tests.
 Do not expand tools or authentication scope without user direction.
 
@@ -51,7 +52,10 @@ without a demonstrated need. Keep authentication out of core and tool handlers.
 
 ### Entrypoint and configuration
 
-`main` loads configuration, builds the OAuth handler and starts HTTPS. Validate
+`main` loads configuration, builds the OAuth handler and starts HTTPS.
+Keep explicit tool registration in `main.go`; do not create a `tools.go`
+composition file. Each access grant gets fixed tool/daemon bindings using
+stateless Streamable HTTP and JSON responses. Validate
 TLS material and the cluster catalogue before binding. There is no transport
 selector, local socket mode, plaintext listener or local daemon dependency.
 Read settings once and restart to apply changes. Preserve bounded HTTP headers,
@@ -73,15 +77,17 @@ and the authenticated cluster ID before retaining a session.
 
 Keep the daemon JWT server-side in bounded memory. Never accept an agent's
 daemon JWT as an MCP credential or forward its Authorization header to a daemon.
-OAuth completion must associate the future MCP credential with its server-held
-session; do not bypass the current closed `/mcp` handler. No refresh or durable
-session storage exists yet. Secrets must not enter tool inputs, outputs or logs.
+MCP tokens are opaque random 256-bit values indexed by hash, bound to the
+client, cluster, user and canonical resource. Require explicit same-origin
+consent; codes last at most 60 seconds and are redeemed once with PKCE S256.
+Do not issue refresh tokens or persist session state. Secrets must not enter tool inputs, outputs or logs.
 
 ### HTTP client
 
 The low-level client uses the supplied `http.Client` and transport. It does not
-read a bearer token from request context. Future session integration must supply
-cluster-bound daemon credentials outside tool inputs and outputs.
+read a bearer token from request context. `client.NewSession` binds a verified
+daemon session to strict cluster TLS trust, its exact endpoint and expiry.
+The selected server-held credential is attached only in the outbound transport.
 
 Keep URL encoding, content negotiation, bounded response parsing, context
 cancellation and useful errors here. JSON, text, files, SSE and opaque streams
@@ -366,7 +372,7 @@ Before adding a Go module:
 
 ## Known limitations
 
-- OAuth callbacks, MCP token issuance, remote tool access and refresh are pending;
+- no refresh tokens, logout or explicit revocation endpoint;
 - sessions and DCR state are lost on process restart or failover;
 - a limited, mostly read-only diagnostic tool set;
 - no tool-specific policy engine;

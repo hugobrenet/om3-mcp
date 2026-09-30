@@ -98,7 +98,7 @@ Output:
 
 | Condition | Result |
 |---|---|
-| Remote MCP authorization unavailable | MCP HTTP `401`; tool access is not enabled yet |
+| Missing, invalid or expired MCP token | MCP HTTP `401` |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | Cluster configuration file missing | Tool error containing daemon HTTP `404` |
 | Response above 1 MiB | Tool error before any content is returned |
@@ -291,7 +291,7 @@ output schema and implementation always return their complete typed shapes.
 
 | Condition | Result |
 |---|---|
-| Remote MCP authorization unavailable | MCP HTTP `401`; tool access is not enabled yet |
+| Missing, invalid or expired MCP token | MCP HTTP `401` |
 | Insufficient daemon grants | Tool error containing daemon HTTP `403` |
 | Invalid page limit or oversized cursor | Tool error before the daemon request |
 | Daemon unavailable or malformed status | Tool error; no partial snapshot |

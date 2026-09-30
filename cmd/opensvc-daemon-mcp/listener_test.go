@@ -24,24 +24,51 @@ import (
 	"time"
 
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/config"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/oauth"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/testutil"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 )
 
 func TestRemoteLoginPrototypeOverVerifiedTLS(t *testing.T) {
 	certFile, keyFile, roots := writeListenerCertificate(t)
 	var daemonCalls atomic.Int32
-	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var daemonConnections atomic.Int32
+	daemon := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		daemonCalls.Add(1)
 		w.WriteHeader(http.StatusOK)
 	}))
+	daemon.Listener = &countingListener{Listener: daemon.Listener, connections: &daemonConnections}
+	daemon.StartTLS()
 	t.Cleanup(daemon.Close)
-	cfg := config.Config{Transport: "https", ListenAddress: "127.0.0.1:0", TLSCertFile: certFile, TLSKeyFile: keyFile, DaemonURL: daemon.URL, JWTVerifyKeyFile: "/nonexistent/local-key"}
+	clear := []string{"OPENSVC_MCP_CLUSTER_REF", "OPENSVC_MCP_CLUSTER_NAME", "OPENSVC_MCP_PUBLIC_URL", "OPENSVC_MCP_CLUSTER_CONFIG_FILE"}
+	for _, key := range clear {
+		t.Setenv(key, "")
+	}
+	t.Setenv("OPENSVC_MCP_TRANSPORT", "https")
+	t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", certFile)
+	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", keyFile)
+	t.Setenv("OPENSVC_MCP_PUBLIC_URL", "https://127.0.0.1:8443")
+	clusterFile := testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster", "cluster-b": "Second example cluster"})
+	clusterData, err := os.ReadFile(clusterFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clusterData = []byte(strings.ReplaceAll(string(clusterData), "https://192.0.2.20:1215", daemon.URL))
+	if err := os.WriteFile(clusterFile, clusterData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", clusterFile)
+	t.Setenv("OPENSVC_DAEMON_URL", daemon.URL)
+	t.Setenv("OPENSVC_MCP_JWT_VERIFY_KEY_FILE", "/nonexistent/local-key")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ListenAddress = "127.0.0.1:0"
 	listener, tlsConfig, err := listenMCP(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.OAuth = oauth.Config{PublicURL: "https://" + listener.Addr().String(), ClusterRef: "cluster-a", ClusterName: "Example cluster"}
+	cfg.OAuth.PublicURL = "https://" + listener.Addr().String()
 	handler, err := newMCPHandler(cfg)
 	if err != nil {
 		_ = listener.Close()
@@ -82,7 +109,7 @@ func TestRemoteLoginPrototypeOverVerifiedTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	q := url.Values{"client_id": {registration.ClientID}, "redirect_uri": {"http://127.0.0.1:5432/callback/client-a"}, "response_type": {"code"}, "resource": {resource.Resource}, "scope": {oauth.Scope}, "state": {"example-state"}, "code_challenge_method": {"S256"}, "code_challenge": {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}
+	q := url.Values{"client_id": {registration.ClientID}, "redirect_uri": {"http://127.0.0.1:5432/callback/client-a"}, "response_type": {"code"}, "resource": {resource.Resource}, "scope": {"mcp:access"}, "state": {"example-state"}, "code_challenge_method": {"S256"}, "code_challenge": {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}
 	response, err := c.Get(meta.AuthorizationEndpoint + "?" + q.Encode())
 	if err != nil {
 		t.Fatal(err)
@@ -92,9 +119,25 @@ func TestRemoteLoginPrototypeOverVerifiedTLS(t *testing.T) {
 	if err != nil || response.StatusCode != 200 || response.Request.URL.String() != cfg.OAuth.PublicURL+"/login" || !strings.Contains(string(page), "Example agent") || !strings.Contains(string(page), "Example cluster") || !strings.Contains(string(page), "<fieldset disabled>") {
 		t.Fatalf("TLS login journey failed: status=%d error=%v", response.StatusCode, err)
 	}
-	if daemonCalls.Load() != 0 {
-		t.Fatal("login prototype called the daemon")
+	if !strings.Contains(string(page), `<select id="cluster" name="cluster_ref" required>`) || !strings.Contains(string(page), `<option value="cluster-b">Second example cluster</option>`) {
+		t.Fatal("TLS login journey did not expose the configured cluster choices")
 	}
+	if daemonCalls.Load() != 0 || daemonConnections.Load() != 0 {
+		t.Fatal("catalogue loading or login prototype contacted the daemon")
+	}
+}
+
+type countingListener struct {
+	net.Listener
+	connections *atomic.Int32
+}
+
+func (l *countingListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err == nil {
+		l.connections.Add(1)
+	}
+	return conn, err
 }
 
 func TestHTTPSListenerRequiresTrustedTLSAndBlocksRemoteMCP(t *testing.T) {

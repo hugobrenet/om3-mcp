@@ -12,11 +12,18 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/testutil"
 )
 
 func prototype(t *testing.T) *Server {
 	t.Helper()
-	s, err := New(Config{PublicURL: "https://192.0.2.10", ClusterRef: "cluster-a", ClusterName: "Example cluster"})
+	catalog, err := clusterconfig.Load(testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster", "cluster-b": "Second example cluster"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(Config{PublicURL: "https://192.0.2.10", Clusters: catalog})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,16 +133,26 @@ func TestPrototypeDiscoveryRegistrationAuthorizationAndLogin(t *testing.T) {
 	}
 	cookie := loginCookie(t, w)
 	context := s.requests[cookie.Value]
-	if context.ClientID != id || context.ClusterRef != "cluster-a" || context.RedirectURI != q.Get("redirect_uri") || context.State != q.Get("state") || context.Resource != s.cfg.PublicURL+"/mcp" || context.CodeChallenge != q.Get("code_challenge") {
+	if context.ClientID != id || context.RedirectURI != q.Get("redirect_uri") || context.State != q.Get("state") || context.Resource != s.cfg.PublicURL+"/mcp" || context.CodeChallenge != q.Get("code_challenge") {
 		t.Fatalf("request context lost binding: %+v", context)
 	}
 	page := request(s, "GET", "/login", "", cookie)
 	if page.Code != 200 || page.Header().Get("Content-Type") != "text/html; charset=utf-8" || page.Header().Get("Cache-Control") != "no-store" || page.Header().Get("Referrer-Policy") != "no-referrer" || !strings.Contains(page.Header().Get("Content-Security-Policy"), "form-action 'none'") {
 		t.Fatalf("login response: %d %v", page.Code, page.Header())
 	}
-	for _, expected := range []string{"Codex", "Example cluster", "Prototype", `<fieldset disabled>`, `type="password"`, `<button type="submit" disabled>`} {
+	for _, expected := range []string{"Codex", `<select id="cluster" name="cluster_ref" required>`, `<option value="" disabled selected>`, `<option value="cluster-a">Example cluster</option>`, `<option value="cluster-b">Second example cluster</option>`, "Prototype", `<fieldset disabled>`, `type="password"`, `<button type="submit" disabled>`} {
 		if !strings.Contains(page.Body.String(), expected) {
 			t.Errorf("login page is missing %q", expected)
+		}
+	}
+	if strings.Index(page.Body.String(), "</select>") > strings.Index(page.Body.String(), "<fieldset disabled>") {
+		t.Fatal("cluster selection must remain outside disabled credential controls")
+	}
+	for _, cluster := range s.cfg.Clusters.List() {
+		for _, hidden := range append(cluster.Endpoints, cluster.ExpectedClusterID, cluster.CAFile, string(cluster.CAPEM)) {
+			if strings.Contains(page.Body.String(), hidden) {
+				t.Error("login page exposes internal cluster configuration")
+			}
 		}
 	}
 	for _, hidden := range []string{cookie.Value, q.Get("state"), q.Get("code_challenge"), q.Get("redirect_uri")} {
@@ -207,6 +224,11 @@ func TestRegistrationRejectsUnsafeOrMalformedMetadata(t *testing.T) {
 
 func TestLoginRequiresLiveContextAndEscapesClientName(t *testing.T) {
 	s := prototype(t)
+	catalog, err := clusterconfig.Load(testutil.WriteClusters(t, map[string]string{"cluster-a": `<script>alert("cluster")</script>`}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.cfg.Clusters = catalog
 	id := registerClient(t, s, `<script>alert("client")</script>`)
 	q := authorizationQuery(s, id)
 	w := request(s, "GET", "/authorize?"+q.Encode(), "")
@@ -214,6 +236,9 @@ func TestLoginRequiresLiveContextAndEscapesClientName(t *testing.T) {
 	page := request(s, "GET", "/login", "", cookie)
 	if page.Code != 200 || strings.Contains(page.Body.String(), "<script>") || !strings.Contains(page.Body.String(), "&lt;script&gt;") {
 		t.Fatal("client metadata was not escaped")
+	}
+	if !strings.Contains(page.Body.String(), `<option value="cluster-a">&lt;script&gt;alert(&#34;cluster&#34;)&lt;/script&gt;</option>`) {
+		t.Fatal("cluster name was not escaped")
 	}
 	for _, cookies := range [][]*http.Cookie{nil, {{Name: loginCookieName, Value: "unknown"}}} {
 		if w := request(s, "GET", "/login", "", cookies...); w.Code != 400 {
@@ -318,13 +343,11 @@ func TestCallbackMatching(t *testing.T) {
 
 func TestRejectInvalidPublicConfiguration(t *testing.T) {
 	for _, origin := range []string{"", "http://192.0.2.10", "https://192.0.2.10/mcp", "https://user:secret@192.0.2.10", "https://192.0.2.10?x=y", "https://192.0.2.10#fragment", "https://192.0.2.10:65536", "https:///"} {
-		if _, err := New(Config{PublicURL: origin, ClusterRef: "cluster-a", ClusterName: "Cluster"}); err == nil {
+		if _, err := New(Config{PublicURL: origin, Clusters: prototype(t).cfg.Clusters}); err == nil {
 			t.Fatalf("accepted public URL %q", origin)
 		}
 	}
-	for _, cfg := range []Config{{PublicURL: "https://192.0.2.10", ClusterName: "Cluster"}, {PublicURL: "https://192.0.2.10", ClusterRef: "lab ai", ClusterName: "Cluster"}, {PublicURL: "https://192.0.2.10", ClusterRef: "cluster-a"}} {
-		if _, err := New(cfg); err == nil {
-			t.Fatalf("accepted incomplete configuration: %+v", cfg)
-		}
+	if _, err := New(Config{PublicURL: "https://192.0.2.10"}); err == nil {
+		t.Fatal("accepted missing catalogue")
 	}
 }

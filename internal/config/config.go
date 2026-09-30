@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/client"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/oauth"
 )
 
@@ -27,15 +28,16 @@ const (
 
 // Config contains the runtime configuration of the MCP server process.
 type Config struct {
-	Transport        string
-	ListenAddress    string
-	TLSCertFile      string
-	TLSKeyFile       string
-	DaemonURL        string
-	SocketPath       string
-	JWTVerifyKeyFile string
-	HTTP             client.HTTPOptions
-	OAuth            oauth.Config
+	Transport         string
+	ListenAddress     string
+	TLSCertFile       string
+	TLSKeyFile        string
+	DaemonURL         string
+	SocketPath        string
+	JWTVerifyKeyFile  string
+	HTTP              client.HTTPOptions
+	OAuth             oauth.Config
+	ClusterConfigFile string
 }
 
 // Load reads and validates process configuration from environment variables.
@@ -61,17 +63,28 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("OPENSVC_MCP_TLS_CERT_FILE and OPENSVC_MCP_TLS_KEY_FILE must be absolute file paths in https mode")
 		}
 	}
-	oauthConfig := oauth.Config{
-		PublicURL:   strings.TrimSpace(os.Getenv("OPENSVC_MCP_PUBLIC_URL")),
-		ClusterRef:  strings.TrimSpace(os.Getenv("OPENSVC_MCP_CLUSTER_REF")),
-		ClusterName: strings.TrimSpace(os.Getenv("OPENSVC_MCP_CLUSTER_NAME")),
-	}
-	if oauthConfig != (oauth.Config{}) {
-		if transport != "https" {
-			return Config{}, fmt.Errorf("OPENSVC_MCP_PUBLIC_URL and OPENSVC_MCP_CLUSTER_REF/NAME require OPENSVC_MCP_TRANSPORT=https")
+	// Reject removed settings instead of silently starting with another target.
+	for _, name := range []string{"OPENSVC_MCP_CLUSTER_REF", "OPENSVC_MCP_CLUSTER_NAME"} {
+		if strings.TrimSpace(os.Getenv(name)) != "" {
+			return Config{}, fmt.Errorf("%s has been removed; configure clusters with OPENSVC_MCP_CLUSTER_CONFIG_FILE", name)
 		}
+	}
+	oauthConfig := oauth.Config{PublicURL: strings.TrimSpace(os.Getenv("OPENSVC_MCP_PUBLIC_URL"))}
+	clusterFile := strings.TrimSpace(os.Getenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE"))
+	if oauthConfig.PublicURL != "" || clusterFile != "" {
+		if transport != "https" {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_PUBLIC_URL and OPENSVC_MCP_CLUSTER_CONFIG_FILE require OPENSVC_MCP_TRANSPORT=https")
+		}
+		if oauthConfig.PublicURL == "" || clusterFile == "" {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_PUBLIC_URL and OPENSVC_MCP_CLUSTER_CONFIG_FILE must both be supplied")
+		}
+		catalog, err := clusterconfig.Load(clusterFile)
+		if err != nil {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_CLUSTER_CONFIG_FILE: %w", err)
+		}
+		oauthConfig.Clusters = catalog
 		if err := oauthConfig.Validate(); err != nil {
-			return Config{}, fmt.Errorf("OPENSVC_MCP_PUBLIC_URL / OPENSVC_MCP_CLUSTER_REF / OPENSVC_MCP_CLUSTER_NAME: %w", err)
+			return Config{}, fmt.Errorf("OPENSVC_MCP_PUBLIC_URL / OPENSVC_MCP_CLUSTER_CONFIG_FILE: %w", err)
 		}
 	}
 	tlsInsecure, err := strconv.ParseBool(
@@ -101,14 +114,15 @@ func Load() (Config, error) {
 		}
 	}
 	return Config{
-		Transport:        transport,
-		ListenAddress:    listenAddress,
-		TLSCertFile:      certFile,
-		TLSKeyFile:       keyFile,
-		OAuth:            oauthConfig,
-		DaemonURL:        getenv("OPENSVC_DAEMON_URL", defaultDaemonURL),
-		SocketPath:       socketPath,
-		JWTVerifyKeyFile: getenv("OPENSVC_MCP_JWT_VERIFY_KEY_FILE", defaultJWTVerifyKeyFile),
+		Transport:         transport,
+		ListenAddress:     listenAddress,
+		TLSCertFile:       certFile,
+		TLSKeyFile:        keyFile,
+		OAuth:             oauthConfig,
+		ClusterConfigFile: clusterFile,
+		DaemonURL:         getenv("OPENSVC_DAEMON_URL", defaultDaemonURL),
+		SocketPath:        socketPath,
+		JWTVerifyKeyFile:  getenv("OPENSVC_MCP_JWT_VERIFY_KEY_FILE", defaultJWTVerifyKeyFile),
 		HTTP: client.HTTPOptions{
 			TLSInsecure: tlsInsecure,
 			TLSCAFile:   os.Getenv("OPENSVC_DAEMON_TLS_CA_FILE"),

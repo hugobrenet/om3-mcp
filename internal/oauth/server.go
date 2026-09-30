@@ -42,7 +42,6 @@ type client struct {
 type authorization struct {
 	ClientID      string
 	ClientName    string
-	ClusterRef    string
 	RedirectURI   string
 	Resource      string
 	Scope         string
@@ -268,7 +267,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.requests[id] = authorization{
-		ClientID: c.ID, ClientName: c.Name, ClusterRef: s.cfg.ClusterRef,
+		ClientID: c.ID, ClientName: c.Name,
 		RedirectURI: q.Get("redirect_uri"), Resource: q.Get("resource"), Scope: Scope,
 		State: q.Get("state"), CodeChallenge: challenge, ExpiresAt: now.Add(requestLifetime),
 	}

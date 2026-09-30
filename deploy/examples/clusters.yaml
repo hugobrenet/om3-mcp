@@ -1,4 +1,5 @@
-# Proposed target cluster configuration; the server does not load this file yet.
+# Target cluster configuration: OPENSVC_MCP_CLUSTER_CONFIG_FILE selects this file.
+# Loaded once at startup; restart the MCP after changing it or its public CA files.
 # All values are fictional. Replace them with your deployment's configuration.
 # Keep the real file on the MCP hosts, outside the repository.
 version: 1

@@ -47,7 +47,7 @@ func (f *containerLogsClient) GetStream(_ context.Context, path string, query ur
 func TestGetContainerLogs(t *testing.T) {
 	client := &containerLogsClient{
 		t:    t,
-		path: "/api/node/name/node-a/instance/path/lab/svc/redis/container/log",
+		path: "/api/node/name/node-a/instance/path/example/svc/cache/container/log",
 		query: url.Values{
 			"rid": {"container#redis"}, "follow": {"false"}, "lines": {"50"},
 		},
@@ -58,12 +58,12 @@ func TestGetContainerLogs(t *testing.T) {
 	}
 
 	result, err := New(client).GetContainerLogs(context.Background(), GetContainerLogsOptions{
-		Path: " lab/svc/redis ", Node: " node-a ", ResourceID: " container#redis ",
+		Path: " example/svc/cache ", Node: " node-a ", ResourceID: " container#redis ",
 	})
 	if err != nil {
 		t.Fatalf("get container logs: %v", err)
 	}
-	if client.calls != 1 || result.Object.Path != "lab/svc/redis" || result.Node != "node-a" || result.ResourceID != "container#redis" || result.Lines != defaultGetContainerLogsLines {
+	if client.calls != 1 || result.Object.Path != "example/svc/cache" || result.Node != "node-a" || result.ResourceID != "container#redis" || result.Lines != defaultGetContainerLogsLines {
 		t.Fatalf("got unexpected container logs %+v client=%+v", result, client)
 	}
 	if result.Content != "Redis starting\nReady  �" || result.LineCount != 2 || result.Truncated {
@@ -74,7 +74,7 @@ func TestGetContainerLogs(t *testing.T) {
 func TestGetContainerLogsBoundsContent(t *testing.T) {
 	client := &containerLogsClient{
 		t:    t,
-		path: "/api/node/name/node-a/instance/path/lab/svc/redis/container/log",
+		path: "/api/node/name/node-a/instance/path/example/svc/cache/container/log",
 		query: url.Values{
 			"rid": {"container#redis"}, "follow": {"false"}, "lines": {"1"},
 		},
@@ -82,7 +82,7 @@ func TestGetContainerLogsBoundsContent(t *testing.T) {
 	}
 
 	result, err := New(client).GetContainerLogs(context.Background(), GetContainerLogsOptions{
-		Path: "lab/svc/redis", Node: "node-a", ResourceID: "container#redis", Lines: 1,
+		Path: "example/svc/cache", Node: "node-a", ResourceID: "container#redis", Lines: 1,
 	})
 	if err != nil {
 		t.Fatalf("get container logs: %v", err)
@@ -98,12 +98,12 @@ func TestGetContainerLogsRejectsInvalidInputBeforeDaemonCall(t *testing.T) {
 		name    string
 		options GetContainerLogsOptions
 	}{
-		{name: "node", options: GetContainerLogsOptions{Path: "lab/svc/redis", ResourceID: "container#redis"}},
-		{name: "node path", options: GetContainerLogsOptions{Path: "lab/svc/redis", Node: "../node-a", ResourceID: "container#redis"}},
-		{name: "resource", options: GetContainerLogsOptions{Path: "lab/svc/redis", Node: "node-a"}},
-		{name: "resource group", options: GetContainerLogsOptions{Path: "lab/svc/redis", Node: "node-a", ResourceID: "disk#data"}},
-		{name: "resource selector", options: GetContainerLogsOptions{Path: "lab/svc/redis", Node: "node-a", ResourceID: "container#*"}},
-		{name: "lines", options: GetContainerLogsOptions{Path: "lab/svc/redis", Node: "node-a", ResourceID: "container#redis", Lines: maxGetContainerLogsLines + 1}},
+		{name: "node", options: GetContainerLogsOptions{Path: "example/svc/cache", ResourceID: "container#redis"}},
+		{name: "node path", options: GetContainerLogsOptions{Path: "example/svc/cache", Node: "../node-a", ResourceID: "container#redis"}},
+		{name: "resource", options: GetContainerLogsOptions{Path: "example/svc/cache", Node: "node-a"}},
+		{name: "resource group", options: GetContainerLogsOptions{Path: "example/svc/cache", Node: "node-a", ResourceID: "disk#data"}},
+		{name: "resource selector", options: GetContainerLogsOptions{Path: "example/svc/cache", Node: "node-a", ResourceID: "container#*"}},
+		{name: "lines", options: GetContainerLogsOptions{Path: "example/svc/cache", Node: "node-a", ResourceID: "container#redis", Lines: maxGetContainerLogsLines + 1}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			client := &containerLogsClient{t: t}
@@ -121,14 +121,14 @@ func TestGetContainerLogsPropagatesStreamError(t *testing.T) {
 	want := errors.New("stream failed")
 	client := &containerLogsClient{
 		t:    t,
-		path: "/api/node/name/node-a/instance/path/lab/svc/redis/container/log",
+		path: "/api/node/name/node-a/instance/path/example/svc/cache/container/log",
 		query: url.Values{
 			"rid": {"container#redis"}, "follow": {"false"}, "lines": {"50"},
 		},
 		err: want,
 	}
 	_, err := New(client).GetContainerLogs(context.Background(), GetContainerLogsOptions{
-		Path: "lab/svc/redis", Node: "node-a", ResourceID: "container#redis",
+		Path: "example/svc/cache", Node: "node-a", ResourceID: "container#redis",
 	})
 	if !errors.Is(err, want) {
 		t.Fatalf("got error %v, want stream error", err)

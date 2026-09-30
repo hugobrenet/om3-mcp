@@ -16,6 +16,7 @@ import (
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/client"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/config"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/core"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/oauth"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/tools"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -65,7 +66,7 @@ func main() {
 	signalContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 	if cfg.Transport == "https" {
-		log.Printf("%s %s listening on https://%s/mcp (TCP; remote OAuth pending)", serverName, serverVersion, listener.Addr())
+		log.Printf("%s %s listening on https://%s/mcp (TCP; remote login prototype)", serverName, serverVersion, listener.Addr())
 	} else {
 		log.Printf("%s %s listening on unix://%s (HTTP /mcp)", serverName, serverVersion, cfg.SocketPath)
 	}
@@ -91,6 +92,13 @@ func main() {
 // separate OpenSVC credentials. Local JWT delegation remains Unix-only.
 func newMCPHandler(cfg config.Config) (http.Handler, error) {
 	if cfg.Transport == "https" {
+		if cfg.OAuth.PublicURL != "" {
+			server, err := oauth.New(cfg.OAuth)
+			if err != nil {
+				return nil, fmt.Errorf("configure remote OAuth prototype: %w", err)
+			}
+			return server.Handler(), nil
+		}
 		mux := http.NewServeMux()
 		mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/problem+json")

@@ -115,6 +115,32 @@ func TestNewJWTVerifierRejectsMissingFile(t *testing.T) {
 	}
 }
 
+func TestJWTVerifierFromPublicBundle(t *testing.T) {
+	firstKey, firstFile := writeJWTTestCertificate(t)
+	secondKey, secondFile := writeJWTTestCertificate(t)
+	firstPEM, err := os.ReadFile(firstFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPEM, err := os.ReadFile(secondFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := NewJWTVerifierFromPEM(append(firstPEM, secondPEM...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []*rsa.PrivateKey{firstKey, secondKey} {
+		token := signTestJWT(t, key, jwt.MapClaims{"sub": "alice", "iss": "node-a", "exp": time.Now().Add(time.Minute).Unix(), "token_use": "access"})
+		if _, err := verifier.Verify(t.Context(), token, nil); err != nil {
+			t.Fatal("trusted bundle key was not accepted")
+		}
+	}
+	if _, err := NewJWTVerifierFromPEM([]byte("invalid public key")); err == nil {
+		t.Fatal("invalid public material accepted")
+	}
+}
+
 func writeJWTTestCertificate(t *testing.T) (*rsa.PrivateKey, string) {
 	t.Helper()
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)

@@ -16,18 +16,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/daemonlogin"
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 )
 
 const (
-	clientLifetime  = 24 * time.Hour
-	requestLifetime = 10 * time.Minute
-	maxClients      = 256
-	maxRequests     = 256
-	maxBodyBytes    = 16 << 10
-	maxQueryBytes   = 8 << 10
-	loginCookieName = "__Host-opensvc-mcp-login"
+	clientLifetime      = 24 * time.Hour
+	requestLifetime     = 10 * time.Minute
+	maxClients          = 256
+	maxRequests         = 256
+	maxBodyBytes        = 16 << 10
+	maxQueryBytes       = 8 << 10
+	loginCookieName     = "__Host-opensvc-mcp-login"
+	sessionCookieName   = "__Host-opensvc-mcp-session"
+	maxLoginAttempts    = 5
+	maxConcurrentLogins = 16
+	maxSessions         = 256
 )
 
 type client struct {
@@ -48,23 +53,33 @@ type authorization struct {
 	State         string
 	CodeChallenge string
 	ExpiresAt     time.Time
+	CSRFToken     string
+	Attempts      int
+	InFlight      bool
 }
 
-// Server owns bounded, expiring prototype state. It has no daemon client and
-// no token issuer. A process restart intentionally invalidates this state.
+type authenticatedSession struct {
+	Authorization authorization
+	Daemon        daemonlogin.Session
+}
+
+// Server owns bounded, expiring state. OpenSVC JWTs stay in memory, associated
+// with the original authorization request. There is no MCP token issuer yet.
 type Server struct {
 	cfg      Config
 	now      func() time.Time
 	mu       sync.Mutex
 	clients  map[string]client
 	requests map[string]authorization
+	sessions map[string]authenticatedSession
+	inFlight int
 }
 
 func New(cfg Config) (*Server, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	return &Server{cfg: cfg, now: time.Now, clients: make(map[string]client), requests: make(map[string]authorization)}, nil
+	return &Server{cfg: cfg, now: time.Now, clients: make(map[string]client), requests: make(map[string]authorization), sessions: make(map[string]authenticatedSession)}, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -86,7 +101,7 @@ func (s *Server) Handler() http.Handler {
 		if !method(w, r, http.MethodPost) {
 			return
 		}
-		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "This prototype stops at the login form; token issuance is not available.")
+		oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "OpenSVC login is available; MCP token issuance is not available yet.")
 	})
 	return mux
 }
@@ -121,7 +136,7 @@ func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
 func (s *Server) challenge(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+s.cfg.PublicURL+`/.well-known/oauth-protected-resource/mcp", scope="`+Scope+`"`)
 	// No token is valid until the next increment adds an issuer and verifier.
-	oauthError(w, http.StatusUnauthorized, "invalid_token", "OAuth authorization is required; this prototype stops at the login form.")
+	oauthError(w, http.StatusUnauthorized, "invalid_token", "OAuth authorization is required; MCP token issuance is not available yet.")
 }
 
 type registration struct {
@@ -251,6 +266,11 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, 500, "server_error", "Unable to create an authorization request.")
 		return
 	}
+	csrfToken, err := randomID()
+	if err != nil {
+		oauthError(w, 500, "server_error", "Unable to create an authorization request.")
+		return
+	}
 	s.mu.Lock()
 	now := s.now()
 	s.prune(now)
@@ -269,7 +289,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 	s.requests[id] = authorization{
 		ClientID: c.ID, ClientName: c.Name,
 		RedirectURI: q.Get("redirect_uri"), Resource: q.Get("resource"), Scope: Scope,
-		State: q.Get("state"), CodeChallenge: challenge, ExpiresAt: now.Add(requestLifetime),
+		State: q.Get("state"), CodeChallenge: challenge, ExpiresAt: now.Add(requestLifetime), CSRFToken: csrfToken,
 	}
 	s.mu.Unlock()
 	noStore(w)
@@ -289,6 +309,12 @@ func (s *Server) prune(now time.Time) {
 		_, exists := s.clients[request.ClientID]
 		if !now.Before(request.ExpiresAt) || !exists {
 			delete(s.requests, id)
+		}
+	}
+	for id, session := range s.sessions {
+		_, exists := s.clients[session.Authorization.ClientID]
+		if !now.Before(session.Daemon.ExpiresAt) || !exists {
+			delete(s.sessions, id)
 		}
 	}
 }

@@ -128,7 +128,7 @@ func TestPrototypeDiscoveryRegistrationAuthorizationAndLogin(t *testing.T) {
 	id := registerClient(t, s, "Codex")
 	q := authorizationQuery(s, id)
 	w := request(s, "GET", "/authorize?"+q.Encode(), "")
-	if w.Code != 303 || w.Header().Get("Location") != s.cfg.PublicURL+"/login" {
+	if w.Code != 303 || w.Header().Get("Location") != s.cfg.PublicURL+"/login" || w.Header().Get("Referrer-Policy") != "no-referrer" {
 		t.Fatalf("authorize: %d %s", w.Code, w.Body.String())
 	}
 	cookie := loginCookie(t, w)
@@ -137,16 +137,16 @@ func TestPrototypeDiscoveryRegistrationAuthorizationAndLogin(t *testing.T) {
 		t.Fatalf("request context lost binding: %+v", context)
 	}
 	page := request(s, "GET", "/login", "", cookie)
-	if page.Code != 200 || page.Header().Get("Content-Type") != "text/html; charset=utf-8" || page.Header().Get("Cache-Control") != "no-store" || page.Header().Get("Referrer-Policy") != "no-referrer" || !strings.Contains(page.Header().Get("Content-Security-Policy"), "form-action 'none'") {
+	if page.Code != 200 || page.Header().Get("Content-Type") != "text/html; charset=utf-8" || page.Header().Get("Cache-Control") != "no-store" || page.Header().Get("Referrer-Policy") != "same-origin" || !strings.Contains(page.Header().Get("Content-Security-Policy"), "form-action 'self'") {
 		t.Fatalf("login response: %d %v", page.Code, page.Header())
 	}
-	for _, expected := range []string{"Codex", `<select id="cluster" name="cluster_ref" required>`, `<option value="" disabled selected>`, `<option value="cluster-a">Example cluster</option>`, `<option value="cluster-b">Second example cluster</option>`, "Prototype", `<fieldset disabled>`, `type="password"`, `<button type="submit" disabled>`} {
+	for _, expected := range []string{"Codex", `<select id="cluster" name="cluster_ref" required>`, `<option value="" disabled selected>`, `<option value="cluster-a">Example cluster</option>`, `<option value="cluster-b">Second example cluster</option>`, `name="csrf_token"`, `<fieldset>`, `type="password"`, `<button type="submit">`} {
 		if !strings.Contains(page.Body.String(), expected) {
 			t.Errorf("login page is missing %q", expected)
 		}
 	}
-	if strings.Index(page.Body.String(), "</select>") > strings.Index(page.Body.String(), "<fieldset disabled>") {
-		t.Fatal("cluster selection must remain outside disabled credential controls")
+	if strings.Index(page.Body.String(), "</select>") > strings.Index(page.Body.String(), "<fieldset>") {
+		t.Fatal("cluster selection must precede credential controls")
 	}
 	for _, cluster := range s.cfg.Clusters.List() {
 		for _, hidden := range append(cluster.Endpoints, cluster.ExpectedClusterID, cluster.CAFile, string(cluster.CAPEM)) {
@@ -273,12 +273,12 @@ func (b forbiddenBody) Read([]byte) (int, error) {
 }
 func (forbiddenBody) Close() error { return nil }
 
-func TestPrototypeDoesNotReadCredentialsOrIssueTokens(t *testing.T) {
+func TestPrototypeDoesNotReadInvalidContextCredentialsOrIssueMCPTokens(t *testing.T) {
 	s := prototype(t)
 	for _, tc := range []struct {
 		path   string
 		status int
-	}{{"/login", 405}, {"/token", 503}} {
+	}{{"/login", 400}, {"/token", 503}} {
 		r := httptest.NewRequest("POST", s.cfg.PublicURL+tc.path, nil)
 		r.Body = forbiddenBody{t}
 		w := httptest.NewRecorder()

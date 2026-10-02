@@ -1,87 +1,127 @@
+// Package auth checks delegated JWT claims and routing, not signatures.
+// Only the target daemon authenticates the credential.
 package auth
 
 import (
 	"context"
-	"crypto/rsa"
 	"errors"
-	"fmt"
 	"net/http"
-	"os"
 	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
-	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
 )
 
-type jwtClaims struct {
-	Grant    []string `json:"grant"`
-	TokenUse string   `json:"token_use"`
+const (
+	maxTokenBytes   = 32 << 10
+	maxMCPBodyBytes = 1 << 20
+)
+
+var errUnauthorized = errors.New("invalid native OpenSVC access token")
+
+type claims struct {
+	ClusterID string `json:"cluster_id"`
+	TokenUse  string `json:"token_use"`
 	jwt.RegisteredClaims
 }
 
-// JWTVerifier validates OpenSVC access JWTs signed by the cluster CA.
-type JWTVerifier struct {
-	publicKey *rsa.PublicKey
+// Delegation describes UNVERIFIED claims for routing only. It is not an
+// authenticated identity and must never grant access to MCP-local user data.
+type Delegation struct {
+	ClusterID string
+	Issuer    string
+	Subject   string
+	ExpiresAt time.Time
 }
 
-// NewJWTVerifier loads the RSA public key from an OpenSVC cluster CA certificate or public-key file.
-func NewJWTVerifier(verifyKeyFile string) (*JWTVerifier, error) {
-	if strings.TrimSpace(verifyKeyFile) == "" {
-		return nil, fmt.Errorf("OpenSVC JWT verification key file path is empty")
+type Checker struct{ nodes map[string]map[string]string }
+
+func NewChecker(catalog *clusterconfig.Catalog) (*Checker, error) {
+	if catalog.Len() == 0 {
+		return nil, errors.New("JWT delegation requires a cluster catalogue")
 	}
-	keyPEM, err := os.ReadFile(verifyKeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("read OpenSVC JWT verification key file %q: %w", verifyKeyFile, err)
+	c := &Checker{nodes: make(map[string]map[string]string)}
+	for _, cluster := range catalog.List() {
+		c.nodes[cluster.ExpectedClusterID] = cluster.Nodes
 	}
-	publicKey, err := jwt.ParseRSAPublicKeyFromPEM(keyPEM)
-	if err != nil {
-		return nil, fmt.Errorf("parse OpenSVC JWT RSA verification key file %q: %w", verifyKeyFile, err)
-	}
-	return &JWTVerifier{publicKey: publicKey}, nil
+	return c, nil
 }
 
-// Verify implements the MCP SDK bearer-token verifier contract.
-func (v *JWTVerifier) Verify(_ context.Context, rawToken string, _ *http.Request) (*mcpauth.TokenInfo, error) {
-	claims := &jwtClaims{}
-	token, err := jwt.ParseWithClaims(
-		rawToken,
-		claims,
-		func(token *jwt.Token) (any, error) {
-			if token.Method != jwt.SigningMethodRS256 {
-				return nil, fmt.Errorf("unexpected signing method %q", token.Method.Alg())
+func (c *Checker) Check(raw string) (Delegation, error) {
+	if raw == "" || len(raw) > maxTokenBytes {
+		return Delegation{}, errUnauthorized
+	}
+	var parsed claims
+	token, _, err := jwt.NewParser().ParseUnverified(raw, &parsed)
+	// Keeping the native token shape does not prove the signature is genuine.
+	if err != nil || token == nil || token.Method != jwt.SigningMethodRS256 {
+		return Delegation{}, errUnauthorized
+	}
+	if err := jwt.NewValidator(jwt.WithExpirationRequired()).Validate(&parsed); err != nil {
+		return Delegation{}, errUnauthorized
+	}
+	if !validClaimText(parsed.Subject) || parsed.TokenUse != "access" || parsed.ExpiresAt == nil {
+		return Delegation{}, errUnauthorized
+	}
+	nodes, ok := c.nodes[parsed.ClusterID]
+	if !ok {
+		return Delegation{}, errUnauthorized
+	}
+	if _, ok := nodes[parsed.Issuer]; !ok {
+		return Delegation{}, errUnauthorized
+	}
+	return Delegation{ClusterID: parsed.ClusterID, Issuer: parsed.Issuer, Subject: parsed.Subject, ExpiresAt: parsed.ExpiresAt.Time}, nil
+}
+
+func validClaimText(s string) bool {
+	return len(s) > 0 && len(s) <= 256 && strings.TrimSpace(s) == s && utf8.ValidString(s) && !strings.ContainsFunc(s, func(r rune) bool { return unicode.IsControl(r) || unicode.In(r, unicode.Cf) })
+}
+
+type contextKey struct{}
+type credential struct {
+	delegation Delegation
+	token      string
+}
+
+// FromContext never returns credentials for an expired request. Only the
+// claim-checking middleware can populate this request-scoped context. These
+// claims remain unverified: the daemon alone authenticates the bearer.
+func FromContext(ctx context.Context) (Delegation, string, bool) {
+	c, ok := ctx.Value(contextKey{}).(credential)
+	if !ok || ctx.Err() != nil || !time.Now().Before(c.delegation.ExpiresAt) {
+		return Delegation{}, "", false
+	}
+	return c.delegation, c.token, true
+}
+
+func (c *Checker) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		values := r.Header.Values("Authorization")
+		var raw string
+		if len(values) == 1 {
+			parts := strings.Fields(values[0])
+			if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+				raw = parts[1]
 			}
-			return v.publicKey, nil
-		},
-		jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}),
-		jwt.WithExpirationRequired(),
-	)
-	if err != nil || !token.Valid {
-		return nil, invalidToken("signature or registered claims validation failed")
-	}
-	if claims.Subject == "" {
-		return nil, invalidToken("subject claim is missing")
-	}
-	if claims.Issuer == "" {
-		return nil, invalidToken("issuer claim is missing")
-	}
-	if claims.TokenUse != "access" {
-		return nil, invalidToken("token_use claim is not access")
-	}
-	if claims.ExpiresAt == nil {
-		return nil, invalidToken("expiration claim is missing")
-	}
-
-	return &mcpauth.TokenInfo{
-		UserID:     claims.Subject,
-		Scopes:     append([]string(nil), claims.Grant...),
-		Expiration: claims.ExpiresAt.Time,
-		Extra: map[string]any{
-			"issuer":    claims.Issuer,
-			"token_use": claims.TokenUse,
-		},
-	}, nil
-}
-
-func invalidToken(reason string) error {
-	return errors.Join(mcpauth.ErrInvalidToken, errors.New(reason))
+		}
+		delegation, err := c.Check(raw)
+		// Tokens in query strings are never an alternative authentication path.
+		if err != nil || r.URL.Query().Has("access_token") {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"type":"about:blank","title":"Unauthorized","status":401,"detail":"A native OpenSVC access JWT with acceptable claims is required."}`))
+			return
+		}
+		ctx, cancel := context.WithDeadline(r.Context(), delegation.ExpiresAt)
+		defer cancel()
+		ctx = context.WithValue(ctx, contextKey{}, credential{delegation: delegation, token: raw})
+		r.Body = http.MaxBytesReader(w, r.Body, maxMCPBodyBytes)
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }

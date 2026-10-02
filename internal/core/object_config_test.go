@@ -12,7 +12,7 @@ import (
 func TestGetObjectConfig(t *testing.T) {
 	client := &recordingJSONGetter{
 		t:    t,
-		path: "/api/object/path/lab/svc/redis/config",
+		path: "/api/object/path/example/svc/cache/config",
 		query: url.Values{
 			"evaluate": {"false"},
 			"kw":       {"container#redis.image", "container#redis.image_pull_policy"},
@@ -20,14 +20,14 @@ func TestGetObjectConfig(t *testing.T) {
 		payload: `{
 			"kind":"KeywordList",
 			"items":[
-				{"object":"lab/svc/redis","node":"","keyword":"container#redis.image_pull_policy","value":"once","evaluated_as":""},
-				{"object":"lab/svc/redis","node":"","keyword":"container#redis.image","value":"redis:7-alpine","evaluated_as":""}
+				{"object":"example/svc/cache","node":"","keyword":"container#redis.image_pull_policy","value":"once","evaluated_as":""},
+				{"object":"example/svc/cache","node":"","keyword":"container#redis.image","value":"redis:7-alpine","evaluated_as":""}
 			]
 		}`,
 	}
 
 	result, err := New(client).GetObjectConfig(context.Background(), GetObjectConfigOptions{
-		Path: " lab/svc/redis ",
+		Path: " example/svc/cache ",
 		Keywords: []string{
 			" container#redis.image_pull_policy ",
 			"container#redis.image",
@@ -37,7 +37,7 @@ func TestGetObjectConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get object config: %v", err)
 	}
-	if result.Object.Path != "lab/svc/redis" || result.Total != 2 || result.Count != 2 || result.Truncated || result.ValuesTruncated != 0 {
+	if result.Object.Path != "example/svc/cache" || result.Total != 2 || result.Count != 2 || result.Truncated || result.ValuesTruncated != 0 {
 		t.Fatalf("got unexpected object config metadata %+v", result)
 	}
 	wantFilter := []string{"container#redis.image", "container#redis.image_pull_policy"}
@@ -57,19 +57,19 @@ func TestGetObjectConfigBoundsItemsAndValues(t *testing.T) {
 	longValue := strings.Repeat("é", maxObjectConfigValueRunes+1)
 	client := &recordingJSONGetter{
 		t:     t,
-		path:  "/api/object/path/lab/svc/redis/config",
+		path:  "/api/object/path/example/svc/cache/config",
 		query: url.Values{"evaluate": {"false"}},
 		payload: `{
 			"kind":"KeywordList",
 			"items":[
-				{"object":"lab/svc/redis","keyword":"z.option","value":"omitted","evaluated_as":""},
-				{"object":"lab/svc/redis","keyword":"a.option","value":` + quoteJSON(t, longValue) + `,"evaluated_as":""}
+				{"object":"example/svc/cache","keyword":"z.option","value":"omitted","evaluated_as":""},
+				{"object":"example/svc/cache","keyword":"a.option","value":` + quoteJSON(t, longValue) + `,"evaluated_as":""}
 			]
 		}`,
 	}
 
 	result, err := New(client).GetObjectConfig(context.Background(), GetObjectConfigOptions{
-		Path: "lab/svc/redis", Limit: 1,
+		Path: "example/svc/cache", Limit: 1,
 	})
 	if err != nil {
 		t.Fatalf("get object config: %v", err)
@@ -86,7 +86,7 @@ func TestGetObjectConfigAppliesAggregateValueBudget(t *testing.T) {
 	response := daemonObjectConfig{Kind: "KeywordList"}
 	for index := 0; index < 17; index++ {
 		response.Items = append(response.Items, daemonObjectConfigItem{
-			Object:  "lab/svc/redis",
+			Object:  "example/svc/cache",
 			Keyword: "option." + string(rune('a'+index)),
 			Value:   strings.Repeat("x", maxObjectConfigValueRunes),
 		})
@@ -96,11 +96,11 @@ func TestGetObjectConfigAppliesAggregateValueBudget(t *testing.T) {
 		t.Fatalf("marshal daemon response: %v", err)
 	}
 	client := &recordingJSONGetter{
-		t: t, path: "/api/object/path/lab/svc/redis/config",
+		t: t, path: "/api/object/path/example/svc/cache/config",
 		query: url.Values{"evaluate": {"false"}}, payload: string(payload),
 	}
 
-	result, err := New(client).GetObjectConfig(context.Background(), GetObjectConfigOptions{Path: "lab/svc/redis"})
+	result, err := New(client).GetObjectConfig(context.Background(), GetObjectConfigOptions{Path: "example/svc/cache"})
 	if err != nil {
 		t.Fatalf("get object config: %v", err)
 	}
@@ -117,10 +117,10 @@ func TestGetObjectConfigRejectsInvalidInputBeforeDaemonCall(t *testing.T) {
 		name    string
 		options GetObjectConfigOptions
 	}{
-		{name: "limit", options: GetObjectConfigOptions{Path: "lab/svc/redis", Limit: maxGetObjectConfigLimit + 1}},
-		{name: "empty keyword", options: GetObjectConfigOptions{Path: "lab/svc/redis", Keywords: []string{" "}}},
-		{name: "long keyword", options: GetObjectConfigOptions{Path: "lab/svc/redis", Keywords: []string{strings.Repeat("x", maxObjectConfigKeywordLength+1)}}},
-		{name: "too many keywords", options: GetObjectConfigOptions{Path: "lab/svc/redis", Keywords: make([]string, maxObjectConfigKeywordFilters+1)}},
+		{name: "limit", options: GetObjectConfigOptions{Path: "example/svc/cache", Limit: maxGetObjectConfigLimit + 1}},
+		{name: "empty keyword", options: GetObjectConfigOptions{Path: "example/svc/cache", Keywords: []string{" "}}},
+		{name: "long keyword", options: GetObjectConfigOptions{Path: "example/svc/cache", Keywords: []string{strings.Repeat("x", maxObjectConfigKeywordLength+1)}}},
+		{name: "too many keywords", options: GetObjectConfigOptions{Path: "example/svc/cache", Keywords: make([]string, maxObjectConfigKeywordFilters+1)}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -142,16 +142,16 @@ func TestGetObjectConfigRejectsUnexpectedDaemonData(t *testing.T) {
 	}{
 		{name: "kind", payload: `{"kind":"OtherList","items":[]}`},
 		{name: "object", payload: `{"kind":"KeywordList","items":[{"object":"lab/svc/other","keyword":"id","value":"1"}]}`},
-		{name: "empty keyword", payload: `{"kind":"KeywordList","items":[{"object":"lab/svc/redis","keyword":"","value":"1"}]}`},
-		{name: "evaluated value", payload: `{"kind":"KeywordList","items":[{"object":"lab/svc/redis","keyword":"id","value":"1","evaluated":"1","evaluated_as":"node-a"}]}`},
+		{name: "empty keyword", payload: `{"kind":"KeywordList","items":[{"object":"example/svc/cache","keyword":"","value":"1"}]}`},
+		{name: "evaluated value", payload: `{"kind":"KeywordList","items":[{"object":"example/svc/cache","keyword":"id","value":"1","evaluated":"1","evaluated_as":"node-a"}]}`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := &recordingJSONGetter{
-				t: t, path: "/api/object/path/lab/svc/redis/config",
+				t: t, path: "/api/object/path/example/svc/cache/config",
 				query: url.Values{"evaluate": {"false"}}, payload: test.payload,
 			}
-			if _, err := New(client).GetObjectConfig(context.Background(), GetObjectConfigOptions{Path: "lab/svc/redis"}); err == nil {
+			if _, err := New(client).GetObjectConfig(context.Background(), GetObjectConfigOptions{Path: "example/svc/cache"}); err == nil {
 				t.Fatal("GetObjectConfig succeeded, want an error")
 			}
 		})

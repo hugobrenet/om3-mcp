@@ -2,87 +2,59 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/client"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
 )
 
-const (
-	defaultDaemonURL        = "https://127.0.0.1:1215"
-	defaultSocketPath       = "/run/opensvc-daemon-mcp/mcp.sock"
-	defaultJWTVerifyKeyFile = "/var/lib/opensvc/certs/ca_certificates"
-	defaultTLSInsecure      = false
-	maximumUnixPathBytes    = 107
-	minDaemonRequestTimeout = time.Second
-	maxDaemonRequestTimeout = 2 * time.Minute
-)
+const defaultListenAddress = "127.0.0.1:8443"
 
-// Config contains the runtime configuration of the MCP server process.
+// Config contains the runtime configuration of the HTTPS MCP server process.
 type Config struct {
-	DaemonURL        string
-	SocketPath       string
-	JWTVerifyKeyFile string
-	HTTP             client.HTTPOptions
+	ListenAddress     string
+	TLSCertFile       string
+	TLSKeyFile        string
+	Clusters          *clusterconfig.Catalog
+	ClusterConfigFile string
 }
 
 // Load reads and validates process configuration from environment variables.
 func Load() (Config, error) {
-	tlsInsecure, err := strconv.ParseBool(
-		getenv("OPENSVC_DAEMON_TLS_INSECURE", strconv.FormatBool(defaultTLSInsecure)),
-	)
+	listenAddress := strings.TrimSpace(os.Getenv("OPENSVC_MCP_LISTEN_ADDR"))
+	if listenAddress == "" {
+		listenAddress = defaultListenAddress
+	}
+	if err := validateListenAddress(listenAddress); err != nil {
+		return Config{}, fmt.Errorf("parse OPENSVC_MCP_LISTEN_ADDR: %w", err)
+	}
+	certFile := strings.TrimSpace(os.Getenv("OPENSVC_MCP_TLS_CERT_FILE"))
+	keyFile := strings.TrimSpace(os.Getenv("OPENSVC_MCP_TLS_KEY_FILE"))
+	if !filepath.IsAbs(certFile) || !filepath.IsAbs(keyFile) {
+		return Config{}, fmt.Errorf("OPENSVC_MCP_TLS_CERT_FILE and OPENSVC_MCP_TLS_KEY_FILE must be absolute file paths")
+	}
+	clusterFile := strings.TrimSpace(os.Getenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE"))
+	catalog, err := clusterconfig.Load(clusterFile)
 	if err != nil {
-		return Config{}, fmt.Errorf("parse OPENSVC_DAEMON_TLS_INSECURE: %w", err)
+		return Config{}, fmt.Errorf("OPENSVC_MCP_CLUSTER_CONFIG_FILE: %w", err)
 	}
-	daemonRequestTimeout, err := time.ParseDuration(
-		getenv("OPENSVC_DAEMON_REQUEST_TIMEOUT", client.DefaultRequestTimeout.String()),
-	)
-	if err != nil {
-		return Config{}, fmt.Errorf("parse OPENSVC_DAEMON_REQUEST_TIMEOUT: %w", err)
-	}
-	if daemonRequestTimeout < minDaemonRequestTimeout || daemonRequestTimeout > maxDaemonRequestTimeout {
-		return Config{}, fmt.Errorf(
-			"OPENSVC_DAEMON_REQUEST_TIMEOUT must be between %s and %s",
-			minDaemonRequestTimeout,
-			maxDaemonRequestTimeout,
-		)
-	}
-	socketPath, err := cleanUnixSocketPath(getenv("OPENSVC_MCP_SOCKET_PATH", defaultSocketPath))
-	if err != nil {
-		return Config{}, fmt.Errorf("parse OPENSVC_MCP_SOCKET_PATH: %w", err)
-	}
-	return Config{
-		DaemonURL:        getenv("OPENSVC_DAEMON_URL", defaultDaemonURL),
-		SocketPath:       socketPath,
-		JWTVerifyKeyFile: getenv("OPENSVC_MCP_JWT_VERIFY_KEY_FILE", defaultJWTVerifyKeyFile),
-		HTTP: client.HTTPOptions{
-			TLSInsecure: tlsInsecure,
-			TLSCAFile:   os.Getenv("OPENSVC_DAEMON_TLS_CA_FILE"),
-			Timeout:     daemonRequestTimeout,
-		},
-	}, nil
+	return Config{ListenAddress: listenAddress, TLSCertFile: certFile, TLSKeyFile: keyFile, Clusters: catalog, ClusterConfigFile: clusterFile}, nil
 }
 
-func cleanUnixSocketPath(value string) (string, error) {
-	path := filepath.Clean(strings.TrimSpace(value))
-	if !filepath.IsAbs(path) {
-		return "", fmt.Errorf("path must be absolute")
+func validateListenAddress(address string) error {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("expected IP:port: %w", err)
 	}
-	if path == string(filepath.Separator) {
-		return "", fmt.Errorf("path must name a socket")
+	if net.ParseIP(host) == nil {
+		return fmt.Errorf("host must be an explicit IPv4 or IPv6 address")
 	}
-	if len([]byte(path)) > maximumUnixPathBytes {
-		return "", fmt.Errorf("path exceeds the Linux Unix socket limit of %d bytes", maximumUnixPathBytes)
+	portNumber, err := strconv.Atoi(port)
+	if err != nil || portNumber < 1 || portNumber > 65535 {
+		return fmt.Errorf("port must be a number between 1 and 65535")
 	}
-	return path, nil
-}
-
-func getenv(name string, fallback string) string {
-	if value := os.Getenv(name); value != "" {
-		return value
-	}
-	return fallback
+	return nil
 }

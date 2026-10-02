@@ -9,8 +9,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/auth"
 )
 
 func TestGetFile(t *testing.T) {
@@ -24,19 +22,19 @@ func TestGetFile(t *testing.T) {
 		if got := request.Header.Get("Accept"); got != "application/octet-stream" {
 			t.Errorf("got Accept %q, want application/octet-stream", got)
 		}
-		if got := request.Header.Get("Authorization"); got != "Bearer delegated-token" {
-			t.Errorf("got Authorization %q, want delegated token", got)
+		if got := request.Header.Get("Authorization"); got != "Bearer test-daemon-token" {
+			t.Errorf("got Authorization %q, want daemon token", got)
 		}
 		response.Header().Set("Content-Type", "application/octet-stream")
 		fmt.Fprint(response, "[cluster]\nname = prod\n")
 	}))
 	defer server.Close()
 
-	apiClient, err := New(server.URL, server.Client())
+	apiClient, err := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
 	if err != nil {
 		t.Fatalf("create API client: %v", err)
 	}
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	ctx := context.Background()
 	payload, err := apiClient.GetFile(ctx, "/api/cluster/config/file", url.Values{"redact-secrets": {"true"}})
 	if err != nil {
 		t.Fatalf("GET file: %v", err)
@@ -53,8 +51,8 @@ func TestGetFileRejectsUnexpectedContentType(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, _ := New(server.URL, server.Client())
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	apiClient, _ := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
+	ctx := context.Background()
 	_, err := apiClient.GetFile(ctx, "/api/cluster/config/file", nil)
 	if err == nil || !strings.Contains(err.Error(), "unexpected content type") {
 		t.Fatalf("got error %v, want content type error", err)
@@ -68,8 +66,8 @@ func TestGetFileBoundsResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, _ := New(server.URL, server.Client())
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	apiClient, _ := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
+	ctx := context.Background()
 	_, err := apiClient.GetFile(ctx, "/api/cluster/config/file", nil)
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("got error %v, want oversized response error", err)
@@ -84,8 +82,8 @@ func TestGetFilePreservesDaemonError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	apiClient, _ := New(server.URL, server.Client())
-	ctx := auth.WithBearerToken(context.Background(), "delegated-token")
+	apiClient, _ := New(server.URL, daemonTestHTTPClient(server.Client(), "test-daemon-token"))
+	ctx := context.Background()
 	_, err := apiClient.GetFile(ctx, "/api/cluster/config/file", nil)
 	var apiError *APIError
 	if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusForbidden || apiError.Detail != "need one of [root] grant" {

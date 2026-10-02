@@ -35,7 +35,7 @@ Accept: application/octet-stream
 
 The MCP always sends `redact-secrets=true`. This choice is fixed and is not an
 MCP input, so a model cannot request the unredacted form. The OpenSVC daemon
-performs the redaction and requires the global `root` grant. The delegated JWT
+performs the redaction and requires the global `root` grant. The OpenSVC JWT
 therefore controls access at the daemon. The call reads the current
 `cluster.conf` file rather than the cluster status cache and does not refresh
 drivers or change daemon state.
@@ -71,7 +71,7 @@ from the smaller MCP output limit.
 | Open world | No; only the configured daemon is contacted |
 | Side effects | None |
 
-Annotations are client hints; OpenSVC enforces access using the delegated JWT.
+Annotations are client hints; OpenSVC enforces access using the OpenSVC JWT.
 
 #### Example
 
@@ -98,7 +98,7 @@ Output:
 
 | Condition | Result |
 |---|---|
-| Invalid MCP JWT | MCP HTTP `401` |
+| Missing, invalid or expired native OpenSVC JWT | MCP HTTP `401` |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | Cluster configuration file missing | Tool error containing daemon HTTP `404` |
 | Response above 1 MiB | Tool error before any content is returned |
@@ -128,7 +128,7 @@ status. Node monitor, heartbeat, stream, object, boot, leave, and rejoin
 timestamps remain separate source facts.
 
 The endpoint accepts a global `guest` or higher grant. OpenSVC applies the
-delegated JWT and filters objects according to namespace grants. Object totals,
+OpenSVC JWT and filters objects according to namespace grants. Object totals,
 state counts, and pages therefore describe only the caller-visible view.
 
 #### Input and pagination
@@ -248,7 +248,7 @@ Abbreviated representative output for a two-node cluster:
 {
   "provenance": {"source":"opensvc_daemon","observed_at":"2026-09-23T15:00:33Z"},
   "cluster": {
-    "id":"a9601756-8a8a-440c-a2bb-1721b73dd280",
+    "id":"00000000-0000-4000-8000-000000000001",
     "name":"cluster-a",
     "quorum_enabled":false,
     "is_compatible":true,
@@ -291,7 +291,7 @@ output schema and implementation always return their complete typed shapes.
 
 | Condition | Result |
 |---|---|
-| Invalid MCP JWT | MCP HTTP `401` |
+| Missing, invalid or expired native OpenSVC JWT | MCP HTTP `401` |
 | Insufficient daemon grants | Tool error containing daemon HTTP `403` |
 | Invalid page limit or oversized cursor | Tool error before the daemon request |
 | Daemon unavailable or malformed status | Tool error; no partial snapshot |

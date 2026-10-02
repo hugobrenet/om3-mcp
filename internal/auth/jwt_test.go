@@ -1,152 +1,156 @@
 package auth
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
-	"math/big"
-	"os"
-	"path/filepath"
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/testutil"
 )
 
-func TestJWTVerifier(t *testing.T) {
-	privateKey, certificateFile := writeJWTTestCertificate(t)
-	verifier, err := NewJWTVerifier(certificateFile)
+func TestCheckNativeJWTClaimsWithoutSignature(t *testing.T) {
+	key := testutil.NewJWTKey(t)
+	catalog, err := clusterconfig.Load(testutil.WriteTarget(t, "Example", "cluster-id", "", map[string]string{"node-a": "https://192.0.2.20:1215"}))
 	if err != nil {
-		t.Fatalf("create JWT verifier: %v", err)
+		t.Fatal(err)
 	}
-	token := signTestJWT(t, privateKey, jwt.MapClaims{
-		"exp":       time.Now().Add(time.Hour).Unix(),
-		"grant":     []string{"guest", "operator"},
-		"iss":       "node-a",
-		"sub":       "alice",
-		"token_use": "access",
-	})
-
-	info, err := verifier.Verify(t.Context(), token, nil)
+	v, err := NewChecker(catalog)
 	if err != nil {
-		t.Fatalf("verify JWT: %v", err)
+		t.Fatal(err)
 	}
-	if info.UserID != "alice" {
-		t.Errorf("got user ID %q, want alice", info.UserID)
+	raw := testutil.AccessToken(t, key, "cluster-id", "node-a", "alice", nil)
+	identity, err := v.Check(raw)
+	if err != nil || identity.ClusterID != "cluster-id" || identity.Issuer != "node-a" || identity.Subject != "alice" {
+		t.Fatalf("identity=%+v err=%v", identity, err)
 	}
-	if len(info.Scopes) != 2 || info.Scopes[0] != "guest" || info.Scopes[1] != "operator" {
-		t.Errorf("got scopes %#v, want OpenSVC grants", info.Scopes)
+	other := testutil.NewJWTKey(t)
+	badSignature := testutil.AccessToken(t, other, "cluster-id", "node-a", "alice", nil)
+	if _, err := v.Check(badSignature); err != nil {
+		t.Fatal("signature was checked locally instead of delegated to the daemon")
 	}
-}
-
-func TestJWTVerifierRejectsInvalidClaims(t *testing.T) {
-	privateKey, certificateFile := writeJWTTestCertificate(t)
-	verifier, err := NewJWTVerifier(certificateFile)
+	hmac, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"cluster_id": "cluster-id", "iss": "node-a", "sub": "alice", "exp": time.Now().Add(time.Hour).Unix(), "token_use": "access"}).SignedString([]byte("not-a-trusted-key"))
 	if err != nil {
-		t.Fatalf("create JWT verifier: %v", err)
+		t.Fatal(err)
 	}
-
-	valid := jwt.MapClaims{
-		"exp":       time.Now().Add(time.Hour).Unix(),
-		"grant":     []string{"guest"},
-		"iss":       "node-a",
-		"sub":       "alice",
-		"token_use": "access",
-	}
-	for _, test := range []struct {
-		name   string
-		change func(jwt.MapClaims)
-	}{
-		{name: "expired", change: func(claims jwt.MapClaims) { claims["exp"] = time.Now().Add(-time.Minute).Unix() }},
-		{name: "missing subject", change: func(claims jwt.MapClaims) { delete(claims, "sub") }},
-		{name: "missing issuer", change: func(claims jwt.MapClaims) { delete(claims, "iss") }},
-		{name: "refresh token", change: func(claims jwt.MapClaims) { claims["token_use"] = "refresh" }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			claims := jwt.MapClaims{}
-			for key, value := range valid {
-				claims[key] = value
-			}
-			test.change(claims)
-			token := signTestJWT(t, privateKey, claims)
-			if _, err := verifier.Verify(t.Context(), token, nil); err == nil {
-				t.Fatal("Verify succeeded, want an error")
+	for name, raw := range map[string]string{"empty": "", "malformed": "not-a-token", "oversized": strings.Repeat("x", maxTokenBytes+1), "wrong algorithm": hmac} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := v.Check(raw); err != errUnauthorized {
+				t.Fatalf("got %v", err)
 			}
 		})
 	}
-}
-
-func TestJWTVerifierRejectsInvalidSignatureAndAlgorithm(t *testing.T) {
-	_, certificateFile := writeJWTTestCertificate(t)
-	verifier, err := NewJWTVerifier(certificateFile)
-	if err != nil {
-		t.Fatalf("create JWT verifier: %v", err)
+	for name, change := range map[string]func(jwt.MapClaims){
+		"no ID":          func(c jwt.MapClaims) { delete(c, "cluster_id") },
+		"unknown ID":     func(c jwt.MapClaims) { c["cluster_id"] = "other-id" },
+		"non-string ID":  func(c jwt.MapClaims) { c["cluster_id"] = 42 },
+		"unknown issuer": func(c jwt.MapClaims) { c["iss"] = "node-b" },
+		"issuer URL":     func(c jwt.MapClaims) { c["iss"] = "https://attacker.invalid" },
+		"no issuer":      func(c jwt.MapClaims) { delete(c, "iss") },
+		"no subject":     func(c jwt.MapClaims) { delete(c, "sub") },
+		"no expiry":      func(c jwt.MapClaims) { delete(c, "exp") },
+		"expired":        func(c jwt.MapClaims) { c["exp"] = time.Now().Add(-time.Second).Unix() },
+		"not yet valid":  func(c jwt.MapClaims) { c["nbf"] = time.Now().Add(time.Hour).Unix() },
+		"refresh":        func(c jwt.MapClaims) { c["token_use"] = "refresh" },
+		"no use":         func(c jwt.MapClaims) { delete(c, "token_use") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := v.Check(testutil.AccessToken(t, key, "cluster-id", "node-a", "alice", change)); err != errUnauthorized {
+				t.Fatalf("got %v", err)
+			}
+		})
 	}
-	claims := jwt.MapClaims{
-		"exp":       time.Now().Add(time.Hour).Unix(),
-		"iss":       "node-a",
-		"sub":       "alice",
-		"token_use": "access",
-	}
-
-	untrustedKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("generate untrusted RSA key: %v", err)
-	}
-	wrongSignature := signTestJWT(t, untrustedKey, claims)
-	if _, err := verifier.Verify(t.Context(), wrongSignature, nil); err == nil {
-		t.Fatal("Verify accepted a token signed by an untrusted key")
-	}
-
-	wrongAlgorithm, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte("shared-secret"))
-	if err != nil {
-		t.Fatalf("sign HMAC test JWT: %v", err)
-	}
-	if _, err := verifier.Verify(t.Context(), wrongAlgorithm, nil); err == nil {
-		t.Fatal("Verify accepted a token using HS256")
+	if _, err := NewChecker(nil); err == nil {
+		t.Fatal("empty catalogue accepted")
 	}
 }
 
-func TestNewJWTVerifierRejectsMissingFile(t *testing.T) {
-	if _, err := NewJWTVerifier(filepath.Join(t.TempDir(), "missing.pem")); err == nil {
-		t.Fatal("NewJWTVerifier succeeded, want an error")
+func TestMiddlewareRequestScopedCredentialAndExpiry(t *testing.T) {
+	key := testutil.NewJWTKey(t)
+	catalog, err := clusterconfig.Load(testutil.WriteTarget(t, "Example", "id", "", map[string]string{"node-a": "https://192.0.2.20:1215"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := NewChecker(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := testutil.AccessToken(t, key, "id", "node-a", "alice", nil)
+	var saved context.Context
+	var calls int
+	handler := v.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		saved = r.Context()
+		identity, token, ok := FromContext(saved)
+		if !ok || identity.Subject != "alice" || token != raw {
+			t.Fatal("checked delegation missing")
+		}
+		deadline, ok := saved.Deadline()
+		if !ok || !deadline.Equal(identity.ExpiresAt) {
+			t.Fatal("token expiry not propagated")
+		}
+		w.WriteHeader(204)
+	}))
+	request := httptest.NewRequest("POST", "/mcp", nil)
+	request.Header.Set("Authorization", "Bearer "+raw)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != 204 || calls != 1 {
+		t.Fatal("valid bearer rejected")
+	}
+	if _, _, ok := FromContext(saved); ok {
+		t.Fatal("credentials still usable after request cancellation")
+	}
+	if _, _, ok := FromContext(context.Background()); ok {
+		t.Fatal("credential leaked outside context")
+	}
+	expired := context.WithValue(context.Background(), contextKey{}, credential{delegation: Delegation{ExpiresAt: time.Now().Add(-time.Second)}, token: raw})
+	if _, _, ok := FromContext(expired); ok {
+		t.Fatal("expired credentials still usable")
+	}
+	for _, tc := range []struct {
+		path    string
+		headers []string
+	}{
+		{"/mcp", nil}, {"/mcp", []string{"Basic " + raw}}, {"/mcp", []string{"Bearer bad"}},
+		{"/mcp", []string{"Bearer " + raw, "Bearer " + raw}}, {"/mcp?access_token=" + raw, nil},
+		{"/mcp?access_token=" + raw, []string{"Bearer " + raw}},
+	} {
+		request := httptest.NewRequest("POST", tc.path, nil)
+		for _, header := range tc.headers {
+			request.Header.Add("Authorization", header)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != 401 || response.Header().Get("WWW-Authenticate") != "Bearer" || strings.Contains(response.Body.String(), raw) || calls != 1 {
+			t.Fatal("invalid credentials admitted or leaked")
+		}
 	}
 }
 
-func writeJWTTestCertificate(t *testing.T) (*rsa.PrivateKey, string) {
-	t.Helper()
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+func TestMiddlewareBoundsBody(t *testing.T) {
+	key := testutil.NewJWTKey(t)
+	catalog, err := clusterconfig.Load(testutil.WriteTarget(t, "Example", "id", "", map[string]string{"node-a": "https://192.0.2.20:1215"}))
 	if err != nil {
-		t.Fatalf("generate RSA key: %v", err)
+		t.Fatal(err)
 	}
-	template := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "OpenSVC test CA"},
-		NotBefore:             time.Now().Add(-time.Minute),
-		NotAfter:              time.Now().Add(time.Hour),
-		IsCA:                  true,
-		BasicConstraintsValid: true,
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-	}
-	certificateDER, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
+	v, err := NewChecker(catalog)
 	if err != nil {
-		t.Fatalf("create test certificate: %v", err)
+		t.Fatal(err)
 	}
-	certificateFile := filepath.Join(t.TempDir(), "ca.pem")
-	certificatePEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDER})
-	if err := os.WriteFile(certificateFile, certificatePEM, 0o600); err != nil {
-		t.Fatalf("write test certificate: %v", err)
-	}
-	return privateKey, certificateFile
-}
-
-func signTestJWT(t *testing.T, privateKey *rsa.PrivateKey, claims jwt.MapClaims) string {
-	t.Helper()
-	token, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(privateKey)
-	if err != nil {
-		t.Fatalf("sign test JWT: %v", err)
-	}
-	return token
+	request := httptest.NewRequest("POST", "/mcp", strings.NewReader(strings.Repeat("x", maxMCPBodyBytes+1)))
+	request.Header.Set("Authorization", "Bearer "+testutil.AccessToken(t, key, "id", "node-a", "alice", nil))
+	v.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, err := io.ReadAll(r.Body)
+		var oversized *http.MaxBytesError
+		if len(data) != maxMCPBodyBytes || !errors.As(err, &oversized) {
+			t.Fatalf("body not bounded: bytes=%d error=%v", len(data), err)
+		}
+	})).ServeHTTP(httptest.NewRecorder(), request)
 }

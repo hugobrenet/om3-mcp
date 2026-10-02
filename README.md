@@ -1,182 +1,61 @@
 # OpenSVC Daemon MCP
 
-A Go-based Model Context Protocol server that gives AI agents a controlled, typed interface to the OpenSVC v3 daemon API.
+A Go Model Context Protocol server providing AI agents with typed tools for the
+OpenSVC v3 daemon API: cluster state, nodes, objects, instances, resources and logs.
 
-The project is intended to become the low-level operational MCP layer for AI-assisted inspection, diagnosis, and administration of OpenSVC clusters. One MCP server is expected to run close to each OpenSVC daemon and expose carefully designed tools instead of a generic raw API proxy.
+Tools are mostly read-only, with an explicit instance status refresh.
+The OpenSVC daemon enforces the caller's grants.
 
-## Tool documentation
+## Status
 
-The MCP currently exposes mostly read-only tools plus one explicit,
-non-destructive instance status refresh.
-Every successful tool result includes a minimal `provenance` object naming the
-OpenSVC daemon API as its source and recording when the MCP collected the
-result; this time does not establish freshness of the underlying status.
-Detailed documentation is organized by OpenSVC daemon domain and includes
-representative input/output examples:
+The server uses HTTPS over TCP and accepts native OpenSVC access JWTs.
+The same JWT is delegated to its emitting daemon, selected by signed
+`cluster_id` and `iss` claims against an administrator-owned cluster catalogue.
+The daemon verifies the JWT signature; no JWT verification keys are installed
+on MCP or agent. There is no embedded authorization server or token exchange.
 
-- [Tool index and shared contracts](docs/tools/README.md)
-- [Daemon tools](docs/tools/daemon.md)
-- [Cluster tools](docs/tools/cluster.md)
-- [Node tools](docs/tools/node.md)
-- [Object tools](docs/tools/objects.md)
-- [Instance tools](docs/tools/instances.md)
-- [Resource tools](docs/tools/resources.md)
+See the [tool documentation](docs/tools/README.md) for inputs, outputs and usage.
 
 ## Requirements
 
-- Go 1.25.5 or later
-- Access to an OpenSVC v3 daemon API
-- The public certificate or RSA public key of the OpenSVC cluster CA
-- An OpenSVC access JWT for the MCP client
-- Git
+- Go 1.25.5 or later to build from source.
+- Access to an OpenSVC v3 daemon API.
+- A native OpenSVC access JWT with a signed `cluster_id` claim.
+- An administrator-owned catalogue of trusted daemon HTTPS endpoints.
+- A server certificate and private key for HTTPS.
 
-## Installation from source
+## Build
 
-Clone the repository:
+From the repository root:
 
-~~~bash
-git clone https://github.com/opensvc/om3-mcp.git
-cd om3-mcp
-~~~
-
-Download dependencies:
-
-~~~bash
-go mod download
-~~~
-
-Build the server:
-
-~~~bash
-mkdir -p bin
+```bash
 go build -o bin/opensvc-daemon-mcp ./cmd/opensvc-daemon-mcp
-~~~
+```
 
-## Configuration
+## Remote HTTPS
 
-The server supports these environment variables:
+Configure the HTTPS listener with its certificate and cluster catalogue.
+The [configuration guide](docs/configuration.md#https) provides a
+complete example and the [cluster template](deploy/examples/clusters.yaml).
 
-| Variable | Default | Description |
-|---|---|---|
-| OPENSVC_DAEMON_URL | https://127.0.0.1:1215 | Base URL of the local OpenSVC daemon API |
-| OPENSVC_DAEMON_REQUEST_TIMEOUT | 20s | Whole-request timeout for daemon JSON, SSE, and bounded stream calls; accepted range 1s to 2m |
-| OPENSVC_MCP_SOCKET_PATH | /run/opensvc-daemon-mcp/mcp.sock | Local Unix socket carrying Streamable HTTP |
-| OPENSVC_MCP_JWT_VERIFY_KEY_FILE | /var/lib/opensvc/certs/ca_certificates | OpenSVC cluster CA certificate or RSA public key used to verify JWT signatures |
-| OPENSVC_DAEMON_TLS_CA_FILE | empty | PEM CA certificates appended to the system trust store |
-| OPENSVC_DAEMON_TLS_INSECURE | false | Disable daemon certificate verification. Development only. |
+For demos only, a cluster can set [`tls.insecure: true`](docs/configuration.md#demo-only-tls-bypass).
+This disables daemon certificate verification and is strongly discouraged in production.
 
-Example:
+## Documentation
 
-~~~bash
-export OPENSVC_DAEMON_URL=https://127.0.0.1:1215
-export OPENSVC_MCP_SOCKET_PATH=/run/opensvc-daemon-mcp/mcp.sock
-export OPENSVC_MCP_JWT_VERIFY_KEY_FILE=/var/lib/opensvc/certs/ca_certificates
-~~~
-
-For a local development daemon using a self-signed certificate, verification can be explicitly disabled:
-
-~~~bash
-export OPENSVC_DAEMON_TLS_INSECURE=true
-~~~
-
-This disables certificate-chain and hostname verification. Never enable it when connecting to a daemon over an untrusted network. The default remains secure.
-
-The configured verification file contains public material only, but it must be readable by the MCP process. Never expose or mount `/var/lib/opensvc/certs/ca_private_key` into the MCP server.
-
-Each MCP HTTP request must contain:
-
-~~~text
-Authorization: Bearer <jwt>
-~~~
-
-The middleware accepts only JWTs signed with RS256 by the configured cluster CA. It requires valid `exp`, `sub`, `iss`, and `token_use=access` claims. The authenticated subject is bound to the MCP session to prevent session hijacking. The raw JWT remains request-scoped and is forwarded to the daemon, which independently validates it and applies its `grant` claims.
-
-There is no Basic Auth, X.509 client-authentication, local token file, unauthenticated mode, or fallback service credential.
-
-## Run
-
-Start the Streamable HTTP MCP server:
-
-~~~bash
-OPENSVC_DAEMON_URL=https://127.0.0.1:1215 \
-OPENSVC_MCP_SOCKET_PATH=/run/opensvc-daemon-mcp/mcp.sock \
-OPENSVC_MCP_JWT_VERIFY_KEY_FILE=/var/lib/opensvc/certs/ca_certificates \
-OPENSVC_DAEMON_TLS_INSECURE=true \
-  ./bin/opensvc-daemon-mcp
-~~~
-
-The server exposes its `/mcp` HTTP route only through the configured Unix
-socket. The parent directory must already exist; the supplied systemd unit
-creates it with `RuntimeDirectory=opensvc-daemon-mcp`. The server validates the
-path, refuses to replace an ordinary file or active socket, removes a proven
-stale socket, applies mode `0660`, and cleans the socket up on a graceful stop.
-`OPENSVC_DAEMON_TLS_INSECURE` affects only the separate MCP-to-daemon HTTPS
-connection.
-
-## systemd
-
-The canonical unit is
-`deploy/systemd/opensvc-daemon-mcp.service`. Systemd creates
-`/run/opensvc-daemon-mcp` as `opensvc-mcp:opensvc-mcp` with mode `0750`; the
-MCP process creates `mcp.sock` as `0660`. A local client service must receive
-the supplementary `opensvc-mcp` group explicitly to connect.
+- [Configuration reference and deployment](docs/configuration.md)
+- [Authentication and client setup](docs/authentication.md)
+- [Tools and shared contracts](docs/tools/README.md)
+- [Systemd unit](deploy/systemd/opensvc-daemon-mcp.service)
 
 ## Development
 
-Format the code:
-
-~~~bash
+```bash
 go fmt ./...
-~~~
-
-Run tests:
-
-~~~bash
-go test -v ./...
-~~~
-
-Run static analysis:
-
-~~~bash
+go test ./...
 go vet ./...
-~~~
-
-Build without writing a binary into the repository root:
-
-~~~bash
-go build -o /tmp/opensvc-daemon-mcp ./cmd/opensvc-daemon-mcp
-~~~
-
-The test suite covers:
-
-- generic JSON GET requests;
-- bounded finite SSE reads for OpenSVC instance logs;
-- bounded opaque stream reads for container stdout and stderr logs;
-- RS256 JWT verification and required OpenSVC access-token claims;
-- rejection of missing, invalid, expired, and refresh Bearer tokens;
-- request-scoped Bearer delegation to the daemon;
-- custom server CA loading and TLS verification;
-- absence of JWT values from HTTP errors;
-- URL and HTTP status handling;
-- bounded RFC 7807 error propagation through real MCP tool calls, including malformed and interrupted responses;
-- the current core use cases and their bounded response shaping;
-- fail-fast validation of tool names, descriptions, annotations, schemas, and duplicate names;
-- end-to-end Streamable HTTP MCP calls over a Unix socket to every registered tool using a delegated JWT against a fake OpenSVC daemon.
-
-## Design principles
-
-- Keep the OpenSVC daemon API client generic and internal.
-- Keep endpoint selection and OpenSVC semantics in the core layer.
-- Keep MCP schemas and registration in the tools layer.
-- Keep user-facing tool documentation in docs/tools.
-- Register each tool domain explicitly in main.go.
-- Prefer typed, bounded tools over arbitrary API access.
-- Do not expose credentials or raw secrets to MCP clients or language models.
-- Add authentication and policy enforcement before state-changing tools.
-- Verify OpenSVC operations after execution instead of assuming request acceptance means completion.
-- Treat status returned by read-only GET tools as the daemon's last-known state; these tools do not implicitly run resource-driver probes.
+```
 
 ## License
 
-Licensed under the Apache License, Version 2.0. See the [LICENSE](LICENSE)
-file.
+[Apache License 2.0](LICENSE).

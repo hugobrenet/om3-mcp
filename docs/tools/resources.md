@@ -123,7 +123,7 @@ returned: `lines` still limits the daemon request.
 Invalid paths, nodes, RIDs, or line counts fail before daemon access.
 Authorization failures, unexpected content types, oversized transport
 responses, interrupted streams, and caller cancellation become MCP tool
-errors. Daemon RFC 7807 errors remain bounded and never expose the delegated
+errors. Daemon RFC 7807 errors remain bounded and never expose the OpenSVC
 JWT.
 
 In the current OpenSVC implementation, the daemon sends HTTP `200` and flushes
@@ -158,7 +158,7 @@ only records whose daemon-reported type begins with `ip.`. Without an exact
 object filter, the internal path selector restricts the daemon scan to `svc`
 and `vol`, the OpenSVC object kinds that can own resources. It still covers
 root and namespaced objects across the cluster while excluding configuration
-objects that cannot own IP resources. OpenSVC applies delegated JWT namespace
+objects that cannot own IP resources. OpenSVC applies OpenSVC JWT namespace
 grants before returning the records.
 
 The endpoint reads last-known instance resource status. It does not execute an
@@ -254,7 +254,7 @@ pagination. Pagination is not snapshot-based; callers must preserve `path`,
 Invalid exact filters, limits, or cursors fail before daemon access. Malformed
 object paths returned by the daemon, authorization failures, transport
 failures, and malformed responses are MCP tool errors. Errors preserve bounded
-RFC 7807 details and never include the delegated JWT.
+RFC 7807 details and never include the OpenSVC JWT.
 
 ### `list_object_resources`
 
@@ -278,7 +278,7 @@ driver probe. Use the selected instance's `updated_at` in
 `list_object_instances`, or `status.updated_at` in `get_instance_status`, to
 assess freshness. Refresh that exact instance first when necessary.
 
-OpenSVC filters resources according to delegated JWT namespace grants. This
+OpenSVC filters resources according to OpenSVC JWT namespace grants. This
 tool is read-only, non-destructive, closed-world, and has no side effects.
 
 #### Input
@@ -367,7 +367,7 @@ two sources remains visible for agent analysis.
 Invalid paths, filters, limits, or cursors fail before daemon access. Missing
 visibility, daemon authorization, transport failures, and malformed responses
 are MCP tool errors. Errors preserve bounded RFC 7807 details and never include
-the delegated JWT.
+the OpenSVC JWT.
 
 ### `list_resource_info`
 

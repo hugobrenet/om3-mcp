@@ -107,7 +107,7 @@ func (f *refreshInstanceClient) GetJSON(_ context.Context, path string, query ur
 	if path != "/api/instance" {
 		return fmt.Errorf("got GET path %q, want /api/instance", path)
 	}
-	if query.Get("path") != "lab/svc/redis" || query.Get("node") != "node-a" {
+	if query.Get("path") != "example/svc/cache" || query.Get("node") != "node-a" {
 		return fmt.Errorf("got unexpected query %#v", query)
 	}
 	updatedAt := "2026-07-15T10:00:00Z"
@@ -116,13 +116,13 @@ func (f *refreshInstanceClient) GetJSON(_ context.Context, path string, query ur
 		updatedAt = "2026-07-15T10:00:01Z"
 		availability = "down"
 	}
-	payload := fmt.Sprintf(`{"items":[{"meta":{"node":"node-a","object":"lab/svc/redis"},"data":{"monitor":{"state":"idle","local_expect":"started"},"status":{"avail":%q,"overall":%q,"updated_at":%q,"resources":{"container#redis":{"status":%q}}}}}]}`, availability, availability, updatedAt, availability)
+	payload := fmt.Sprintf(`{"items":[{"meta":{"node":"node-a","object":"example/svc/cache"},"data":{"monitor":{"state":"idle","local_expect":"started"},"status":{"avail":%q,"overall":%q,"updated_at":%q,"resources":{"container#redis":{"status":%q}}}}}]}`, availability, availability, updatedAt, availability)
 	return json.Unmarshal([]byte(payload), output)
 }
 
 func (f *refreshInstanceClient) PostJSON(_ context.Context, path string, query url.Values, input any, output any) error {
 	f.t.Helper()
-	if path != "/api/node/name/node-a/instance/path/lab/svc/redis/action/status" {
+	if path != "/api/node/name/node-a/instance/path/example/svc/cache/action/status" {
 		return fmt.Errorf("got POST path %q", path)
 	}
 	if len(query) != 0 || input != nil {
@@ -135,7 +135,7 @@ func (f *refreshInstanceClient) PostJSON(_ context.Context, path string, query u
 func TestRefreshInstanceStatus(t *testing.T) {
 	client := &refreshInstanceClient{t: t, advance: true}
 	result, err := New(client).RefreshInstanceStatus(context.Background(), RefreshInstanceStatusOptions{
-		Path: "lab/svc/redis", Node: "node-a", Timeout: 5 * time.Second,
+		Path: "example/svc/cache", Node: "node-a", Timeout: 5 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("refresh instance status: %v", err)
@@ -168,7 +168,7 @@ func TestRefreshInstanceStatusReturnsStructuredTimeout(t *testing.T) {
 	service := New(client)
 	service.now = func() time.Time { return time.Date(2026, 9, 16, 10, 0, 0, 0, time.UTC) }
 	result, err := service.RefreshInstanceStatus(context.Background(), RefreshInstanceStatusOptions{
-		Path: "lab/svc/redis", Node: "node-a", Timeout: 5 * time.Second,
+		Path: "example/svc/cache", Node: "node-a", Timeout: 5 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("refresh instance status: %v", err)
@@ -190,7 +190,7 @@ func TestRefreshInstanceStatusReturnsStructuredTimeout(t *testing.T) {
 func TestRefreshInstanceStatusRejectsInvalidTimeoutBeforeDaemonCall(t *testing.T) {
 	client := &refreshInstanceClient{t: t}
 	_, err := New(client).RefreshInstanceStatus(context.Background(), RefreshInstanceStatusOptions{
-		Path: "lab/svc/redis", Node: "node-a", Timeout: time.Second,
+		Path: "example/svc/cache", Node: "node-a", Timeout: time.Second,
 	})
 	if err == nil {
 		t.Fatal("expected invalid timeout error")

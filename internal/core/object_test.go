@@ -30,22 +30,22 @@ func (f *objectJSONGetter) GetJSON(_ context.Context, path string, query url.Val
 func TestListClusterObjects(t *testing.T) {
 	client := &objectJSONGetter{
 		t:        t,
-		selector: "lab/**",
+		selector: "example/**",
 		payload: `[
 			"system/sec/ca",
-			"lab/vol/data",
-			"lab/svc/redis",
+			"example/vol/data",
+			"example/svc/cache",
 			"cluster",
-			"lab/svc/api",
-			"lab/svc/redis"
+			"example/svc/api",
+			"example/svc/cache"
 		]`,
 	}
 	service := New(client)
 
 	result, err := service.ListClusterObjects(context.Background(), ListClusterObjectsOptions{
-		Selector: " lab/** ",
+		Selector: " example/** ",
 		Limit:    2,
-		Cursor:   "lab/svc/a",
+		Cursor:   "example/svc/a",
 	})
 	if err != nil {
 		t.Fatalf("list cluster objects: %v", err)
@@ -53,15 +53,15 @@ func TestListClusterObjects(t *testing.T) {
 	if client.calls != 1 {
 		t.Fatalf("got %d daemon calls, want 1", client.calls)
 	}
-	if result.Selector != "lab/**" || result.Total != 5 || result.Count != 2 {
-		t.Errorf("got list metadata %+v, want selector lab/**, total 5, count 2", result)
+	if result.Selector != "example/**" || result.Total != 5 || result.Count != 2 {
+		t.Errorf("got list metadata %+v, want selector example/**, total 5, count 2", result)
 	}
-	if !result.Truncated || result.NextCursor != "lab/svc/redis" {
+	if !result.Truncated || result.NextCursor != "example/svc/cache" {
 		t.Errorf("got pagination truncated=%v next_cursor=%q", result.Truncated, result.NextCursor)
 	}
 	want := []ClusterObjectReference{
-		{Path: "lab/svc/api", Namespace: "lab", Kind: "svc", Name: "api"},
-		{Path: "lab/svc/redis", Namespace: "lab", Kind: "svc", Name: "redis"},
+		{Path: "example/svc/api", Namespace: "example", Kind: "svc", Name: "api"},
+		{Path: "example/svc/cache", Namespace: "example", Kind: "svc", Name: "cache"},
 	}
 	if !reflect.DeepEqual(result.Objects, want) {
 		t.Errorf("got objects %+v, want %+v", result.Objects, want)
@@ -99,10 +99,10 @@ func TestParseClusterObjectReference(t *testing.T) {
 		want ClusterObjectReference
 	}{
 		{path: "cluster", want: ClusterObjectReference{Path: "cluster", Namespace: "root", Kind: "ccfg", Name: "cluster"}},
-		{path: "redis", want: ClusterObjectReference{Path: "redis", Namespace: "root", Kind: "svc", Name: "redis"}},
+		{path: "cache", want: ClusterObjectReference{Path: "cache", Namespace: "root", Kind: "svc", Name: "cache"}},
 		{path: "cfg/app", want: ClusterObjectReference{Path: "cfg/app", Namespace: "root", Kind: "cfg", Name: "app"}},
-		{path: "lab/svc/redis", want: ClusterObjectReference{Path: "lab/svc/redis", Namespace: "lab", Kind: "svc", Name: "redis"}},
-		{path: "lab/", want: ClusterObjectReference{Path: "lab/", Namespace: "lab", Kind: "nscfg", Name: "namespace"}},
+		{path: "example/svc/cache", want: ClusterObjectReference{Path: "example/svc/cache", Namespace: "example", Kind: "svc", Name: "cache"}},
+		{path: "example/", want: ClusterObjectReference{Path: "example/", Namespace: "example", Kind: "nscfg", Name: "namespace"}},
 	}
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {
@@ -118,7 +118,7 @@ func TestParseClusterObjectReference(t *testing.T) {
 }
 
 func TestParseClusterObjectReferenceRejectsInvalidPath(t *testing.T) {
-	for _, path := range []string{"", "/svc/app", "lab//app", "lab/svc/app/extra"} {
+	for _, path := range []string{"", "/svc/app", "example//app", "example/svc/app/extra"} {
 		t.Run(path, func(t *testing.T) {
 			if _, err := parseClusterObjectReference(path); err == nil {
 				t.Fatalf("expected %q to be rejected", path)

@@ -1,4 +1,4 @@
-# OpenSVC Daemon MCP
+# om3-mcp
 
 A Go Model Context Protocol server providing AI agents with typed tools for the
 OpenSVC v3 daemon API: cluster state, nodes, objects, instances, resources and logs.
@@ -29,7 +29,7 @@ See the [tool documentation](docs/tools/README.md) for inputs, outputs and usage
 From the repository root:
 
 ```bash
-go build -o bin/opensvc-daemon-mcp ./cmd/opensvc-daemon-mcp
+go build -o bin/om3-mcp ./cmd/om3-mcp
 ```
 
 ## Remote HTTPS
@@ -46,7 +46,7 @@ This disables daemon certificate verification and is strongly discouraged in pro
 - [Configuration reference and deployment](docs/configuration.md)
 - [Authentication and client setup](docs/authentication.md)
 - [Tools and shared contracts](docs/tools/README.md)
-- [Systemd unit](deploy/systemd/opensvc-daemon-mcp.service)
+- [Systemd unit](deploy/systemd/om3-mcp.service)
 
 ## Development
 

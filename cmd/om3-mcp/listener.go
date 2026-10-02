@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/config"
+	"github.com/opensvc/om3-mcp/internal/config"
 )
 
 // listenMCP validates TLS material before opening the TCP listener.

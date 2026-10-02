@@ -434,7 +434,7 @@ Example input:
       "component": "daemon/daemonapi",
       "event_id": "b04fe7aa-c70c-4c30-a4a9-e7d2ef477061",
       "level": "info",
-      "message": "daemon: api: inet: GET /api/object/path/prod/svc/redis/config/file: serve config file prod/svc/redis to opensvc-daemon-mcp",
+      "message": "daemon: api: inet: GET /api/object/path/prod/svc/redis/config/file: serve config file prod/svc/redis to om3-mcp",
       "message_truncated": false,
       "request_id": "7ae41b79-d9fd-4c0b-80c1-9368e88dbd93",
       "session_id": "e24f692e-fd28-4b4a-a606-13e037e03c36",

@@ -25,7 +25,7 @@ OPENSVC_MCP_LISTEN_ADDR=0.0.0.0:8443 \
 OPENSVC_MCP_TLS_CERT_FILE=/etc/opensvc-mcp/tls/server.crt \
 OPENSVC_MCP_TLS_KEY_FILE=/etc/opensvc-mcp/tls/server.key \
 OPENSVC_MCP_CLUSTER_CONFIG_FILE=/etc/opensvc-mcp/clusters.yaml \
-  ./bin/opensvc-daemon-mcp
+  ./bin/om3-mcp
 ```
 
 The agent connects to `https://<mcp-host>:8443/mcp`. The bind address must
@@ -123,9 +123,9 @@ Changing these files does not alter the running snapshot.
 
 ## systemd
 
-The [unit](../deploy/systemd/opensvc-daemon-mcp.service) runs as
+The [unit](../deploy/systemd/om3-mcp.service) runs as
 `opensvc-mcp:opensvc-mcp`, reads `/etc/opensvc-mcp/mcp.env`, and expects
-`/usr/local/libexec/opensvc-daemon-mcp`. The account must be able to read the
+`/usr/local/libexec/om3-mcp`. The account must be able to read the
 listener certificate/key, catalogue and public trust files. Restrict listener
 private-key access to the service account. The unit grants no capabilities;
 use an unprivileged port such as `8443`. It does not require a local OpenSVC

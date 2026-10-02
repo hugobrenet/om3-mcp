@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/testutil"
+	"github.com/opensvc/om3-mcp/internal/testutil"
 )
 
 func clearListenerEnvironment(t *testing.T) {

@@ -11,12 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/auth"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/client"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/config"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/core"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/daemonlogin"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/oauth"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/tools"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -38,6 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	warnInsecureDaemonTLS(cfg.Clusters, log.Default())
 
 	listener, tlsConfig, err := listenMCP(cfg)
 	if err != nil {
@@ -77,22 +77,32 @@ func main() {
 	}
 }
 
-// OAuth authorization resolves a cluster-bound, server-held daemon session.
-func newMCPHandler(cfg config.Config) (http.Handler, error) {
-	if cfg.OAuth.PublicURL != "" {
-		server, err := oauth.New(cfg.OAuth, newSessionMCPHandler)
-		if err != nil {
-			return nil, fmt.Errorf("configure remote OAuth server: %w", err)
+// Emit one explicit startup warning for each administrator-selected demo target.
+func warnInsecureDaemonTLS(catalog *clusterconfig.Catalog, logger *log.Logger) {
+	for _, cluster := range catalog.List() {
+		if cluster.TLSInsecure {
+			logger.Printf("WARNING: cluster=%s tls.insecure=true disables daemon certificate chain and hostname verification; JWT theft and forged whoami responses are possible; DEMOS ONLY, DO NOT USE IN PRODUCTION", cluster.Ref)
 		}
-		return server.Handler(), nil
+	}
+}
+
+// Native delegation selects a daemon from checked, unverified claims on every request.
+func newMCPHandler(cfg config.Config) (http.Handler, error) {
+	checker, err := auth.NewChecker(cfg.Clusters)
+	if err != nil {
+		return nil, fmt.Errorf("configure native JWT delegation: %w", err)
+	}
+	api, err := client.NewRouted(cfg.Clusters)
+	if err != nil {
+		return nil, err
+	}
+	handler, err := newToolsHandler(api)
+	if err != nil {
+		return nil, err
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/problem+json")
-		w.Header().Set("Cache-Control", "no-store")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte(`{"type":"about:blank","title":"Service Unavailable","status":503,"detail":"Remote MCP authorization is not configured."}`))
-	})
+	mux.Handle("/mcp", checker.Middleware(handler))
+	mux.Handle("GET /mcp/auth/whoami", checker.Middleware(serveWhoAmI(api)))
 	return mux, nil
 }
 
@@ -109,11 +119,7 @@ func shutdownHTTPServer(server *http.Server, timeout time.Duration) error {
 	return nil
 }
 
-func newSessionMCPHandler(cluster clusterconfig.Cluster, session daemonlogin.Session) (http.Handler, error) {
-	api, err := client.NewSession(cluster, session)
-	if err != nil {
-		return nil, err
-	}
+func newToolsHandler(api *client.RoutedClient) (http.Handler, error) {
 	service := core.New(api)
 	server := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: serverVersion}, nil)
 	registrar, err := tools.NewRegistrar(server)
@@ -128,7 +134,10 @@ func newSessionMCPHandler(cluster clusterconfig.Cluster, session daemonlogin.Ses
 			return nil, err
 		}
 	}
-	// Tools require no persistent protocol session. Authorization is resolved on
-	// every request, and each token owns its fixed cluster/user tool instance.
-	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true}), nil
+	// Tools require no persistent protocol session. Delegation is checked on
+	// every request; the shared service never holds a user's credentials.
+	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{
+		Stateless: true, JSONResponse: true,
+		CrossOriginProtection: &http.CrossOriginProtection{},
+	}), nil
 }

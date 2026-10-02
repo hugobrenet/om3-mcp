@@ -8,10 +8,11 @@ The OpenSVC daemon enforces the caller's grants.
 
 ## Status
 
-The server uses HTTPS over TCP. Remote agents can discover OAuth metadata,
-register with DCR, authenticate an OpenSVC user and authorize access to the
-selected cluster. Authorization Code with PKCE returns a separate MCP access
-token to the agent, which can then call the tools. Refresh is not supported yet.
+The server uses HTTPS over TCP and accepts native OpenSVC access JWTs.
+The same JWT is delegated to its emitting daemon, selected by signed
+`cluster_id` and `iss` claims against an administrator-owned cluster catalogue.
+The daemon verifies the JWT signature; no JWT verification keys are installed
+on MCP or agent. There is no embedded authorization server or token exchange.
 
 See the [tool documentation](docs/tools/README.md) for inputs, outputs and usage.
 
@@ -19,7 +20,8 @@ See the [tool documentation](docs/tools/README.md) for inputs, outputs and usage
 
 - Go 1.25.5 or later to build from source.
 - Access to an OpenSVC v3 daemon API.
-- The target cluster's public CA certificate and an OpenSVC user.
+- A native OpenSVC access JWT with a signed `cluster_id` claim.
+- An administrator-owned catalogue of trusted daemon HTTPS endpoints.
 - A server certificate and private key for HTTPS.
 
 ## Build
@@ -32,14 +34,12 @@ go build -o bin/opensvc-daemon-mcp ./cmd/opensvc-daemon-mcp
 
 ## Remote HTTPS
 
-Configure the HTTPS listener with its certificate, canonical URL and cluster
-catalogue. The [configuration guide](docs/configuration.md#https) provides a
+Configure the HTTPS listener with its certificate and cluster catalogue.
+The [configuration guide](docs/configuration.md#https) provides a
 complete example and the [cluster template](deploy/examples/clusters.yaml).
 
-After `/login`, the user authorizes the application and returns to its OAuth
-callback. The agent exchanges the code for an MCP token and calls `/mcp`.
-See [authentication](docs/authentication.md) for client setup, TLS trust and
-current limitations.
+For demos only, a cluster can set [`tls.insecure: true`](docs/configuration.md#demo-only-tls-bypass).
+This disables daemon certificate verification and is strongly discouraged in production.
 
 ## Documentation
 

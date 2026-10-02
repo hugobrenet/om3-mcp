@@ -23,10 +23,10 @@ are documented by domain in:
 - [Instance tools](docs/tools/instances.md)
 - [Resource tools](docs/tools/resources.md)
 
-The runtime uses HTTPS over TCP with integrated OAuth discovery, DCR and
-OpenSVC user login, explicit consent and Authorization Code with PKCE S256.
-An opaque MCP token authorizes calls to the selected cluster with the server-held
-daemon JWT. Refresh and shared HA state are not implemented.
+The runtime uses HTTPS over TCP with native OpenSVC access JWT delegation.
+Signed `cluster_id` and `iss` claims select the configured cluster and emitting
+daemon. The unchanged JWT authorizes the daemon API calls. There is no embedded
+authorization server, login flow or token exchange.
 The diagnostic tool library remains implemented and covered by unit tests.
 Do not expand tools or authentication scope without user direction.
 
@@ -38,9 +38,8 @@ Do not expand tools or authentication scope without user direction.
 - `cmd/opensvc-daemon-mcp`: HTTPS composition root, listener and lifecycle tests.
 - `internal/config`: process environment and startup validation.
 - `internal/clusterconfig`: strict YAML catalogue and immutable public trust snapshot.
-- `internal/oauth`: integrated authorization routes and bounded in-memory state.
-- `internal/daemonlogin`: credentials exchange, daemon JWT verification and cluster identity check.
-- `internal/client`: bounded daemon HTTP transport, independent of caller authentication.
+- `internal/auth`: native JWT structure/claim checks and request-scoped delegation.
+- `internal/client`: bounded daemon HTTP transport and catalogue-bound claim routing.
 - `internal/core`: deterministic OpenSVC use cases and private raw API shapes.
 - `internal/tools`: typed MCP contracts, registrar and unit tests.
 - `docs`: configuration, authentication and domain contracts.
@@ -52,9 +51,9 @@ without a demonstrated need. Keep authentication out of core and tool handlers.
 
 ### Entrypoint and configuration
 
-`main` loads configuration, builds the OAuth handler and starts HTTPS.
+`main` loads configuration, builds native authentication and tools, then starts HTTPS.
 Keep explicit tool registration in `main.go`; do not create a `tools.go`
-composition file. Each access grant gets fixed tool/daemon bindings using
+composition file. One shared service routes each checked delegation request using
 stateless Streamable HTTP and JSON responses. Validate
 TLS material and the cluster catalogue before binding. There is no transport
 selector, local socket mode, plaintext listener or local daemon dependency.
@@ -62,32 +61,48 @@ Read settings once and restart to apply changes. Preserve bounded HTTP headers,
 timeouts and graceful shutdown.
 
 Configuration uses the environment settings documented in
-[docs/configuration.md](docs/configuration.md). Cluster endpoints, public CA
-bundles, expected identity and timeouts belong in the administrator's catalogue.
-Startup must not contact daemons. Reject obsolete variables with migration errors.
+[docs/configuration.md](docs/configuration.md). Issuer-to-endpoint mappings,
+optional TLS CA bundles, cluster IDs and timeouts belong
+in the administrator's version 2 catalogue.
+Startup must not contact daemons. Keep configuration focused on the current
+research implementation.
 
 ### Authentication
 
-Authenticate users only after a valid same-origin `/login` submission with
-CSRF protection. Use the selected cluster's first endpoint and immutable CA
-snapshot, verified TLS, no environment proxy and no redirect or implicit retry.
-Basic authentication is used only to exchange the user's credentials with the
-daemon. Verify the returned RS256 access JWT, its required claims, exact subject
-and the authenticated cluster ID before retaining a session.
+Require a native OpenSVC RS256 access JWT with signed `cluster_id`, `iss`,
+`sub`, `exp` and `token_use=access`. Check structure, expiry and nbf locally,
+but leave JWT signature verification to the daemon. Read unverified cluster
+ID/issuer only to select an administrator-configured HTTPS target.
+Unknown IDs or issuer names fail closed. Never resolve trust or target URLs
+from token headers, token claims or tool arguments.
 
-Keep the daemon JWT server-side in bounded memory. Never accept an agent's
-daemon JWT as an MCP credential or forward its Authorization header to a daemon.
-MCP tokens are opaque random 256-bit values indexed by hash, bound to the
-client, cluster, user and canonical resource. Require explicit same-origin
-consent; codes last at most 60 seconds and are redeemed once with PKCE S256.
-Do not issue refresh tokens or persist session state. Secrets must not enter tool inputs, outputs or logs.
+Only the middleware creates checked request-scoped delegations; these are NOT
+authenticated identities. Forward the unchanged JWT only to the configured
+HTTPS origin for that declared cluster/node.
+Cancel requests at token expiry. Keep grants enforcement authoritative at the
+daemon; never create a stronger credential or fall back to a different node.
+The dedicated GET `/mcp/auth/whoami` bridge calls daemon GET `/api/auth/whoami`
+with the unchanged JWT. Require native `jwt` strategy and matching subject
+before returning normalized cluster_id/issuer/subject/expiry. Agent middleware
+must obtain this proof before accessing its local conversations. No identity
+cache or local JWT verification keys. Initialization/tool metadata alone do not
+prove identity. There is no credential persistence, password handling or authorization-server
+state. This native profile does not implement the MCP OAuth authorization
+profile. Secrets must not enter tool inputs, outputs, errors or logs.
 
 ### HTTP client
 
-The low-level client uses the supplied `http.Client` and transport. It does not
-read a bearer token from request context. `client.NewSession` binds a verified
-daemon session to strict cluster TLS trust, its exact endpoint and expiry.
-The selected server-held credential is attached only in the outbound transport.
+The low-level client uses the supplied `http.Client` and transport.
+`client.NewRouted` shares immutable clients and TLS pools across requests,
+selecting one daemon from the checked delegation context. Its outbound
+transport checks binding, expiry and exact origin before attaching that
+request's bearer. TLS certificate verification is enabled by default even though
+JWT signature verification is delegated to the daemon. The sole bypass is the
+explicit per-cluster demo option `tls.insecure: true`, with a startup warning
+and no simultaneous `ca_file`. Never enable it implicitly or recommend it for
+production: JWT theft and forged whoami responses become possible.
+Use system roots when no explicit cluster TLS bundle is supplied. Require TLS
+1.2+, no environment proxies or redirects, including in demo mode.
 
 Keep URL encoding, content negotiation, bounded response parsing, context
 cancellation and useful errors here. JSON, text, files, SSE and opaque streams
@@ -246,11 +261,11 @@ Explain non-obvious Go idioms when introducing them.
 ## Testing
 
 Preserve unit coverage for core use cases, bounded daemon responses, tool
-registration and generated schemas. The old Unix transport integration test
-has been removed along with that runtime path.
+registration and generated schemas.
 
-Cover HTTPS startup and rejection, OAuth discovery, DCR, login controls, native
-daemon JWT validation and cluster identity separately. Use generated certificates,
+Cover HTTPS startup and rejection, native JWT validation, exact cluster/node
+routing, concurrent caller isolation, request bounds and unknown route rejection.
+Use generated certificates,
 fictitious identities and reserved documentation addresses only; never copy lab
 configuration, passwords, tokens or certificates into public tests or docs.
 Normal tests must not require a real OpenSVC cluster.
@@ -270,7 +285,7 @@ details belong under docs. Keep lab records outside the public repository.
 
 ## API and security rules
 
-Daemon credentials belong to the server-held authenticated session. Secrets must never enter MCP tool arguments or results.
+Daemon credentials belong only to the private checked delegation request context. Secrets must never enter MCP tool arguments or results.
 
 Do not silently disable TLS certificate verification.
 
@@ -345,7 +360,9 @@ network-membership, or reachability conclusions to this tool.
 
 See [configuration](docs/configuration.md) for the supported HTTPS environment
 and cluster catalogue. Do not add a configuration framework for a few settings.
-TLS certificate verification is mandatory; do not add an insecure escape hatch.
+TLS certificate verification is the default. Keep the explicit per-cluster
+`tls.insecure` demo exception documented and warned at startup; it must not
+relax HTTPS, origin binding or JWT checks.
 
 ## Dependency policy
 
@@ -372,8 +389,11 @@ Before adding a Go module:
 
 ## Known limitations
 
-- no refresh tokens, logout or explicit revocation endpoint;
-- sessions and DCR state are lost on process restart or failover;
+- no token renewal, login or explicit revocation endpoint;
+- requires an issuing daemon with the signed `cluster_id` claim;
+- no endpoint failover or automatic cluster registration;
+- native bearer authentication, not generic OAuth-client interoperability;
+- webapp/OpenID integration is a separate future increment;
 - a limited, mostly read-only diagnostic tool set;
 - no tool-specific policy engine;
 - no audit subsystem;

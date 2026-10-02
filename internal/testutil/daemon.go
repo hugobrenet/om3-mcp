@@ -15,8 +15,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"go.yaml.in/yaml/v2"
 )
 
 type Daemon struct {
@@ -64,15 +62,7 @@ func NewDaemon(t testing.TB, handler http.Handler) Daemon {
 	return Daemon{Server: server, CAFile: path, CAPEM: public, CAKey: key}
 }
 
-func WriteTarget(t testing.TB, name, id, ca string, endpoints []string) string {
+func WriteTarget(t testing.TB, name, id, ca string, nodes map[string]string) string {
 	t.Helper()
-	data, err := yaml.Marshal(map[string]any{"version": 1, "clusters": map[string]any{"cluster-a": map[string]any{"name": name, "expected_cluster_id": id, "endpoints": endpoints, "tls": map[string]string{"ca_file": ca}, "request_timeout": "2s"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "clusters.yaml")
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return path
+	return WriteCatalog(t, map[string]any{"cluster-a": map[string]any{"name": name, "expected_cluster_id": id, "nodes": nodes, "tls": map[string]string{"ca_file": ca}, "request_timeout": "2s"}})
 }

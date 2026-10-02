@@ -9,58 +9,32 @@ import (
 
 func clearListenerEnvironment(t *testing.T) {
 	t.Helper()
-	for name := range removedVariables {
-		t.Setenv(name, "")
-	}
-	for _, name := range []string{"OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_PUBLIC_URL", "OPENSVC_MCP_CLUSTER_CONFIG_FILE"} {
+	for _, name := range []string{"OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_CLUSTER_CONFIG_FILE"} {
 		t.Setenv(name, "")
 	}
 }
 
-func TestLoadRemoteOAuthPrototype(t *testing.T) {
+func TestLoadNativeJWTConfiguration(t *testing.T) {
 	clearListenerEnvironment(t)
 	t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
 	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
 	t.Setenv("OPENSVC_MCP_LISTEN_ADDR", "0.0.0.0:8443")
-	t.Setenv("OPENSVC_MCP_PUBLIC_URL", "https://192.0.2.10")
 	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster"}))
 	got, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.OAuth.PublicURL != "https://192.0.2.10" || got.OAuth.Clusters.Len() != 1 || got.ListenAddress != "0.0.0.0:8443" {
-		t.Fatalf("public origin must be independent of bind address: %+v", got)
+	if got.Clusters.Len() != 1 || got.ListenAddress != "0.0.0.0:8443" {
+		t.Fatalf("catalogue must be loaded independently of bind address: %+v", got)
 	}
 }
 
-func TestLoadRejectsIncompleteOAuthConfig(t *testing.T) {
-	for _, tc := range []struct{ variable, value string }{
-		{"OPENSVC_MCP_PUBLIC_URL", ""},
-		{"OPENSVC_MCP_CLUSTER_CONFIG_FILE", ""},
-	} {
-		t.Run(tc.variable, func(t *testing.T) {
-			clearListenerEnvironment(t)
-			t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
-			t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
-			t.Setenv("OPENSVC_MCP_PUBLIC_URL", "https://192.0.2.10")
-			t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster"}))
-			t.Setenv(tc.variable, tc.value)
-			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OPENSVC_MCP_PUBLIC_URL") {
-				t.Fatalf("got error %v", err)
-			}
-		})
-	}
-}
-
-func TestLoadRejectsRemovedVariables(t *testing.T) {
-	for name, migration := range removedVariables {
-		t.Run(name, func(t *testing.T) {
-			clearListenerEnvironment(t)
-			t.Setenv(name, "old-value")
-			if _, err := Load(); err == nil || !strings.Contains(err.Error(), name+" has been removed") || !strings.Contains(err.Error(), migration) {
-				t.Fatalf("expected explicit migration error, got %v", err)
-			}
-		})
+func TestLoadRequiresCatalogue(t *testing.T) {
+	clearListenerEnvironment(t)
+	t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
+	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OPENSVC_MCP_CLUSTER_CONFIG_FILE") {
+		t.Fatalf("got error %v", err)
 	}
 }
 
@@ -68,7 +42,6 @@ func TestLoadRejectsInvalidClusterConfigBeforeListening(t *testing.T) {
 	clearListenerEnvironment(t)
 	t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
 	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
-	t.Setenv("OPENSVC_MCP_PUBLIC_URL", "https://192.0.2.10")
 	for _, path := range []string{"relative.yaml", "/nonexistent/clusters.yaml", t.TempDir()} {
 		t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", path)
 		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OPENSVC_MCP_CLUSTER_CONFIG_FILE") {
@@ -79,6 +52,7 @@ func TestLoadRejectsInvalidClusterConfigBeforeListening(t *testing.T) {
 
 func TestLoadHTTPS(t *testing.T) {
 	clearListenerEnvironment(t)
+	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster"}))
 	t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/etc/opensvc-mcp/tls/server.crt")
 	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/etc/opensvc-mcp/tls/server.key")
 	for _, address := range []string{"", "192.0.2.10:443", "[::1]:8443"} {

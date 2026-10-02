@@ -13,9 +13,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	"net/http/cookiejar"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,12 +23,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/config"
 	"github.com/hugobrenet/opensvc-daemon-mcp/internal/testutil"
-	"github.com/modelcontextprotocol/go-sdk/oauthex"
 )
 
-func TestHTTPSBinaryDiscoveryRegistrationAndLogin(t *testing.T) {
+func TestHTTPSBinaryRequiresNativeJWTWithoutDaemonContact(t *testing.T) {
 	certFile, keyFile, roots := writeListenerCertificate(t)
 	var daemonCalls atomic.Int32
 	var daemonConnections atomic.Int32
@@ -52,11 +50,7 @@ func TestHTTPSBinaryDiscoveryRegistrationAndLogin(t *testing.T) {
 	}
 	tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}}
 	t.Cleanup(tr.CloseIdleConnections)
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := &http.Client{Transport: tr, Jar: jar, Timeout: 2 * time.Second}
+	c := &http.Client{Transport: tr, Timeout: 2 * time.Second}
 	origin := startHTTPSBinary(t, c, certFile, keyFile, clusterFile)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -71,40 +65,22 @@ func TestHTTPSBinaryDiscoveryRegistrationAndLogin(t *testing.T) {
 			t.Fatal(err)
 		}
 		_ = response.Body.Close()
-		if response.StatusCode != http.StatusUnauthorized || !strings.Contains(response.Header.Get("WWW-Authenticate"), origin+"/.well-known/oauth-protected-resource/mcp") {
-			t.Fatal("HTTPS binary did not require OAuth authorization")
+		if response.StatusCode != http.StatusUnauthorized || response.Header.Get("WWW-Authenticate") != "Bearer" {
+			t.Fatal("HTTPS binary did not require native JWT authorization")
 		}
 	}
-	resource, err := oauthex.GetProtectedResourceMetadata(ctx, origin+"/.well-known/oauth-protected-resource/mcp", origin+"/mcp", c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(resource.AuthorizationServers) != 1 || resource.AuthorizationServers[0] != origin {
-		t.Fatalf("resource metadata: %+v", resource)
-	}
-	meta, err := oauthex.GetAuthServerMeta(ctx, origin+"/.well-known/oauth-authorization-server", origin, c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	registration, err := oauthex.RegisterClient(ctx, meta.RegistrationEndpoint, &oauthex.ClientRegistrationMetadata{ClientName: "Example agent", RedirectURIs: []string{"http://127.0.0.1/callback/client-a"}, TokenEndpointAuthMethod: "none", GrantTypes: []string{"authorization_code", "refresh_token"}, ResponseTypes: []string{"code"}}, c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	q := url.Values{"client_id": {registration.ClientID}, "redirect_uri": {"http://127.0.0.1:5432/callback/client-a"}, "response_type": {"code"}, "resource": {resource.Resource}, "scope": {"mcp:access"}, "state": {"example-state"}, "code_challenge_method": {"S256"}, "code_challenge": {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}
-	response, err := c.Get(meta.AuthorizationEndpoint + "?" + q.Encode())
-	if err != nil {
-		t.Fatal(err)
-	}
-	page, err := io.ReadAll(response.Body)
-	_ = response.Body.Close()
-	if err != nil || response.StatusCode != 200 || response.Request.URL.String() != origin+"/login" || !strings.Contains(string(page), "Example agent") || !strings.Contains(string(page), "Example cluster") || !strings.Contains(string(page), "<fieldset>") {
-		t.Fatalf("TLS login journey failed: status=%d error=%v", response.StatusCode, err)
-	}
-	if !strings.Contains(string(page), `<select id="cluster" name="cluster_ref" required>`) || !strings.Contains(string(page), `<option value="cluster-b">Second example cluster</option>`) {
-		t.Fatal("TLS login journey did not expose the configured cluster choices")
+	for _, path := range []string{"/unknown", "/mcp/unknown"} {
+		response, err := c.Get(origin + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != 404 {
+			t.Fatalf("unknown route %s returned %d", path, response.StatusCode)
+		}
 	}
 	if daemonCalls.Load() != 0 || daemonConnections.Load() != 0 {
-		t.Fatal("catalogue loading or login form contacted the daemon")
+		t.Fatal("startup or unauthenticated request contacted the daemon")
 	}
 }
 
@@ -121,11 +97,16 @@ func (l *countingListener) Accept() (net.Conn, error) {
 	return conn, err
 }
 
-func TestHTTPSListenerRequiresTrustedTLSAndBlocksRemoteMCP(t *testing.T) {
+func TestHTTPSListenerRequiresTrustedTLSAndNativeJWT(t *testing.T) {
 	certFile, keyFile, roots := writeListenerCertificate(t)
 	cfg := config.Config{
 		ListenAddress: "127.0.0.1:0",
 		TLSCertFile:   certFile, TLSKeyFile: keyFile,
+	}
+	var err error
+	cfg.Clusters, err = clusterconfig.Load(testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster"}))
+	if err != nil {
+		t.Fatal(err)
 	}
 	handler, err := newMCPHandler(cfg)
 	if err != nil {
@@ -169,7 +150,7 @@ func TestHTTPSListenerRequiresTrustedTLSAndBlocksRemoteMCP(t *testing.T) {
 		}
 		err = json.NewDecoder(response.Body).Decode(&problem)
 		_ = response.Body.Close()
-		if err != nil || response.StatusCode != 503 || problem.Status != 503 || !strings.Contains(problem.Detail, "authorization") {
+		if err != nil || response.StatusCode != 401 || problem.Status != 401 || !strings.Contains(problem.Detail, "JWT") {
 			t.Fatalf("remote MCP response: status=%d problem=%+v error=%v", response.StatusCode, problem, err)
 		}
 		if response.Header.Get("Content-Type") != "application/problem+json" || response.Header.Get("Cache-Control") != "no-store" {
@@ -316,7 +297,6 @@ func startHTTPSBinary(t *testing.T, c *http.Client, certFile, keyFile, clusterFi
 		"OPENSVC_MCP_LISTEN_ADDR="+address,
 		"OPENSVC_MCP_TLS_CERT_FILE="+certFile,
 		"OPENSVC_MCP_TLS_KEY_FILE="+keyFile,
-		"OPENSVC_MCP_PUBLIC_URL="+origin,
 		"OPENSVC_MCP_CLUSTER_CONFIG_FILE="+clusterFile,
 	)
 	logFile, err := os.Create(filepath.Join(t.TempDir(), "server.log"))
@@ -331,13 +311,14 @@ func startHTTPSBinary(t *testing.T, c *http.Client, certFile, keyFile, clusterFi
 	done := make(chan error, 1)
 	go func() { done <- command.Wait() }()
 	t.Cleanup(func() {
+		c.CloseIdleConnections()
 		_ = command.Process.Signal(syscall.SIGTERM)
 		select {
 		case err := <-done:
 			if err != nil {
 				t.Errorf("MCP exit: %v", err)
 			}
-		case <-time.After(3 * time.Second):
+		case <-time.After(6 * time.Second):
 			_ = command.Process.Kill()
 			<-done
 			t.Error("MCP did not shut down on SIGTERM")
@@ -345,10 +326,10 @@ func startHTTPSBinary(t *testing.T, c *http.Client, certFile, keyFile, clusterFi
 	})
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		response, err := c.Get(origin + "/.well-known/oauth-authorization-server")
+		response, err := c.Get(origin + "/mcp")
 		if err == nil {
 			_ = response.Body.Close()
-			if response.StatusCode == http.StatusOK {
+			if response.StatusCode == http.StatusUnauthorized {
 				return origin
 			}
 		}

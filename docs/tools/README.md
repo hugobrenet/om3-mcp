@@ -2,7 +2,7 @@
 
 This directory documents the human-facing contracts of the OpenSVC daemon MCP
 tools. Names, descriptions, annotations and JSON Schemas are defined in
-`internal/tools` and exposed by authenticated `tools/list` calls. These
+`internal/tools` and exposed by bearer-checked `tools/list` calls. These
 documents describe the implemented tool contracts.
 
 ## Domains
@@ -19,16 +19,18 @@ documents describe the implemented tool contracts.
 
 ## Authentication and visibility
 
-Remote agents authenticate and authorize the selected cluster through
-[OAuth and OpenSVC login](../authentication.md). Each `/mcp` request requires a
-valid MCP bearer token. The daemon JWT stays on the server and authenticates
-the grant's fixed user and target cluster; an agent-supplied daemon JWT is not
-an MCP credential.
+Remote agents supply a [native OpenSVC access JWT](../authentication.md)
+on each `/mcp` request. Its declared `cluster_id` and `iss` select a configured
+cluster and emitting daemon. The unchanged JWT authenticates that daemon call;
+credentials never enter tool arguments or results.
 
-Missing, invalid and expired MCP tokens return HTTP `401` with OAuth metadata.
-The daemon enforces grants and namespace visibility. Tool failures preserve
-`isError=true`, HTTP status and bounded RFC 7807 `title` and `detail` fields.
-New browser logins do not change an existing token's user or cluster.
+Missing, malformed, expired and unknown-target tokens return HTTP `401` with
+a Bearer challenge. Signature verification, grants and namespace visibility
+remain authoritative at the daemon. Initialization/tool metadata do not prove
+identity; the agent uses the dedicated whoami bridge for that. Tool failures
+preserve `isError=true`, HTTP status and bounded RFC 7807 `title` and `detail`
+fields. Each request supplies its own delegation and target; no other
+request or protocol session can replace them.
 
 ## Freshness model
 

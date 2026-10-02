@@ -44,27 +44,19 @@ func TestLoadSnapshotAndIndependentCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 	list := catalog.List()
-	summaries := catalog.Summaries()
-	if !reflect.DeepEqual(summaries, []ClusterSummary{{Ref: "cluster-a", Name: "Example cluster"}, {Ref: "cluster-b", Name: "Second cluster"}}) {
-		t.Fatalf("unexpected display summaries: %+v", summaries)
-	}
-	summaries[0].Name = "changed"
-	if catalog.Summaries()[0].Name != "Example cluster" {
-		t.Fatal("summary consumer mutated the catalogue")
-	}
 	if catalog.Len() != 2 || list[0].Ref != "cluster-a" || list[1].Ref != "cluster-b" {
 		t.Fatalf("unexpected catalogue order: %+v", list)
 	}
 	want, ok := catalog.Lookup("cluster-a")
-	if !ok || want.Name != "Example cluster" || want.RequestTimeout != 20*time.Second || want.ExpectedClusterID != "00000000-0000-4000-8000-000000000001" || !reflect.DeepEqual(want.Endpoints, []string{"https://192.0.2.20:1215", "https://192.0.2.21:1215"}) || len(want.CAPEM) == 0 {
+	if !ok || want.Name != "Example cluster" || want.RequestTimeout != 20*time.Second || want.ExpectedClusterID != "00000000-0000-4000-8000-000000000001" || !reflect.DeepEqual(want.Nodes, map[string]string{"node-a": "https://192.0.2.20:1215", "node-b": "https://192.0.2.21:1215"}) || len(want.CAPEM) == 0 {
 		t.Fatal("loaded target lost its configuration")
 	}
 	// Neither consumers nor file replacement can alter the loaded snapshot.
 	list[0].Name = "changed"
-	list[0].Endpoints[0] = "https://other.example"
+	list[0].Nodes["node-a"] = "https://other.example"
 	list[0].CAPEM[0] = '!'
 	copy, _ := catalog.Lookup("cluster-a")
-	copy.Endpoints[0] = "https://other.example"
+	copy.Nodes["node-a"] = "https://other.example"
 	copy.CAPEM[0] = '!'
 	if err := os.WriteFile(want.CAFile, []byte("replaced"), 0o600); err != nil {
 		t.Fatal(err)
@@ -88,21 +80,24 @@ func TestLoadSnapshotAndIndependentCopies(t *testing.T) {
 func TestLoadRejectsAmbiguousYAML(t *testing.T) {
 	base := string(fixture(t))
 	for name, data := range map[string]string{
-		"empty": "", "null": "null", "unsupported version": strings.Replace(base, "version: 1", "version: 2", 1),
-		"float version":        strings.Replace(base, "version: 1", "version: 1.0", 1),
-		"quoted version":       strings.Replace(base, "version: 1", `version: "1"`, 1),
-		"empty catalogue":      "version: 1\nclusters: {}\n",
+		"empty": "", "null": "null", "unsupported version": strings.Replace(base, "version: 2", "version: 1", 1),
+		"float version":        strings.Replace(base, "version: 2", "version: 2.0", 1),
+		"quoted version":       strings.Replace(base, "version: 2", `version: "1"`, 1),
+		"empty catalogue":      "version: 2\nclusters: {}\n",
 		"unknown field":        base + "secret: never-echo-this-value\n",
 		"unknown nested field": strings.Replace(base, "name:", "password: never-echo-this-value\n    name:", 1),
-		"duplicate field":      base + "version: 1\n",
+		"duplicate field":      base + "version: 2\n",
 		"duplicate cluster":    strings.Replace(base, "  cluster-a:\n", "  cluster-a: {}\n  cluster-a:\n", 1),
 		"duplicate name":       strings.Replace(base, "    name:", "    name: duplicate\n    name:", 1),
-		"another document":     base + "---\nversion: 1\n",
+		"another document":     base + "---\nversion: 2\n",
 		"empty extra document": base + "---\n",
 		"non-string ref":       strings.Replace(base, "cluster-a:", "123:", 1),
 		"boolean name":         strings.Replace(base, "name: Example cluster", "name: true", 1),
 		"numeric ID":           strings.Replace(base, "expected_cluster_id: 00000000-0000-4000-8000-000000000001", "expected_cluster_id: 123", 1),
-		"unknown TLS field":    strings.Replace(base, "    tls:\n", "    tls:\n      insecure: true\n", 1),
+		"unknown TLS field":    strings.Replace(base, "    tls:\n", "    tls:\n      unknown: true\n", 1),
+		"numeric node":         strings.Replace(base, "node-a:", "42:", 1),
+		"duplicate node":       strings.Replace(base, "node-a:", "node-a: https://example.com\n      node-a:", 1),
+		"boolean endpoint":     strings.Replace(base, "https://192.0.2.20:1215", "true", 1),
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Load(writeConfig(t, []byte(data)))
@@ -121,11 +116,13 @@ func TestLoadRejectsInvalidTargets(t *testing.T) {
 	}{
 		{"name", ""}, {"name", " padded "}, {"name", "line\nbreak"}, {"name", strings.Repeat("a", 129)},
 		{"expected_cluster_id", ""}, {"expected_cluster_id", " padded "},
-		{"endpoints", []string{}}, {"endpoints", []string{"http://192.0.2.20:1215"}},
-		{"endpoints", []string{"https://user:never-echo-this-value@192.0.2.20:1215"}},
-		{"endpoints", []string{"https://192.0.2.20:1215", "https://192.0.2.20:01215/"}},
-		{"endpoints", []string{"https://EXAMPLE.COM:443/", "https://example.com"}},
-		{"endpoints", []string{"https://example.com", "https://second.example", "https://third.example", "https://fourth.example", "https://fifth.example", "https://sixth.example", "https://seventh.example", "https://eighth.example", "https://ninth.example"}},
+		{"nodes", map[string]string{}}, {"nodes", map[string]string{"node-a": "http://192.0.2.20:1215"}},
+		{"nodes", map[string]string{"node-a": "https://user:never-echo-this-value@192.0.2.20:1215"}},
+		{"nodes", map[string]string{"node-a": "https://192.0.2.20:1215", "node-b": "https://192.0.2.20:01215/"}},
+		{"nodes", map[string]string{"node-a": "https://EXAMPLE.COM:443/", "node-b": "https://example.com"}},
+		{"nodes", map[string]string{"": "https://example.com"}},
+		{"nodes", map[string]string{" padded ": "https://example.com"}},
+		{"nodes", map[string]string{"line\nbreak": "https://example.com"}},
 		{"request_timeout", ""}, {"request_timeout", "0s"}, {"request_timeout", "500ms"}, {"request_timeout", "2m1s"},
 		{"tls", map[string]string{"ca_file": "relative.pem"}},
 		{"tls", map[string]string{"ca_file": filepath.Join(t.TempDir(), "absent.pem")}},

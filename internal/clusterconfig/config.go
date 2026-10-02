@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"maps"
 	"net/netip"
 	"net/url"
 	"os"
@@ -27,37 +28,24 @@ const (
 	maxConfigBytes = 256 << 10
 	maxCABytes     = 1 << 20
 	maxClusters    = 64
-	maxEndpoints   = 8
+	maxNodes       = 200
 )
 
-// Cluster is a copy of one validated target. CAPEM snapshots its public trust
-// material; future login transports can use it without rereading a changed file.
+// Cluster is a copy of one validated target. Public HTTPS trust is snapshotted
+// at startup. JWT signature verification belongs exclusively to the daemon.
 type Cluster struct {
 	Ref               string
 	Name              string
 	ExpectedClusterID string
-	Endpoints         []string
+	Nodes             map[string]string
 	CAFile            string
 	CAPEM             []byte
+	TLSInsecure       bool
 	RequestTimeout    time.Duration
 }
 
 // Catalog is immutable after Load. Accessors return independent copies.
 type Catalog struct{ clusters []Cluster }
-
-// ClusterSummary exposes only the reference and display name needed on /login.
-type ClusterSummary struct{ Ref, Name string }
-
-func (c *Catalog) Summaries() []ClusterSummary {
-	if c == nil {
-		return nil
-	}
-	result := make([]ClusterSummary, len(c.clusters))
-	for i, cluster := range c.clusters {
-		result[i] = ClusterSummary{Ref: cluster.Ref, Name: cluster.Name}
-	}
-	return result
-}
 
 func (c *Catalog) List() []Cluster {
 	if c == nil {
@@ -88,8 +76,19 @@ func (c *Catalog) Len() int {
 	return len(c.clusters)
 }
 
+func (c *Catalog) LookupID(id string) (Cluster, bool) {
+	if c != nil {
+		for _, cluster := range c.clusters {
+			if cluster.ExpectedClusterID == id {
+				return clone(cluster), true
+			}
+		}
+	}
+	return Cluster{}, false
+}
+
 func clone(c Cluster) Cluster {
-	c.Endpoints = slices.Clone(c.Endpoints)
+	c.Nodes = maps.Clone(c.Nodes)
 	c.CAPEM = slices.Clone(c.CAPEM)
 	return c
 }
@@ -130,12 +129,29 @@ func (v *version) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
+// boolean prevents strings or numbers from enabling a security-sensitive flag.
+type boolean bool
+
+func (b *boolean) UnmarshalYAML(unmarshal func(any) error) error {
+	var value any
+	if err := unmarshal(&value); err != nil {
+		return err
+	}
+	v, ok := value.(bool)
+	if !ok {
+		return fmt.Errorf("expected boolean")
+	}
+	*b = boolean(v)
+	return nil
+}
+
 type definition struct {
-	Name              text   `yaml:"name"`
-	ExpectedClusterID text   `yaml:"expected_cluster_id"`
-	Endpoints         []text `yaml:"endpoints"`
+	Name              text          `yaml:"name"`
+	ExpectedClusterID text          `yaml:"expected_cluster_id"`
+	Nodes             map[text]text `yaml:"nodes"`
 	TLS               struct {
-		CAFile text `yaml:"ca_file"`
+		CAFile   text    `yaml:"ca_file"`
+		Insecure boolean `yaml:"insecure"`
 	} `yaml:"tls"`
 	RequestTimeout text `yaml:"request_timeout"`
 }
@@ -160,8 +176,8 @@ func Load(path string) (*Catalog, error) {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return nil, fmt.Errorf("cluster configuration must contain exactly one YAML document")
 	}
-	if doc.Version != 1 {
-		return nil, fmt.Errorf("version: only configuration version 1 is supported")
+	if doc.Version != 2 {
+		return nil, fmt.Errorf("version: only configuration version 2 is supported; configure issuer-to-endpoint nodes")
 	}
 	if len(doc.Clusters) == 0 || len(doc.Clusters) > maxClusters {
 		return nil, fmt.Errorf("clusters: provide between 1 and %d clusters", maxClusters)
@@ -175,18 +191,23 @@ func Load(path string) (*Catalog, error) {
 	}
 	slices.Sort(refs)
 	catalog := &Catalog{}
+	ids := make(map[string]bool)
 	for _, ref := range refs {
 		cluster, err := validate(ref, doc.Clusters[text(ref)])
 		if err != nil {
 			return nil, fmt.Errorf("clusters.%s.%w", ref, err)
 		}
+		if ids[cluster.ExpectedClusterID] {
+			return nil, fmt.Errorf("clusters.%s.expected_cluster_id: duplicate cluster identity", ref)
+		}
+		ids[cluster.ExpectedClusterID] = true
 		catalog.clusters = append(catalog.clusters, cluster)
 	}
 	return catalog, nil
 }
 
 func validate(ref string, d definition) (Cluster, error) {
-	c := Cluster{Ref: ref, Name: string(d.Name), ExpectedClusterID: string(d.ExpectedClusterID), CAFile: string(d.TLS.CAFile)}
+	c := Cluster{Ref: ref, Name: string(d.Name), ExpectedClusterID: string(d.ExpectedClusterID), CAFile: string(d.TLS.CAFile), TLSInsecure: bool(d.TLS.Insecure), Nodes: make(map[string]string)}
 	if !validText(c.Name, 128) {
 		return Cluster{}, fmt.Errorf("name: provide 1 to 128 bytes of text without surrounding whitespace or control characters")
 	}
@@ -195,24 +216,36 @@ func validate(ref string, d definition) (Cluster, error) {
 	if !validText(c.ExpectedClusterID, 256) {
 		return Cluster{}, fmt.Errorf("expected_cluster_id: provide a nonempty identifier of at most 256 bytes")
 	}
-	if len(d.Endpoints) == 0 || len(d.Endpoints) > maxEndpoints {
-		return Cluster{}, fmt.Errorf("endpoints: provide between 1 and %d HTTPS origins", maxEndpoints)
+	if len(d.Nodes) == 0 || len(d.Nodes) > maxNodes {
+		return Cluster{}, fmt.Errorf("nodes: provide between 1 and %d issuer-to-HTTPS-origin mappings", maxNodes)
 	}
-	for i, endpoint := range d.Endpoints {
+	origins := make(map[string]bool)
+	for node, endpoint := range d.Nodes {
+		if !validText(string(node), 256) {
+			return Cluster{}, fmt.Errorf("nodes: issuer names must be nonempty text of at most 256 bytes")
+		}
 		origin, err := endpointOrigin(string(endpoint))
 		if err != nil {
-			return Cluster{}, fmt.Errorf("endpoints[%d]: provide an HTTPS origin without credentials, path, query or fragment", i)
+			return Cluster{}, fmt.Errorf("nodes: provide HTTPS origins without credentials, path, query or fragment")
 		}
-		if slices.Contains(c.Endpoints, origin) {
-			return Cluster{}, fmt.Errorf("endpoints[%d]: duplicate endpoint", i)
+		if origins[origin] {
+			return Cluster{}, fmt.Errorf("nodes: duplicate endpoint")
 		}
-		c.Endpoints = append(c.Endpoints, origin)
+		origins[origin] = true
+		c.Nodes[string(node)] = origin
 	}
 	timeout, err := time.ParseDuration(string(d.RequestTimeout))
 	if err != nil || timeout < time.Second || timeout > 2*time.Minute {
 		return Cluster{}, fmt.Errorf("request_timeout: provide a duration between 1s and 2m")
 	}
 	c.RequestTimeout = timeout
+	if c.TLSInsecure && c.CAFile != "" {
+		return Cluster{}, fmt.Errorf("tls: insecure=true and ca_file cannot be combined")
+	}
+	// An omitted TLS CA uses system roots; an explicit file replaces them.
+	if c.CAFile == "" {
+		return c, nil
+	}
 	if !filepath.IsAbs(c.CAFile) || strings.TrimSpace(c.CAFile) != c.CAFile {
 		return Cluster{}, fmt.Errorf("tls.ca_file: provide an absolute file path")
 	}
@@ -238,7 +271,7 @@ func endpointOrigin(raw string) (string, error) {
 			return "", fmt.Errorf("invalid port")
 		}
 	}
-	// Preserve configured order while normalizing equivalent origin spellings.
+	// Normalize equivalent origin spellings.
 	host := strings.ToLower(u.Hostname())
 	if address, err := netip.ParseAddr(host); err == nil {
 		if address.Zone() != "" || address.Is6() != strings.HasPrefix(u.Host, "[") {

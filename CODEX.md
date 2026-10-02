@@ -35,7 +35,7 @@ Do not expand tools or authentication scope without user direction.
 - Go 1.25.5 or later; Go standard library where practical.
 - MCP SDK: `github.com/modelcontextprotocol/go-sdk`.
 - Tests: Go testing and httptest.
-- `cmd/opensvc-daemon-mcp`: HTTPS composition root, listener and lifecycle tests.
+- `cmd/om3-mcp`: HTTPS composition root, listener and lifecycle tests.
 - `internal/config`: process environment and startup validation.
 - `internal/clusterconfig`: strict YAML catalogue and immutable public trust snapshot.
 - `internal/auth`: native JWT structure/claim checks and request-scoped delegation.
@@ -275,7 +275,7 @@ For code changes, run appropriate tests and the complete suite:
 ~~~bash
 go test ./...
 go vet ./...
-go build -o /tmp/opensvc-daemon-mcp ./cmd/opensvc-daemon-mcp
+go build -o /tmp/om3-mcp ./cmd/om3-mcp
 git diff --check
 ~~~
 

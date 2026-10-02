@@ -1,4 +1,4 @@
-module github.com/hugobrenet/opensvc-daemon-mcp
+module github.com/opensvc/om3-mcp
 
 go 1.25.5
 

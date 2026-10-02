@@ -23,9 +23,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/config"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/testutil"
+	"github.com/opensvc/om3-mcp/internal/clusterconfig"
+	"github.com/opensvc/om3-mcp/internal/config"
+	"github.com/opensvc/om3-mcp/internal/testutil"
 )
 
 func TestHTTPSBinaryRequiresNativeJWTWithoutDaemonContact(t *testing.T) {
@@ -274,7 +274,7 @@ func startHTTPSBinary(t *testing.T, c *http.Client, certFile, keyFile, clusterFi
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
-	binary := filepath.Join(t.TempDir(), "opensvc-daemon-mcp")
+	binary := filepath.Join(t.TempDir(), "om3-mcp")
 	if output, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build MCP: %v\n%s", err, output)
 	}

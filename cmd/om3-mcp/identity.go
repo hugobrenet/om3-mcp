@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/auth"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/client"
+	"github.com/opensvc/om3-mcp/internal/auth"
+	"github.com/opensvc/om3-mcp/internal/client"
 )
 
 // serveWhoAmI is a narrow identity bridge, not an MCP tool or token issuer.

@@ -3,8 +3,8 @@ package tools
 import (
 	"context"
 
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/core"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/opensvc/om3-mcp/internal/core"
 )
 
 type GetDaemonStatusInput struct{}

@@ -9,8 +9,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/auth"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
+	"github.com/opensvc/om3-mcp/internal/auth"
+	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 )
 
 type target struct{ clusterID, issuer string }

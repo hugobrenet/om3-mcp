@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/config"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/testutil"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/opensvc/om3-mcp/internal/clusterconfig"
+	"github.com/opensvc/om3-mcp/internal/config"
+	"github.com/opensvc/om3-mcp/internal/testutil"
 )
 
 // Real SDK calls through the compiled HTTPS entrypoint with independent TLS
@@ -161,6 +161,10 @@ func testNativeTools(t *testing.T, binary bool) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = session.Close() })
+		info := session.InitializeResult().ServerInfo
+		if info == nil || info.Name != "om3-mcp" {
+			t.Fatalf("unexpected MCP server identity: %#v", info)
+		}
 		sessions = append(sessions, session)
 		list, err := session.ListTools(ctx, &mcp.ListToolsParams{})
 		if err != nil || len(list.Tools) == 0 {

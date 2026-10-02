@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/core"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/opensvc/om3-mcp/internal/core"
 )
 
 type ListObjectInstancesInput struct {

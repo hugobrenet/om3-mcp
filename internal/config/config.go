@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
+	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 )
 
 const defaultListenAddress = "127.0.0.1:8443"

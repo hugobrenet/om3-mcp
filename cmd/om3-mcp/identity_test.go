@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/config"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/testutil"
+	"github.com/opensvc/om3-mcp/internal/clusterconfig"
+	"github.com/opensvc/om3-mcp/internal/config"
+	"github.com/opensvc/om3-mcp/internal/testutil"
 )
 
 func TestIdentityBridgeValidatesJWTAtDaemonOnly(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
+	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 )
 
 const (

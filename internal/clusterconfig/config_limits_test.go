@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/testutil"
+	"github.com/opensvc/om3-mcp/internal/testutil"
 	"go.yaml.in/yaml/v2"
 )
 

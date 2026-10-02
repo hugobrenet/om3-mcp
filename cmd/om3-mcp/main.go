@@ -11,17 +11,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/auth"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/client"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/clusterconfig"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/config"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/core"
-	"github.com/hugobrenet/opensvc-daemon-mcp/internal/tools"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/opensvc/om3-mcp/internal/auth"
+	"github.com/opensvc/om3-mcp/internal/client"
+	"github.com/opensvc/om3-mcp/internal/clusterconfig"
+	"github.com/opensvc/om3-mcp/internal/config"
+	"github.com/opensvc/om3-mcp/internal/core"
+	"github.com/opensvc/om3-mcp/internal/tools"
 )
 
 const (
-	serverName         = "opensvc-daemon-mcp"
+	serverName         = "om3-mcp"
 	serverVersion      = "v0.1.0"
 	maxHTTPHeaderBytes = 64 << 10
 	shutdownTimeout    = 30 * time.Second

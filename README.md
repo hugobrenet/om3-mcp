@@ -46,7 +46,6 @@ This disables daemon certificate verification and is strongly discouraged in pro
 - [Configuration reference and deployment](docs/configuration.md)
 - [Authentication and client setup](docs/authentication.md)
 - [Tools and shared contracts](docs/tools/README.md)
-- [Systemd unit](deploy/systemd/om3-mcp.service)
 
 ## Development
 

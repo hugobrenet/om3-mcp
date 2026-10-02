@@ -121,12 +121,14 @@ must be readable regular files of at most 1 MiB. TLS bundles accept only valid
 public CA certificates, not leaf certificates.
 Changing these files does not alter the running snapshot.
 
-## systemd
+## Runtime account
 
-The [unit](../deploy/systemd/om3-mcp.service) runs as
-`opensvc-mcp:opensvc-mcp`, reads `/etc/opensvc-mcp/mcp.env`, and expects
-`/usr/local/libexec/om3-mcp`. The account must be able to read the
-listener certificate/key, catalogue and public trust files. Restrict listener
-private-key access to the service account. The unit grants no capabilities;
-use an unprivileged port such as `8443`. It does not require a local OpenSVC
-daemon, its binary, user objects or private signing keys.
+Run `om3-mcp` under a dedicated unprivileged account, for example
+`opensvc-mcp:opensvc-mcp`. It must be able to read the listener certificate/key,
+catalogue and public trust files. Restrict private-key access to that account
+and use an unprivileged port such as `8443`.
+
+An OpenSVC `app.simple` resource can manage the process with the environment
+variables above. The binary does not load an environment file itself and does
+not require systemd, a local OpenSVC daemon, its binary, user objects or private
+signing keys.

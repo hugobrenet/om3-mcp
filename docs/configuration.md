@@ -51,7 +51,6 @@ clusters:
   cluster-a:
     name: Example cluster
     expected_cluster_id: 00000000-0000-4000-8000-000000000001
-    default_node: node-a
     nodes:
       node-a: https://192.0.2.20:1215
       node-b: https://192.0.2.21:1215
@@ -64,10 +63,8 @@ clusters:
 - `name`: human-readable name.
 - `expected_cluster_id`: exact native JWT `cluster_id` or OpenID HTTP target
   (`X-OpenSVC-Cluster-ID`) routing key; must be unique.
-- `default_node`: exact key in `nodes`, used for OpenID delegation. Optional
-  for native-only clusters. If omitted, OpenID requests to this cluster are
-  refused, even when only one node is configured.
-- `nodes`: exact daemon node names (native JWT `iss`) mapped to authorized
+- `nodes`: exact daemon node names (native JWT `iss` or OpenID HTTP target
+  `X-OpenSVC-Node`) mapped to authorized
   HTTPS daemon origins. No credentials, API paths, queries or fragments.
 - `tls.ca_file`: optional absolute public CA bundle path for daemon TLS.
   Omit `tls` for the system CA roots, for example with Let's Encrypt.
@@ -108,11 +105,14 @@ JWT checks. Restart the MCP after changing the catalogue.
 
 For native JWTs, `cluster_id` selects a configured cluster and `iss` selects
 exactly one configured node. An optional `X-OpenSVC-Cluster-ID` header must
-match the native claim and cannot override its node.
+match the native claim. An optional `X-OpenSVC-Node` header must match `iss`;
+neither header can override the emitting daemon.
 
 For OpenID, the required `X-OpenSVC-Cluster-ID` header selects the cluster's
-`expected_cluster_id`; its `default_node` selects exactly one daemon. The
-provider's `iss` and `aud` do not select an endpoint. That daemon must already
+`expected_cluster_id`; the required `X-OpenSVC-Node` header selects exactly
+one entry in that cluster's `nodes`. No node is inferred, even if there is only
+one configured. The provider's `iss` and `aud` do not select an endpoint.
+That daemon must already
 be configured to validate the token's OpenID issuer and audience.
 
 Claims and HTTP targets remain unverified until the daemon authenticates the

@@ -37,7 +37,6 @@ type Cluster struct {
 	Ref               string
 	Name              string
 	ExpectedClusterID string
-	DefaultNode       string
 	Nodes             map[string]string
 	CAFile            string
 	CAPEM             []byte
@@ -149,7 +148,6 @@ func (b *boolean) UnmarshalYAML(unmarshal func(any) error) error {
 type definition struct {
 	Name              text          `yaml:"name"`
 	ExpectedClusterID text          `yaml:"expected_cluster_id"`
-	DefaultNode       text          `yaml:"default_node"`
 	Nodes             map[text]text `yaml:"nodes"`
 	TLS               struct {
 		CAFile   text    `yaml:"ca_file"`
@@ -209,7 +207,7 @@ func Load(path string) (*Catalog, error) {
 }
 
 func validate(ref string, d definition) (Cluster, error) {
-	c := Cluster{Ref: ref, Name: string(d.Name), ExpectedClusterID: string(d.ExpectedClusterID), DefaultNode: string(d.DefaultNode), CAFile: string(d.TLS.CAFile), TLSInsecure: bool(d.TLS.Insecure), Nodes: make(map[string]string)}
+	c := Cluster{Ref: ref, Name: string(d.Name), ExpectedClusterID: string(d.ExpectedClusterID), CAFile: string(d.TLS.CAFile), TLSInsecure: bool(d.TLS.Insecure), Nodes: make(map[string]string)}
 	if !validText(c.Name, 128) {
 		return Cluster{}, fmt.Errorf("name: provide 1 to 128 bytes of text without surrounding whitespace or control characters")
 	}
@@ -235,17 +233,6 @@ func validate(ref string, d definition) (Cluster, error) {
 		}
 		origins[origin] = true
 		c.Nodes[string(node)] = origin
-	}
-	// OpenID issuers identify the provider, not a daemon. Only an explicit
-	// catalogue node may receive these delegated credentials; map order is not
-	// a routing policy. Native-only clusters may omit this field.
-	if c.DefaultNode != "" {
-		if !validText(c.DefaultNode, 256) {
-			return Cluster{}, fmt.Errorf("default_node: provide an exact configured node name")
-		}
-		if _, ok := c.Nodes[c.DefaultNode]; !ok {
-			return Cluster{}, fmt.Errorf("default_node: must reference a configured node")
-		}
 	}
 	timeout, err := time.ParseDuration(string(d.RequestTimeout))
 	if err != nil || timeout < time.Second || timeout > 2*time.Minute {

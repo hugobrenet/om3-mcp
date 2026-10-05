@@ -19,6 +19,7 @@ const (
 	maxTokenBytes   = 32 << 10
 	maxMCPBodyBytes = 1 << 20
 	ClusterIDHeader = "X-OpenSVC-Cluster-ID"
+	NodeHeader      = "X-OpenSVC-Node"
 	NativeStrategy  = "jwt"
 	OpenIDStrategy  = "jwt-openid"
 )
@@ -46,27 +47,25 @@ type Delegation struct {
 }
 
 type Checker struct {
-	nodes        map[string]map[string]string
-	defaultNodes map[string]string
+	nodes map[string]map[string]string
 }
 
 func NewChecker(catalog *clusterconfig.Catalog) (*Checker, error) {
 	if catalog.Len() == 0 {
 		return nil, errors.New("JWT delegation requires a cluster catalogue")
 	}
-	c := &Checker{nodes: make(map[string]map[string]string), defaultNodes: make(map[string]string)}
+	c := &Checker{nodes: make(map[string]map[string]string)}
 	for _, cluster := range catalog.List() {
 		c.nodes[cluster.ExpectedClusterID] = cluster.Nodes
-		c.defaultNodes[cluster.ExpectedClusterID] = cluster.DefaultNode
 	}
 	return c, nil
 }
 
-func (c *Checker) Check(raw, targetCluster string) (Delegation, error) {
+func (c *Checker) Check(raw, targetCluster, targetNode string) (Delegation, error) {
 	if raw == "" || len(raw) > maxTokenBytes {
 		return Delegation{}, errUnauthorized
 	}
-	if targetCluster != "" && (!validClaimText(targetCluster) || strings.Contains(targetCluster, ",")) {
+	if targetCluster != "" && !validTarget(targetCluster) || targetNode != "" && !validTarget(targetNode) {
 		return Delegation{}, errUnauthorized
 	}
 	var parsed claims
@@ -88,8 +87,11 @@ func (c *Checker) Check(raw, targetCluster string) (Delegation, error) {
 			return Delegation{}, errUnauthorized
 		}
 		targetCluster = parsed.ClusterID
+		if targetNode != "" && targetNode != parsed.Issuer {
+			return Delegation{}, errUnauthorized
+		}
 	} else {
-		if targetCluster == "" || len(parsed.Audience) == 0 || !openIDSigningMethod(token.Method.Alg()) {
+		if targetCluster == "" || targetNode == "" || len(parsed.Audience) == 0 || !openIDSigningMethod(token.Method.Alg()) {
 			return Delegation{}, errUnauthorized
 		}
 		kid, ok := token.Header["kid"].(string)
@@ -111,7 +113,7 @@ func (c *Checker) Check(raw, targetCluster string) (Delegation, error) {
 		if !validClaimText(username) {
 			return Delegation{}, errUnauthorized
 		}
-		node, strategy = c.defaultNodes[targetCluster], OpenIDStrategy
+		node, strategy = targetNode, OpenIDStrategy
 	}
 	nodes, ok := c.nodes[targetCluster]
 	if !ok || node == "" {
@@ -134,6 +136,21 @@ func openIDSigningMethod(algorithm string) bool {
 
 func validClaimText(s string) bool {
 	return len(s) > 0 && len(s) <= 256 && strings.TrimSpace(s) == s && utf8.ValidString(s) && !strings.ContainsFunc(s, func(r rune) bool { return unicode.IsControl(r) || unicode.In(r, unicode.Cf) })
+}
+
+func validTarget(value string) bool {
+	return validClaimText(value) && !strings.Contains(value, ",")
+}
+
+func targetFromHeader(header http.Header, name string) (string, bool) {
+	values := header.Values(name)
+	if len(values) == 0 {
+		return "", true
+	}
+	if len(values) != 1 || !validTarget(values[0]) {
+		return "", false
+	}
+	return values[0], true
 }
 
 type contextKey struct{}
@@ -163,16 +180,11 @@ func (c *Checker) Middleware(next http.Handler) http.Handler {
 				raw = parts[1]
 			}
 		}
-		targetValues := r.Header.Values(ClusterIDHeader)
-		var targetCluster string
-		targetOK := len(targetValues) == 0
-		if len(targetValues) == 1 {
-			targetCluster = targetValues[0]
-			targetOK = validClaimText(targetCluster) && !strings.Contains(targetCluster, ",")
-		}
-		delegation, err := c.Check(raw, targetCluster)
+		targetCluster, clusterOK := targetFromHeader(r.Header, ClusterIDHeader)
+		targetNode, nodeOK := targetFromHeader(r.Header, NodeHeader)
+		delegation, err := c.Check(raw, targetCluster, targetNode)
 		// Tokens in query strings are never an alternative authentication path.
-		if err != nil || !targetOK || r.URL.Query().Has("access_token") {
+		if err != nil || !clusterOK || !nodeOK || r.URL.Query().Has("access_token") {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			w.Header().Set("Content-Type", "application/problem+json")
 			w.Header().Set("Cache-Control", "no-store")
@@ -185,6 +197,7 @@ func (c *Checker) Middleware(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, contextKey{}, credential{delegation: delegation, token: raw})
 		r.Header.Del("Authorization")
 		r.Header.Del(ClusterIDHeader)
+		r.Header.Del(NodeHeader)
 		r.Body = http.MaxBytesReader(w, r.Body, maxMCPBodyBytes)
 		w.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r.WithContext(ctx))

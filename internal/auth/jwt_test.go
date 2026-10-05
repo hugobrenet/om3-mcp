@@ -26,13 +26,13 @@ func TestCheckNativeJWTClaimsWithoutSignature(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := testutil.AccessToken(t, key, "cluster-id", "node-a", "alice", nil)
-	identity, err := v.Check(raw, "")
+	identity, err := v.Check(raw, "", "")
 	if err != nil || identity.ClusterID != "cluster-id" || identity.Issuer != "node-a" || identity.Subject != "alice" {
 		t.Fatalf("identity=%+v err=%v", identity, err)
 	}
 	other := testutil.NewJWTKey(t)
 	badSignature := testutil.AccessToken(t, other, "cluster-id", "node-a", "alice", nil)
-	if _, err := v.Check(badSignature, ""); err != nil {
+	if _, err := v.Check(badSignature, "", ""); err != nil {
 		t.Fatal("signature was checked locally instead of delegated to the daemon")
 	}
 	hmac, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"cluster_id": "cluster-id", "iss": "node-a", "sub": "alice", "exp": time.Now().Add(time.Hour).Unix(), "token_use": "access"}).SignedString([]byte("not-a-trusted-key"))
@@ -41,7 +41,7 @@ func TestCheckNativeJWTClaimsWithoutSignature(t *testing.T) {
 	}
 	for name, raw := range map[string]string{"empty": "", "malformed": "not-a-token", "oversized": strings.Repeat("x", maxTokenBytes+1), "wrong algorithm": hmac} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := v.Check(raw, ""); err != errUnauthorized {
+			if _, err := v.Check(raw, "", ""); err != errUnauthorized {
 				t.Fatalf("got %v", err)
 			}
 		})
@@ -61,7 +61,7 @@ func TestCheckNativeJWTClaimsWithoutSignature(t *testing.T) {
 		"no use":         func(c jwt.MapClaims) { delete(c, "token_use") },
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := v.Check(testutil.AccessToken(t, key, "cluster-id", "node-a", "alice", change), ""); err != errUnauthorized {
+			if _, err := v.Check(testutil.AccessToken(t, key, "cluster-id", "node-a", "alice", change), "", ""); err != errUnauthorized {
 				t.Fatalf("got %v", err)
 			}
 		})

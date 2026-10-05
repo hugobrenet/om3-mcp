@@ -86,11 +86,11 @@ func warnInsecureDaemonTLS(catalog *clusterconfig.Catalog, logger *log.Logger) {
 	}
 }
 
-// Native delegation selects a daemon from checked, unverified claims on every request.
+// Delegation selects a configured daemon from checked claims and target headers.
 func newMCPHandler(cfg config.Config) (http.Handler, error) {
 	checker, err := auth.NewChecker(cfg.Clusters)
 	if err != nil {
-		return nil, fmt.Errorf("configure native JWT delegation: %w", err)
+		return nil, fmt.Errorf("configure JWT delegation: %w", err)
 	}
 	api, err := client.NewRouted(cfg.Clusters)
 	if err != nil {

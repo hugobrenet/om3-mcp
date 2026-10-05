@@ -8,11 +8,12 @@ The OpenSVC daemon enforces the caller's grants.
 
 ## Status
 
-The server uses HTTPS over TCP and accepts native OpenSVC access JWTs.
-The same JWT is delegated to its emitting daemon, selected by signed
-`cluster_id` and `iss` claims against an administrator-owned cluster catalogue.
-The daemon verifies the JWT signature; no JWT verification keys are installed
-on MCP or agent. There is no embedded authorization server or token exchange.
+The server uses HTTPS over TCP and accepts native OpenSVC and OpenID JWTs.
+Native tokens route by `cluster_id` and `iss`. OpenID requests supply
+`X-OpenSVC-Cluster-ID` and use that cluster's configured `default_node`.
+The unchanged token is delegated to the selected daemon, which verifies it;
+no JWT verification keys are installed on MCP or agent. There is no embedded
+authorization server or token exchange.
 
 See the [tool documentation](docs/tools/README.md) for inputs, outputs and usage.
 
@@ -20,7 +21,8 @@ See the [tool documentation](docs/tools/README.md) for inputs, outputs and usage
 
 - Go 1.25.5 or later to build from source.
 - Access to an OpenSVC v3 daemon API.
-- A native OpenSVC access JWT with a signed `cluster_id` claim.
+- A native OpenSVC access JWT with `cluster_id`, or an OpenID JWT accepted by
+  the target daemon with an explicit cluster target and configured default node.
 - An administrator-owned catalogue of trusted daemon HTTPS endpoints.
 - A server certificate and private key for HTTPS.
 

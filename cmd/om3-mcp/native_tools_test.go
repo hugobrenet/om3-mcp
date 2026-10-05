@@ -204,12 +204,17 @@ func testNativeTools(t *testing.T, binary bool) {
 }
 
 type mcpBearerTransport struct {
-	base  http.RoundTripper
-	token string
+	base      http.RoundTripper
+	token     string
+	clusterID string
 }
 
 func (t mcpBearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	clone := r.Clone(r.Context())
 	clone.Header.Set("Authorization", "Bearer "+t.token)
+	clone.Header.Del("X-OpenSVC-Cluster-ID")
+	if t.clusterID != "" {
+		clone.Header.Set("X-OpenSVC-Cluster-ID", t.clusterID)
+	}
 	return t.base.RoundTrip(clone)
 }

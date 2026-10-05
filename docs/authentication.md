@@ -2,9 +2,10 @@
 
 [Back to README](../README.md) · [Configuration](configuration.md)
 
-## Native OpenSVC delegation
+## OpenSVC delegation
 
-The MCP accepts a native OpenSVC access JWT on each HTTPS request:
+The MCP accepts native OpenSVC and OpenID JWTs on each HTTPS request.
+The native flow is:
 
 ```text
 om ai obtains JWT from its daemon
@@ -18,18 +19,18 @@ om ai obtains JWT from its daemon
 
 There is no second credential, token exchange, consent page, user password
 handling or authorization-server state in the MCP. The agent supplies
-`Authorization: Bearer <native OpenSVC JWT>` outside tool arguments and LLM
+`Authorization: Bearer <JWT>` outside tool arguments and LLM
 messages. The MCP delegates that exact token to the configured daemon.
 
-This is a native OpenSVC authentication profile for MCP Streamable HTTP, not
+This is an OpenSVC delegation profile for MCP Streamable HTTP, not
 the MCP OAuth authorization profile. Generic clients requiring OAuth discovery
-and login cannot use it as-is. Clients able to supply this native bearer can
-call the tools. Webapp/OpenID integration is not implemented in this increment;
-an Authentik token is not automatically a native OpenSVC access token.
+and login cannot use it as-is. Clients able to supply the bearer and required
+target can call the tools. The webapp chatbot and browser CORS remain separate
+client work; this contract supports OpenID agent-to-MCP delegation.
 
 ## Verification and target selection
 
-The required claims are:
+For native JWTs, the required claims are:
 
 | Claim | Meaning |
 |---|---|
@@ -45,9 +46,35 @@ not verify its signature locally. Unverified cluster ID and issuer select only
 an administrator-configured daemon, never an authenticated local identity. No token
 header URL, issuer URL, client-supplied endpoint or embedded key can add a
 trusted authority or target. Missing IDs and unknown clusters/nodes fail
-closed; there is no fallback to the first configured cluster.
+closed; there is no fallback to the first configured cluster. An optional
+`X-OpenSVC-Cluster-ID` header must match the native `cluster_id` and cannot
+override the emitting node.
 
-Only the daemon verifies the JWT signature, using its existing native
+For OpenID, the client sends these headers on whoami and every MCP request:
+
+```http
+Authorization: Bearer <OpenID JWT>
+X-OpenSVC-Cluster-ID: <cluster.config.id>
+```
+
+The cluster ID matches one unique catalogue `expected_cluster_id`. Its
+`default_node` must explicitly name an entry in `nodes`. No default is inferred,
+even with one node. Provider `iss` and `aud` never select an endpoint; that
+daemon must already accept the token's OpenID issuer and client audience.
+
+OpenID requires nonempty `iss/sub/aud/exp`, a future expiry, an accepted
+asymmetric algorithm (RS256/384/512, PS256/384/512 or ES256/384/512) and a
+nonempty `kid` in the JWT header. Optional `nbf` is checked. Every audience
+value must be nonempty and well-formed. Expected issuer/audience values and
+the signature are checked by the daemon, not these local prechecks.
+
+A nonempty `cluster_id` or `token_use` selects native checks; an incomplete
+native token is refused without falling back to OpenID. A target header must
+have exactly one nonempty value of at most 256 bytes, without surrounding
+whitespace, control characters or commas. Duplicate/combined headers, unknown
+targets and missing OpenID defaults are refused.
+
+Only the daemon verifies the JWT signature, using its existing native/OpenID
 authentication. Neither MCP nor agent needs a JWT signing public key. The daemon
 HTTPS connection verifies its certificate chain and hostname/IP by default,
 using system roots or the cluster's explicit TLS CA bundle.
@@ -57,21 +84,27 @@ disables these peer checks. It is strongly discouraged in production: an
 intermediary could steal the JWT or forge `whoami`, so the returned identity
 cannot be trusted without authenticated daemon TLS.
 
-The unchanged JWT carries OpenSVC grants. The MCP does not widen or reissue
-them. The daemon remains authoritative for API permission checks and namespace
+The unchanged JWT carries OpenSVC grants (`grant` for native, `entitlements`
+for OpenID). The MCP does not widen or reissue them. The daemon remains
+authoritative for API permission checks and namespace
 visibility. A valid JWT is not a promise that every tool is permitted.
 Native OpenSVC JWT revocation and changes of rights retain the daemon's semantics.
 
 ## Identity validation bridge
 
 `GET /mcp/auth/whoami` is a dedicated HTTPS route, not an MCP tool, token
-exchange or authorization server. The agent sends the unchanged native JWT in
+exchange or authorization server. The agent sends the unchanged JWT in
 the Bearer header. The MCP uses the catalogue to call exactly
 `GET /api/auth/whoami` on the selected daemon with that same JWT. It requires
-the daemon's native `jwt` strategy and a returned username matching `sub`.
+the strategy matching the checked profile: `jwt` for native, `jwt-openid` for
+OpenID. Public/basic or mismatched JWT strategies cannot establish identity.
+The returned username must match native `sub`, or for OpenID the first nonempty
+`preferred_username`, `email`, then `sub`, matching om3's own selection.
 
 Only after daemon authentication does it return a bounded JSON identity:
-`cluster_id`, `issuer`, `subject`, `expires_at`. It does not forward grants,
+`cluster_id`, `issuer`, `subject`, `expires_at`. OpenID `subject` remains the
+original opaque JWT `sub`, never the daemon username. `issuer` remains the
+provider issuer, not the selected node. It does not forward grants,
 raw daemon responses or credentials. Queries and request bodies are refused.
 Daemon authentication refusals return generic 401/403; daemon outages, malformed
 responses and other upstream failures return generic 502.
@@ -91,12 +124,15 @@ API call still authenticates the token independently.
 
 Credentials live only in the checked delegation request context, never a persistent
 session, catalogue, shared client, connection pool or token database.
-Every request is checked independently; protected daemon calls authenticate it. Usernames and issuer names may
-be identical across clusters without changing the signed cluster binding.
+Every request is checked independently; protected daemon calls authenticate it.
+The selected node is distinct from the JWT issuer for OpenID. The HTTP target
+header is consumed by MCP and is not forwarded to the daemon. Usernames and
+issuer names may be identical across clusters: native routing uses the signed
+cluster ID, while OpenID routing uses the explicit target and daemon validation.
 A protocol session ID cannot select a different identity or target.
 
 The selected transport sends the bearer only to the exact configured HTTPS
-origin for that declared cluster/node. Environment proxies, redirects and
+origin for that selected cluster/node. Environment proxies, redirects and
 cross-origin Host overrides are not allowed. No failover silently sends the
 token to another daemon. Shared TLS connection pools do not store credentials.
 Requests are cancelled at JWT expiry; expired credentials cannot start a
@@ -119,8 +155,9 @@ alternative credentials.
 Daemon refusals remain tool errors, with `isError=true`, HTTP status and bounded
 RFC 7807 title/detail. Never retry a denied call using stronger credentials.
 
-The client must obtain a fresh native access token from its daemon when
-needed, including subsequent chat turns. The MCP does not renew tokens.
-Restarting the MCP does not invalidate otherwise valid native JWTs; it reloads
+The client must obtain a fresh token through its existing daemon/IdP flow when
+needed, including subsequent chat turns. OpenID clients provide the target
+header on each operation. The MCP does not renew tokens.
+Restarting the MCP does not invalidate otherwise valid JWTs; it reloads
 the catalogue and trust files. No shared authorization state is needed for
 multiple MCP instances with consistent configuration.

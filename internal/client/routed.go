@@ -13,7 +13,7 @@ import (
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 )
 
-type target struct{ clusterID, issuer string }
+type target struct{ clusterID, node string }
 
 // RoutedClient shares immutable clients and TLS connection pools, never tokens.
 // Each API operation selects a target from checked, unverified request-scoped claims.
@@ -40,8 +40,8 @@ func NewRouted(catalog *clusterconfig.Catalog) (*RoutedClient, error) {
 			IdleConnTimeout:     90 * time.Second, MaxIdleConns: 200, MaxIdleConnsPerHost: 2,
 			// Proxy is intentionally nil: delegated credentials travel directly.
 		}
-		for issuer, origin := range cluster.Nodes {
-			binding := target{cluster.ExpectedClusterID, issuer}
+		for node, origin := range cluster.Nodes {
+			binding := target{cluster.ExpectedClusterID, node}
 			httpClient := &http.Client{
 				Transport:     &delegatedTransport{base: base, binding: binding, origin: origin},
 				Timeout:       cluster.RequestTimeout,
@@ -62,7 +62,7 @@ func (c *RoutedClient) selected(ctx context.Context) (*Client, error) {
 	if !ok {
 		return nil, errors.New("daemon request requires a checked delegated JWT")
 	}
-	api, ok := c.clients[target{identity.ClusterID, identity.Issuer}]
+	api, ok := c.clients[target{identity.ClusterID, identity.Node}]
 	if !ok {
 		return nil, errors.New("daemon target is not configured")
 	}
@@ -77,7 +77,7 @@ type delegatedTransport struct {
 
 func (t *delegatedTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	identity, token, ok := auth.FromContext(request.Context())
-	if !ok || (target{identity.ClusterID, identity.Issuer}) != t.binding {
+	if !ok || (target{identity.ClusterID, identity.Node}) != t.binding {
 		return nil, errors.New("daemon request does not match its checked delegation")
 	}
 	if request.URL.User != nil || request.URL.Scheme+"://"+request.URL.Host != t.origin || request.Host != "" && request.Host != request.URL.Host {
@@ -85,6 +85,7 @@ func (t *delegatedTransport) RoundTrip(request *http.Request) (*http.Response, e
 	}
 	clone := request.Clone(request.Context())
 	clone.Header.Set("Authorization", "Bearer "+token)
+	clone.Header.Del(auth.ClusterIDHeader)
 	return t.base.RoundTrip(clone)
 }
 

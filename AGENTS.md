@@ -32,8 +32,8 @@ Use Go, the standard library and `github.com/modelcontextprotocol/go-sdk`.
 - `cmd/om3-mcp`: composition root, HTTPS listener, lifecycle and whoami bridge.
   Keep explicit tool registration in `main.go`.
 - `internal/config`: process environment and startup validation.
-- `internal/clusterconfig`: strict version 2 cluster catalogue, issuer-to-HTTPS
-  mappings and immutable TLS trust loaded at startup.
+- `internal/clusterconfig`: strict version 2 cluster catalogue, node-to-HTTPS
+  mappings, optional OpenID default node and immutable TLS trust loaded at startup.
 - `internal/auth`: JWT structure and claim checks; private request-scoped
   delegation context. Decoded claims are not an authenticated identity.
 - `internal/client`: catalogue-bound daemon routing, HTTP transport, response
@@ -54,17 +54,25 @@ a local daemon dependency, or authentication logic in core/tool handlers.
 - Accept native OpenSVC RS256 access JWTs with `cluster_id`, `iss`, `sub`,
   `exp` and `token_use=access`. Check structure, expiry and optional `nbf`
   locally; only the daemon verifies the signature and enforces grants.
-- Use unverified `cluster_id` and `iss` only to select an exact configured
-  cluster/node. Unknown targets fail closed. Never derive URLs or trust from
+- OpenID JWTs require `X-OpenSVC-Cluster-ID`, `iss/sub/aud/exp`, `kid` and an
+  accepted asymmetric algorithm. Resolve the explicit target by cluster ID,
+  then its configured `default_node`; never use the provider issuer as a node.
+  Native markers select native checks with no fallback to OpenID. An explicit
+  native target must match its claim. Reject ambiguous target headers.
+- For native tokens, use unverified `cluster_id` and `iss` only to select an
+  exact configured cluster/node. Unknown targets fail closed. Never derive URLs or trust from
   token headers, arbitrary claims or tool arguments; never fall back to another
   daemon after rejection.
 - Delegate the unchanged JWT only to that configured HTTPS origin, through
   private request context. Preserve cancellation and token-expiry deadlines.
 - `GET /mcp/auth/whoami` calls daemon `GET /api/auth/whoami`; require native
-  `jwt` authentication and a subject matching the token before returning identity.
+  `jwt` or OpenID `jwt-openid` authentication, matching the checked profile.
+  Match the daemon name to native `sub` or OpenID preferred_username/email/sub
+  in that order. Return the original JWT `sub`, issuer, cluster and expiry,
+  never substitute the OpenID username for its opaque subject.
   MCP initialization or tool discovery alone does not authenticate a caller.
 - No embedded OAuth server, token exchange, local JWT verification keys,
-  identity cache or credential persistence. This native bearer profile is not
+  identity cache or credential persistence. This OpenSVC bearer profile is not
   the generic MCP OAuth authorization profile.
 - Verify TLS chain and hostname by default, use TLS 1.2+, and disable outbound
   proxies and redirects. System roots apply unless an explicit CA bundle

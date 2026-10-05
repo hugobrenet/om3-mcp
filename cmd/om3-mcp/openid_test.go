@@ -23,7 +23,7 @@ import (
 
 // Real MCP SDK requests and the identity bridge share the same checked route.
 // Daemon doubles verify signatures/issuer/audience, independently of MCP TLS.
-func TestOpenIDIdentityAndToolsUseConfiguredDefaultNode(t *testing.T) {
+func TestOpenIDIdentityAndToolsUseExplicitCatalogueNode(t *testing.T) {
 	key := testutil.NewJWTKey(t)
 	const issuer = "https://idp.example.test/application/shared/"
 	const subject = "opaque-shared-subject"
@@ -40,7 +40,7 @@ func TestOpenIDIdentityAndToolsUseConfiguredDefaultNode(t *testing.T) {
 		tokens[id] = testutil.OpenIDToken(t, key, issuer, audience, subject, nil)
 		daemon := testutil.NewDaemon(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			daemonCalls.Add(1)
-			if r.Header.Get(auth.ClusterIDHeader) != "" {
+			if r.Header.Get(auth.ClusterIDHeader) != "" || r.Header.Get(auth.NodeHeader) != "" {
 				t.Error("routing header leaked to daemon")
 			}
 			raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -90,12 +90,12 @@ func TestOpenIDIdentityAndToolsUseConfiguredDefaultNode(t *testing.T) {
 			}
 		}))
 		// Trust both catalogue nodes so the test detects credential forwarding
-		// to a non-default node, rather than relying on a TLS failure there.
+		// to a non-selected node, rather than relying on a TLS failure there.
 		bundle := append(append([]byte(nil), daemon.CAPEM...), otherNode.CAPEM...)
 		if err := os.WriteFile(daemon.CAFile, bundle, 0600); err != nil {
 			t.Fatal(err)
 		}
-		clusters[id] = map[string]any{"name": "Same display name", "expected_cluster_id": id, "default_node": "node-b",
+		clusters[id] = map[string]any{"name": "Same display name", "expected_cluster_id": id,
 			"nodes": map[string]string{"node-a": otherNode.Server.URL, "node-b": daemon.Server.URL},
 			"tls":   map[string]string{"ca_file": daemon.CAFile}, "request_timeout": "2s"}
 	}
@@ -116,6 +116,7 @@ func TestOpenIDIdentityAndToolsUseConfiguredDefaultNode(t *testing.T) {
 		t.Helper()
 		r, _ := http.NewRequest("GET", server.URL+"/mcp/auth/whoami", nil)
 		r.Header.Set("Authorization", "Bearer "+token)
+		r.Header.Set(auth.NodeHeader, "node-b")
 		if target != "" {
 			r.Header.Set(auth.ClusterIDHeader, target)
 		}
@@ -162,6 +163,22 @@ func TestOpenIDIdentityAndToolsUseConfiguredDefaultNode(t *testing.T) {
 	before := daemonCalls.Load()
 	requestIdentity(tokens["cluster-a"], "", 401)
 	requestIdentity(tokens["cluster-a"], "unknown", 401)
+	for _, node := range []string{"", "unknown"} {
+		r, _ := http.NewRequest("GET", server.URL+"/mcp/auth/whoami", nil)
+		r.Header.Set("Authorization", "Bearer "+tokens["cluster-a"])
+		r.Header.Set(auth.ClusterIDHeader, "cluster-a")
+		if node != "" {
+			r.Header.Set(auth.NodeHeader, node)
+		}
+		response, err := server.Client().Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != 401 {
+			t.Fatalf("missing/unknown node accepted: %d", response.StatusCode)
+		}
+	}
 	if daemonCalls.Load() != before {
 		t.Fatal("invalid target reached a daemon")
 	}
@@ -178,7 +195,7 @@ func TestOpenIDIdentityAndToolsUseConfiguredDefaultNode(t *testing.T) {
 	defer cancel()
 	var wg sync.WaitGroup
 	for _, id := range []string{"cluster-a", "cluster-b"} {
-		c := &http.Client{Transport: mcpBearerTransport{base: server.Client().Transport, token: tokens[id], clusterID: id}}
+		c := &http.Client{Transport: mcpBearerTransport{base: server.Client().Transport, token: tokens[id], clusterID: id, node: "node-b"}}
 		session, err := mcp.NewClient(&mcp.Implementation{Name: "OpenID agent", Version: "test"}, nil).Connect(ctx,
 			&mcp.StreamableClientTransport{Endpoint: server.URL + "/mcp", HTTPClient: c, DisableStandaloneSSE: true, MaxRetries: -1}, nil)
 		if err != nil {
@@ -209,6 +226,21 @@ func TestOpenIDIdentityAndToolsUseConfiguredDefaultNode(t *testing.T) {
 	}
 	wg.Wait()
 	if otherNodeCalls.Load() != 0 {
-		t.Fatal("OpenID credentials reached a non-default node")
+		t.Fatal("OpenID credentials reached a non-selected node")
+	}
+	// An explicit, configured node is authoritative for routing. Its refusal
+	// must not trigger fallback to the other node, which would accept this JWT.
+	before = daemonCalls.Load()
+	r, _ := http.NewRequest("GET", server.URL+"/mcp/auth/whoami", nil)
+	r.Header.Set("Authorization", "Bearer "+tokens["cluster-a"])
+	r.Header.Set(auth.ClusterIDHeader, "cluster-a")
+	r.Header.Set(auth.NodeHeader, "node-a")
+	response, err := server.Client().Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != 401 || otherNodeCalls.Load() != 1 || daemonCalls.Load() != before {
+		t.Fatal("explicit node was ignored or refusal triggered fallback")
 	}
 }

@@ -86,6 +86,7 @@ func (t *delegatedTransport) RoundTrip(request *http.Request) (*http.Response, e
 	clone := request.Clone(request.Context())
 	clone.Header.Set("Authorization", "Bearer "+token)
 	clone.Header.Del(auth.ClusterIDHeader)
+	clone.Header.Del(auth.NodeHeader)
 	return t.base.RoundTrip(clone)
 }
 

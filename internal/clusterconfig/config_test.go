@@ -116,8 +116,6 @@ func TestLoadRejectsInvalidTargets(t *testing.T) {
 	}{
 		{"name", ""}, {"name", " padded "}, {"name", "line\nbreak"}, {"name", strings.Repeat("a", 129)},
 		{"expected_cluster_id", ""}, {"expected_cluster_id", " padded "},
-		{"default_node", "unknown-node"}, {"default_node", " node-a "}, {"default_node", "line\nbreak"},
-		{"default_node", strings.Repeat("a", 257)}, {"default_node", true}, {"default_node", 42},
 		{"nodes", map[string]string{}}, {"nodes", map[string]string{"node-a": "http://192.0.2.20:1215"}},
 		{"nodes", map[string]string{"node-a": "https://user:never-echo-this-value@192.0.2.20:1215"}},
 		{"nodes", map[string]string{"node-a": "https://192.0.2.20:1215", "node-b": "https://192.0.2.20:01215/"}},
@@ -158,24 +156,6 @@ func TestLoadRejectsInvalidTargets(t *testing.T) {
 	}
 	if _, err := Load(testutil.WriteClusters(t, names)); err == nil {
 		t.Fatal("oversized catalogue accepted")
-	}
-}
-
-func TestDefaultNodeReferencesCatalogueNode(t *testing.T) {
-	base := strings.Replace(string(fixture(t)), "    name:", "    default_node: node-b\n    name:", 1)
-	catalog, err := Load(writeConfig(t, []byte(base)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cluster, ok := catalog.Lookup("cluster-a")
-	if !ok || cluster.DefaultNode != "node-b" {
-		t.Fatal("default node was lost from the validated catalogue")
-	}
-	// The omitted field is valid for native-only catalogues, and is not
-	// populated from map iteration order, even with only one node.
-	catalog, err = Load(testutil.WriteTarget(t, "Native", "id", "", map[string]string{"node-a": "https://192.0.2.20:1215"}))
-	if err != nil || catalog.List()[0].DefaultNode != "" {
-		t.Fatalf("implicit default node: %v", err)
 	}
 }
 

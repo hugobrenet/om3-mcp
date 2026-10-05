@@ -33,7 +33,7 @@ Use Go, the standard library and `github.com/modelcontextprotocol/go-sdk`.
   Keep explicit tool registration in `main.go`.
 - `internal/config`: process environment and startup validation.
 - `internal/clusterconfig`: strict version 2 cluster catalogue, node-to-HTTPS
-  mappings, optional OpenID default node and immutable TLS trust loaded at startup.
+  mappings and immutable TLS trust loaded at startup.
 - `internal/auth`: JWT structure and claim checks; private request-scoped
   delegation context. Decoded claims are not an authenticated identity.
 - `internal/client`: catalogue-bound daemon routing, HTTP transport, response
@@ -54,11 +54,12 @@ a local daemon dependency, or authentication logic in core/tool handlers.
 - Accept native OpenSVC RS256 access JWTs with `cluster_id`, `iss`, `sub`,
   `exp` and `token_use=access`. Check structure, expiry and optional `nbf`
   locally; only the daemon verifies the signature and enforces grants.
-- OpenID JWTs require `X-OpenSVC-Cluster-ID`, `iss/sub/aud/exp`, `kid` and an
-  accepted asymmetric algorithm. Resolve the explicit target by cluster ID,
-  then its configured `default_node`; never use the provider issuer as a node.
+- OpenID JWTs require `X-OpenSVC-Cluster-ID`, `X-OpenSVC-Node`, `iss/sub/aud/exp`,
+  `kid` and an accepted asymmetric algorithm. Resolve the explicit cluster/node
+  pair in the catalogue; never use the provider issuer as a node.
   Native markers select native checks with no fallback to OpenID. An explicit
-  native target must match its claim. Reject ambiguous target headers.
+  native cluster/node target must match `cluster_id`/`iss`. Reject ambiguous
+  target headers. No implicit node selection or routing fallback.
 - For native tokens, use unverified `cluster_id` and `iss` only to select an
   exact configured cluster/node. Unknown targets fail closed. Never derive URLs or trust from
   token headers, arbitrary claims or tool arguments; never fall back to another

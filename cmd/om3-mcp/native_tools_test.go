@@ -207,6 +207,7 @@ type mcpBearerTransport struct {
 	base      http.RoundTripper
 	token     string
 	clusterID string
+	node      string
 }
 
 func (t mcpBearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -215,6 +216,10 @@ func (t mcpBearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	clone.Header.Del("X-OpenSVC-Cluster-ID")
 	if t.clusterID != "" {
 		clone.Header.Set("X-OpenSVC-Cluster-ID", t.clusterID)
+	}
+	clone.Header.Del("X-OpenSVC-Node")
+	if t.node != "" {
+		clone.Header.Set("X-OpenSVC-Node", t.node)
 	}
 	return t.base.RoundTrip(clone)
 }

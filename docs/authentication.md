@@ -47,20 +47,23 @@ an administrator-configured daemon, never an authenticated local identity. No to
 header URL, issuer URL, client-supplied endpoint or embedded key can add a
 trusted authority or target. Missing IDs and unknown clusters/nodes fail
 closed; there is no fallback to the first configured cluster. An optional
-`X-OpenSVC-Cluster-ID` header must match the native `cluster_id` and cannot
-override the emitting node.
+`X-OpenSVC-Cluster-ID` header must match the native `cluster_id`. An optional
+`X-OpenSVC-Node` header must match native `iss`; neither can override the
+emitting daemon.
 
 For OpenID, the client sends these headers on whoami and every MCP request:
 
 ```http
 Authorization: Bearer <OpenID JWT>
 X-OpenSVC-Cluster-ID: <cluster.config.id>
+X-OpenSVC-Node: <daemon.nodename>
 ```
 
-The cluster ID matches one unique catalogue `expected_cluster_id`. Its
-`default_node` must explicitly name an entry in `nodes`. No default is inferred,
-even with one node. Provider `iss` and `aud` never select an endpoint; that
-daemon must already accept the token's OpenID issuer and client audience.
+The cluster ID matches one unique catalogue `expected_cluster_id`. The node
+header must explicitly name an entry in that cluster's `nodes`. Both headers
+are required; no node is inferred, even with one configured. Provider `iss`
+and `aud` never select an endpoint; that daemon must already accept the token's
+OpenID issuer and client audience.
 
 OpenID requires nonempty `iss/sub/aud/exp`, a future expiry, an accepted
 asymmetric algorithm (RS256/384/512, PS256/384/512 or ES256/384/512) and a
@@ -69,10 +72,10 @@ value must be nonempty and well-formed. Expected issuer/audience values and
 the signature are checked by the daemon, not these local prechecks.
 
 A nonempty `cluster_id` or `token_use` selects native checks; an incomplete
-native token is refused without falling back to OpenID. A target header must
+native token is refused without falling back to OpenID. Each target header must
 have exactly one nonempty value of at most 256 bytes, without surrounding
 whitespace, control characters or commas. Duplicate/combined headers, unknown
-targets and missing OpenID defaults are refused.
+targets and missing OpenID cluster/node headers are refused.
 
 Only the daemon verifies the JWT signature, using its existing native/OpenID
 authentication. Neither MCP nor agent needs a JWT signing public key. The daemon
@@ -126,7 +129,7 @@ Credentials live only in the checked delegation request context, never a persist
 session, catalogue, shared client, connection pool or token database.
 Every request is checked independently; protected daemon calls authenticate it.
 The selected node is distinct from the JWT issuer for OpenID. The HTTP target
-header is consumed by MCP and is not forwarded to the daemon. Usernames and
+headers are consumed by MCP and are not forwarded to the daemon. Usernames and
 issuer names may be identical across clusters: native routing uses the signed
 cluster ID, while OpenID routing uses the explicit target and daemon validation.
 A protocol session ID cannot select a different identity or target.
@@ -156,8 +159,8 @@ Daemon refusals remain tool errors, with `isError=true`, HTTP status and bounded
 RFC 7807 title/detail. Never retry a denied call using stronger credentials.
 
 The client must obtain a fresh token through its existing daemon/IdP flow when
-needed, including subsequent chat turns. OpenID clients provide the target
-header on each operation. The MCP does not renew tokens.
+needed, including subsequent chat turns. OpenID clients provide both target
+headers on each operation. The MCP does not renew tokens.
 Restarting the MCP does not invalidate otherwise valid JWTs; it reloads
 the catalogue and trust files. No shared authorization state is needed for
 multiple MCP instances with consistent configuration.

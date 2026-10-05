@@ -11,7 +11,7 @@ import (
 )
 
 // serveWhoAmI is a narrow identity bridge, not an MCP tool or token issuer.
-// It proves native authentication by asking the catalogue-selected daemon.
+// It proves native/OpenID authentication by asking the catalogue-selected daemon.
 func serveWhoAmI(api *client.RoutedClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		delegation, _, ok := auth.FromContext(r.Context())
@@ -40,9 +40,10 @@ func serveWhoAmI(api *client.RoutedClient) http.HandlerFunc {
 			writeIdentityProblem(w, 502)
 			return
 		}
-		// A 200 from an anonymous/misconfigured/OpenID route must not establish a
-		// native identity. Confirm native JWT strategy and the authenticated name.
-		if identity.Auth != "jwt" || identity.Name == "" || identity.Name != delegation.Subject {
+		// A public/basic response or a different JWT strategy cannot authenticate
+		// this profile. OpenID names use preferred_username, email, then sub;
+		// the daemon verifies those signed claims, issuer and audience itself.
+		if identity.Auth != delegation.Strategy || identity.Name == "" || identity.Name != delegation.Username {
 			writeIdentityProblem(w, 401)
 			return
 		}
@@ -56,7 +57,7 @@ func serveWhoAmI(api *client.RoutedClient) http.HandlerFunc {
 			Issuer    string    `json:"issuer"`
 			Subject   string    `json:"subject"`
 			ExpiresAt time.Time `json:"expires_at"`
-		}{delegation.ClusterID, delegation.Issuer, identity.Name, delegation.ExpiresAt})
+		}{delegation.ClusterID, delegation.Issuer, delegation.Subject, delegation.ExpiresAt})
 	}
 }
 

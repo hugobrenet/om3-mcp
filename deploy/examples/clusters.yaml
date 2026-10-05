@@ -8,6 +8,10 @@ clusters:
     name: Example cluster
     expected_cluster_id: 00000000-0000-4000-8000-000000000001
 
+    # Required for OpenID delegation; exact key in nodes below.
+    # Native JWTs still route to their emitting node, regardless of this value.
+    default_node: node-a
+
     # Exact JWT issuer names, not DNS lookup hints. No implicit failover.
     nodes:
       node-a: https://192.0.2.20:1215

@@ -51,6 +51,7 @@ clusters:
   cluster-a:
     name: Example cluster
     expected_cluster_id: 00000000-0000-4000-8000-000000000001
+    default_node: node-a
     nodes:
       node-a: https://192.0.2.20:1215
       node-b: https://192.0.2.21:1215
@@ -61,9 +62,13 @@ clusters:
 
 - `clusters`: stable administrative references; these are not JWT identities.
 - `name`: human-readable name.
-- `expected_cluster_id`: exact JWT `cluster_id` routing key; must be unique.
-- `nodes`: exact issuer names (`iss`) mapped to authorized HTTPS daemon
-  origins. No credentials, API paths, queries or fragments.
+- `expected_cluster_id`: exact native JWT `cluster_id` or OpenID HTTP target
+  (`X-OpenSVC-Cluster-ID`) routing key; must be unique.
+- `default_node`: exact key in `nodes`, used for OpenID delegation. Optional
+  for native-only clusters. If omitted, OpenID requests to this cluster are
+  refused, even when only one node is configured.
+- `nodes`: exact daemon node names (native JWT `iss`) mapped to authorized
+  HTTPS daemon origins. No credentials, API paths, queries or fragments.
 - `tls.ca_file`: optional absolute public CA bundle path for daemon TLS.
   Omit `tls` for the system CA roots, for example with Let's Encrypt.
   An explicit bundle replaces, rather than extends, system roots.
@@ -72,7 +77,7 @@ clusters:
   It cannot be combined with `tls.ca_file`.
 - `request_timeout`: required duration between `1s` and `2m`.
 
-The daemon verifies the native JWT signature itself. Neither JWT public keys
+The daemon verifies native/OpenID JWT signatures itself. Neither JWT public keys
 nor daemon private signing keys belong on the MCP host. The optional TLS CA
 bundle validates only the daemon HTTPS certificate chain.
 
@@ -101,11 +106,21 @@ JWT checks. Restart the MCP after changing the catalogue.
 
 ### Routing and validation
 
-The declared ID selects a configured cluster and the declared issuer selects
-exactly one configured node. These claims remain unverified until the daemon
-authenticates the token; they cannot establish local identity. There is no first-endpoint fallback, failover, discovery or retry on a
-different node. Administrators must ensure endpoints belong to the declared
-cluster and node. Adding a catalogue entry does not register or modify a daemon.
+For native JWTs, `cluster_id` selects a configured cluster and `iss` selects
+exactly one configured node. An optional `X-OpenSVC-Cluster-ID` header must
+match the native claim and cannot override its node.
+
+For OpenID, the required `X-OpenSVC-Cluster-ID` header selects the cluster's
+`expected_cluster_id`; its `default_node` selects exactly one daemon. The
+provider's `iss` and `aud` do not select an endpoint. That daemon must already
+be configured to validate the token's OpenID issuer and audience.
+
+Claims and HTTP targets remain unverified until the daemon authenticates the
+token; they cannot establish local identity. There is no first-endpoint
+fallback, failover, discovery or retry on a different node, including after
+an authentication refusal or outage. Administrators must ensure endpoints
+belong to the declared cluster and node. Adding a catalogue entry does not
+register or modify a daemon.
 
 ### Validation and bounds
 

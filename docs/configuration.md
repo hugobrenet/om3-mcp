@@ -40,6 +40,24 @@ Settings and files are snapshotted once. Restart to apply changes.
 HTTP headers are bounded to 64 KiB, authenticated MCP request bodies to 1 MiB,
 and header reads to 5 seconds. Shutdown drains requests for up to 30 seconds.
 
+## Health check
+
+`GET /health` on the same HTTPS listener returns HTTP 200 with
+`{"status":"ok"}`, `Content-Type: application/json` and `Cache-Control: no-store`.
+`HEAD /health` also returns HTTP 200, without a body. Other methods return 405.
+No bearer token or target headers are required. The route reports local server
+liveness only: it does not contact daemons or establish user authentication,
+tool permissions or cluster health. An unavailable daemon does not affect it.
+
+For a service check, use the hostname covered by the listener certificate:
+
+```bash
+curl --silent --show-error --fail --max-time 3 \
+  https://mcp.example.test:8443/health >/dev/null
+```
+
+Use `--cacert /path/to/public-ca.pem` when the MCP listener uses a private CA.
+
 ## Target cluster catalogue
 
 See [the template](../deploy/examples/clusters.yaml). Install real configuration

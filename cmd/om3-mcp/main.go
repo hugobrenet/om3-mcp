@@ -101,6 +101,7 @@ func newMCPHandler(cfg config.Config) (http.Handler, error) {
 		return nil, err
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", getHealth)
 	mux.Handle("/mcp", checker.Middleware(handler))
 	mux.Handle("GET /mcp/auth/whoami", checker.Middleware(serveWhoAmI(api)))
 	return mux, nil

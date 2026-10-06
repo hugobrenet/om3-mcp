@@ -52,6 +52,15 @@ func TestHTTPSBinaryRequiresNativeJWTWithoutDaemonContact(t *testing.T) {
 	t.Cleanup(tr.CloseIdleConnections)
 	c := &http.Client{Transport: tr, Timeout: 2 * time.Second}
 	origin := startHTTPSBinary(t, c, certFile, keyFile, clusterFile)
+	response, err := c.Get(origin + "/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if err != nil || response.StatusCode != http.StatusOK || string(body) != "{\"status\":\"ok\"}\n" {
+		t.Fatalf("HTTPS binary health: status=%d body=%q error=%v", response.StatusCode, body, err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, bearer := range []string{"", "Bearer synthetic-daemon-token"} {

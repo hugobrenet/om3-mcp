@@ -4,7 +4,9 @@
 
 ## OpenSVC delegation
 
-The MCP accepts native OpenSVC and OpenID JWTs on each HTTPS request.
+The MCP accepts native OpenSVC and OpenID JWTs on each `/mcp` and
+`/mcp/auth/whoami` HTTPS request. The separate [`GET /health`](configuration.md#health-check)
+route requires no authentication and returns only local server liveness.
 The native flow is:
 
 ```text

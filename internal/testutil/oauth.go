@@ -25,13 +25,14 @@ type OAuthProvider struct {
 	OIDCNotFound  bool
 	MetadataCalls atomic.Int32
 	KeyCalls      atomic.Int32
+	TokenHandler  http.HandlerFunc
 }
 
 func NewOAuthProvider(t testing.TB) *OAuthProvider {
 	t.Helper()
 	p := &OAuthProvider{Key: NewJWTKey(t)}
 	p.Daemon = NewDaemon(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
+		if r.URL.Path != "/token" && r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
 			t.Error("credential leaked to public OAuth metadata")
 		}
 		var data map[string]any
@@ -47,6 +48,13 @@ func NewOAuthProvider(t testing.TB) *OAuthProvider {
 		case "/keys":
 			p.KeyCalls.Add(1)
 			data = p.JWKS
+		case "/token":
+			if p.TokenHandler != nil {
+				p.TokenHandler(w, r)
+				return
+			}
+			w.WriteHeader(http.StatusNotImplemented)
+			return
 		default:
 			w.WriteHeader(404)
 			return

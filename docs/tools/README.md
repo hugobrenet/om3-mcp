@@ -1,9 +1,11 @@
 # OpenSVC Daemon MCP Tools
 
-The OAuth stage 2 entrypoint exposes these declarations but returns an explicit
-tool error for daemon calls until token exchange is implemented. The operation
-contracts below describe the preserved daemon integration components; see
-[authentication](../authentication.md) for the current runtime behavior.
+With a version 3 catalogue and exchange profiles, every daemon tool has a
+required `cluster_id` input added by the registrar. The domain-specific inputs
+below are unchanged. `list_clusters(query?, limit?, cursor?)` discovers all
+configured names and IDs without contacting daemons or checking grants.
+See [token exchange](../token-exchange.md#tool-contracts) for the shared target
+contract. Without exchange configuration, daemon tools remain listed but blocked.
 
 This directory documents the human-facing contracts of the OpenSVC daemon MCP
 tools. Names, descriptions, annotations and JSON Schemas are defined in
@@ -14,6 +16,7 @@ documents describe the implemented tool contracts.
 
 | Domain | Tools | Documentation |
 |---|---|---|
+| Catalogue | `list_clusters` | [Multi-cluster tools](../token-exchange.md#tool-contracts) |
 | Daemon | `get_daemon_status`, `list_daemon_executions`, `list_daemon_orchestrations` | [Daemon tools](daemon.md) |
 | Cluster | `get_cluster_config`, `get_cluster_status` | [Cluster tools](cluster.md) |
 | Node | `get_node_config`, `get_node_status`, `get_node_logs`, `list_node_properties`, `list_node_hardware`, `list_node_packages`, `get_node_daemon_metrics`, `probe_node_reachability`, `list_node_capabilities`, `list_node_drivers` | [Node tools](node.md) |
@@ -24,18 +27,19 @@ documents describe the implemented tool contracts.
 
 ## Authentication and visibility
 
-Remote agents supply a [native OpenSVC access JWT](../authentication.md)
-on each `/mcp` request. Its declared `cluster_id` and `iss` select a configured
-cluster and emitting daemon. The unchanged JWT authenticates that daemon call;
-credentials never enter tool arguments or results.
+Remote agents supply an OAuth access token intended for the MCP resource on
+every `/mcp` request. The MCP verifies its issuer, audience, signature and
+lifetime. No MCP business scope is required. Each daemon tool then requires
+an explicit catalogue `cluster_id` and a successful confidential token exchange.
+Only the exchanged token is sent to the configured VIP. Grants and namespace
+visibility remain authoritative at the daemon.
 
-Missing, malformed, expired and unknown-target tokens return HTTP `401` with
-a Bearer challenge. Signature verification, grants and namespace visibility
-remain authoritative at the daemon. Initialization/tool metadata do not prove
-identity; the agent uses the dedicated whoami bridge for that. Tool failures
-preserve `isError=true`, HTTP status and bounded RFC 7807 `title` and `detail`
-fields. Each request supplies its own delegation and target; no other
-request or protocol session can replace them.
+Missing or invalid incoming credentials return HTTP 401 with the OAuth
+discovery challenge. Tool target errors, SSO exchange refusals and daemon
+refusals return `isError=true`. SSO descriptions and response bodies are not
+exposed. Daemon errors use the existing bounded API error contract. No request
+or session can replace another call's identity or target. The legacy whoami
+bridge remains disabled.
 
 ## Freshness model
 
@@ -48,6 +52,7 @@ Every successful tool result includes a `provenance` object:
 }
 ```
 
+For `list_clusters`, source is `opensvc_mcp_catalog`. For daemon tools,
 `source` identifies the daemon API that supplied the MCP result, not
 necessarily the original data store (for example, instance logs originate in
 the node journal). `observed_at` is the UTC time when the MCP finished
@@ -77,7 +82,8 @@ response shape. Timestamps and provenance values are illustrative:
 | Object | `prod/svc/redis` |
 | Resource | `container#redis` |
 
-Examples show the `arguments` object passed to `tools/call`, not the complete
+Domain examples show the business arguments; add the required `cluster_id`
+for external OAuth calls. They show the `arguments` object passed to `tools/call`, not the complete
 JSON-RPC envelope. Timestamps, process identifiers, UUIDs, and routine counts
 are representative and will differ between calls.
 

@@ -22,6 +22,7 @@ type Config struct {
 	Clusters          *clusterconfig.Catalog
 	ClusterConfigFile string
 	OAuth             auth.OAuthConfig
+	Exchange          *auth.ExchangeProfiles
 }
 
 // Load reads and validates process configuration from environment variables.
@@ -56,7 +57,27 @@ func Load() (Config, error) {
 	if err := oauth.Validate(); err != nil {
 		return Config{}, fmt.Errorf("OPENSVC_MCP_OAUTH configuration: %w", err)
 	}
-	return Config{ListenAddress: listenAddress, TLSCertFile: certFile, TLSKeyFile: keyFile, Clusters: catalog, ClusterConfigFile: clusterFile, OAuth: oauth}, nil
+	var exchange *auth.ExchangeProfiles
+	if path := strings.TrimSpace(os.Getenv("OPENSVC_MCP_AUTH_CONFIG_FILE")); path != "" {
+		var err error
+		exchange, err = auth.LoadExchangeProfiles(path)
+		if err != nil {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_AUTH_CONFIG_FILE: %w", err)
+		}
+	}
+	if catalog.Version() == 3 {
+		if exchange == nil {
+			return Config{}, fmt.Errorf("version 3 catalogue requires OPENSVC_MCP_AUTH_CONFIG_FILE")
+		}
+		for _, c := range catalog.List() {
+			if !exchange.Has(c.AuthProfile) {
+				return Config{}, fmt.Errorf("cluster %s references an unknown auth profile", c.Ref)
+			}
+		}
+	} else if exchange != nil {
+		return Config{}, fmt.Errorf("token exchange requires a version 3 catalogue")
+	}
+	return Config{ListenAddress: listenAddress, TLSCertFile: certFile, TLSKeyFile: keyFile, Clusters: catalog, ClusterConfigFile: clusterFile, OAuth: oauth, Exchange: exchange}, nil
 }
 
 func validateListenAddress(address string) error {

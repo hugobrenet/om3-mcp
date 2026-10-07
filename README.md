@@ -10,8 +10,10 @@ The OpenSVC daemon enforces the caller's grants.
 
 The HTTPS `/mcp` endpoint now implements external-client OAuth discovery and
 local JWT verification, with no business scopes. All existing tools are listed.
-Daemon calls are explicitly blocked until token exchange is implemented; this
-branch implements stage 2 of the external-agent integration.
+With a version 3 catalogue and confidential SSO profiles, daemon tools require
+`cluster_id` and exchange the MCP token for a target-specific daemon token.
+`list_clusters` discovers every configured cluster. Without exchange
+configuration, daemon calls remain explicitly blocked.
 
 The previous native/OpenID passthrough middleware and daemon identity bridge
 are disconnected. Existing `om ai` / webapp integrations must be adjusted later.
@@ -26,8 +28,8 @@ See the [tool documentation](docs/tools/README.md) for inputs, outputs and usage
 - Access JWTs containing the configured MCP resource URL in their audience.
 - A server certificate and private key for HTTPS.
 
-A daemon catalogue is optional during stage 2. No daemon connectivity or SSO
-client secret is required to validate tokens and discover tools.
+A daemon catalogue and confidential client secret are required for daemon calls.
+They can be omitted when testing incoming OAuth and tool discovery alone.
 
 ## Build
 
@@ -50,6 +52,7 @@ This disables daemon certificate verification and is strongly discouraged in pro
 
 - [Configuration reference and deployment](docs/configuration.md)
 - [Authentication and client setup](docs/authentication.md)
+- [Token exchange and multi-cluster deployment](docs/token-exchange.md)
 - [External-agent integration plan and lab validation (French)](docs/CHANTIER_MCP_AGENTS_EXTERNES.md)
 - [Tools and shared contracts](docs/tools/README.md)
 

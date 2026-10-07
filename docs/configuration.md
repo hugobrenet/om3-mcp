@@ -9,15 +9,17 @@
 | OPENSVC_MCP_LISTEN_ADDR | 127.0.0.1:8443 | TCP bind address, IPv4:port or [IPv6]:port |
 | OPENSVC_MCP_TLS_CERT_FILE | empty | Absolute server certificate PEM path; required |
 | OPENSVC_MCP_TLS_KEY_FILE | empty | Absolute server private key PEM path; required |
-| OPENSVC_MCP_CLUSTER_CONFIG_FILE | empty | Optional legacy version 2 catalogue; validated if supplied, unused for OAuth stage 2 |
+| OPENSVC_MCP_CLUSTER_CONFIG_FILE | empty | Version 3 catalogue required for exchanged daemon calls; optional for incoming OAuth discovery only |
+| OPENSVC_MCP_AUTH_CONFIG_FILE | empty | Version 1 confidential SSO profile file; required with a version 3 catalogue |
 | OPENSVC_MCP_OAUTH_RESOURCE_URL | empty | Required public HTTPS MCP URL ending in `/mcp`; expected access-token audience |
 | OPENSVC_MCP_OAUTH_RESOURCE_NAME | OpenSVC Daemon MCP | Human-readable `resource_name` in public OAuth metadata |
 | OPENSVC_MCP_OAUTH_ISSUER | empty | Required exact trusted issuer for incoming MCP access JWTs |
 | OPENSVC_MCP_OAUTH_CA_FILE | empty | Optional absolute PEM trust bundle for SSO HTTPS; replaces system roots |
 
 HTTPS is the only transport. There is no local socket mode, local daemon
-dependency, login page or token exchange. Stage 2 exposes authenticated tool discovery; daemon calls remain blocked until
-token exchange is implemented. The catalogue can be omitted at this stage.
+dependency or login page. Daemon calls use RFC 8693 token exchange when a
+version 3 catalogue and auth profiles are supplied together. Without them,
+incoming OAuth and tool discovery work, but daemon calls remain blocked.
 See [authentication](authentication.md) for the complete contract.
 
 ## HTTPS
@@ -36,7 +38,7 @@ OPENSVC_MCP_OAUTH_ISSUER=https://auth.example.test/application/o/opensvc-mcp/ \
 
 The issuer above is illustrative and must be replaced with the actual issuer
 of MCP access tokens. It does not select a daemon. No client secret is required
-until the token-exchange stage. A ready-to-adapt environment template is in
+for discovery-only operation. A ready-to-adapt environment template is in
 [deploy/examples/oauth.env](../deploy/examples/oauth.env).
 
 The agent connects to `https://<mcp-host>:8443/mcp`. The bind address must
@@ -69,7 +71,35 @@ curl --silent --show-error --fail --max-time 3 \
 
 Use `--cacert /path/to/public-ca.pem` when the MCP listener uses a private CA.
 
-## Legacy target cluster catalogue (not used by OAuth stage 2)
+## Cluster catalogue and exchange profiles
+
+Use [clusters-v3.yaml](../deploy/examples/clusters-v3.yaml) and
+[auth.yaml](../deploy/examples/auth.yaml) for external-agent daemon calls.
+The catalogue maps `cluster_id` to a single HTTPS VIP, TLS trust, request timeout,
+auth profile and target audience. No node inventory is required. The auth file
+contains confidential client configuration and a secret-file reference, never
+the secret itself. Unknown profile references prevent startup.
+
+The loader accepts up to 4096 clusters and 4 MiB of YAML. Each CA bundle is
+bounded to 1 MiB. Endpoint URLs must be HTTPS origins without credentials, paths,
+queries or fragments. IDs are unique and compared exactly; display names need
+not be unique. Names or nodes alone never select a target for a daemon call.
+TLS uses system roots by default, or `tls.ca_file`, or `tls.insecure: true`;
+`ca_file` and `insecure` are mutually exclusive. Request timeouts range from
+1 second to 2 minutes.
+
+The profile file accepts 1–64 profiles, HTTPS discovery issuers, a confidential
+`client_id`, absolute `client_secret_file`, `client_secret_basic` (default) or
+`client_secret_post`, up to 32 technical scopes, a `request_timeout` from 1 second
+to 1 minute (default 10 seconds), and optional `tls.ca_file`. SSO TLS verification
+cannot be disabled. Secret files must be regular, at most 16 KiB, mode 0600 or
+0400, and contain one nonempty line. All files are loaded at startup; restart to
+apply changes. Public discovery is lazy and cached for five minutes.
+
+See [the deployment guide](token-exchange.md) for lab values, SSO setup, daemon
+configuration and test boundaries.
+
+## Legacy version 2 catalogue (not used for external OAuth routing)
 
 The following format remains supported for validation of existing deployments.
 It does not enable daemon calls in the OAuth entrypoint. The planned version 3
@@ -164,7 +194,7 @@ are normalized. Cluster references contain 1–64 ASCII letters, digits, hyphens
 or underscores. Names contain 1–128 bytes, IDs and issuer names 1–256 bytes,
 without surrounding whitespace or control characters.
 
-Limits are 256 KiB of YAML, 64 clusters and 200 nodes per cluster. Trust files
+Limits are 4 MiB of YAML, 4096 clusters and 200 nodes per legacy cluster. Trust files
 must be readable regular files of at most 1 MiB. TLS bundles accept only valid
 public CA certificates, not leaf certificates.
 Changing these files does not alter the running snapshot.
@@ -173,7 +203,7 @@ Changing these files does not alter the running snapshot.
 
 Run `om3-mcp` under a dedicated unprivileged account, for example
 `opensvc-mcp:opensvc-mcp`. It must be able to read the listener certificate/key,
-catalogue and public trust files. Restrict private-key access to that account
+catalogue, confidential secret file and public trust files. Restrict private-key access to that account
 and use an unprivileged port such as `8443`.
 
 An OpenSVC `app.simple` resource can manage the process with the environment

@@ -2,19 +2,22 @@
 
 [Back to README](../README.md) · [Configuration](configuration.md)
 
-## External-client OAuth: stage 2
+## External-client OAuth and daemon token exchange
 
 The HTTPS `/mcp` endpoint is an OAuth resource server. It accepts access JWTs
 issued for its configured resource URL and verifies them locally. No business
 scope is required, advertised or used to filter tools. SSO-issued OpenSVC grants
-will be enforced by daemons after token exchange is implemented.
+are enforced by daemons using the exchanged tokens.
 
-This stage supports authenticated MCP initialization, ping and discovery of all
-existing tools. Daemon tool calls return `isError=true` with an explicit
-"token exchange is not implemented yet" message. They do not contact daemons.
-`GET /mcp/auth/whoami` requires OAuth but returns HTTP 501: the old daemon
-identity bridge is disconnected. `list_clusters`, catalogue version 3 and
-per-tool multi-cluster targets belong to subsequent stages.
+Authenticated clients can initialize MCP and discover all existing tools.
+With a version 3 catalogue and SSO exchange profiles, `list_clusters` discovers
+configured cluster identities and each daemon tool requires `cluster_id`.
+Before the tool executes, the MCP exchanges the incoming token for a daemon
+access token and binds it to the configured VIP for the call lifetime.
+See [token exchange](token-exchange.md) for configuration and validation status.
+Without exchange configuration, daemon calls return an explicit tool error.
+`GET /mcp/auth/whoami` still returns HTTP 501 after OAuth authentication: the
+legacy identity bridge remains disconnected.
 
 The previous `om ai` / webapp delegation middleware is retained in source with
 its production wiring commented out in `main.go`. Its regression tests use a
@@ -67,8 +70,8 @@ claims in the SSO. MCP does not host login, callback, registration or token
 endpoints. It does not need an OAuth client secret for this stage.
 
 The SSO must issue an **access token**, whose `aud` contains the exact configured
-MCP resource URL. An audience array may additionally contain the confidential
-MCP client ID needed by some token-exchange configurations. An ID token intended
+MCP resource URL. An audience array may additionally contain client IDs needed by the login or
+token-exchange configuration, including the confidential requester for Keycloak. An ID token intended
 for the external OAuth client is not the credential to send to MCP.
 
 ## Incoming-token validation
@@ -132,15 +135,24 @@ the customer's SSO is configured correctly. Validate the real issuer, client
 registration, callbacks and resource audience, then connect the external client.
 
 On 2026-10-07, Codex CLI 0.160.1 successfully logged in through the lab authentik
-provider and discovered the MCP tools. No daemon tool call was requested in that
-manual test. The audience mapping must be selected on the provider and use the
-scope name `openid`, matching the scope requested by this Codex configuration.
+provider and discovered the MCP tools. The initial login requested `openid`;
+the operator subsequently aligned Codex and the audience mapping on the custom
+scope name `om3-mcp`. The mapping must be selected on the incoming provider
+and its scope must match what the client requests.
 A provider preview and a successful login alone did not establish that the
 access token had the MCP audience; this was confirmed by successful tool
 discovery after correcting the mapping's scope name.
 See the [integration plan](CHANTIER_MCP_AGENTS_EXTERNES.md) for the lab setup.
 
-Token exchange and daemon grants are a separate end-to-end validation in stage 3.
+Token exchange and concurrent multi-cluster calls are covered by local HTTPS
+integration tests. The operator also confirmed a real Codex prompt retrieving
+dev5n1/dev5 and dev3n1/dev3 through authentik token exchange. Negative grant and
+cross-cluster permission tests remain pending.
+
+On 2026-10-08, the operator confirmed a five-minute access-token validity on
+the incoming provider. Authentik's provider preview is a synthetic token and
+does not establish the lifetime of the actual login access token. Renewal and
+revocation behavior remain to be tested; no refresh token is stored by MCP.
 
 References: [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization),
 [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728.html).

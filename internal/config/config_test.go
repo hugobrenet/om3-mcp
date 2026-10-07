@@ -9,7 +9,7 @@ import (
 
 func clearListenerEnvironment(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_CLUSTER_CONFIG_FILE", "OPENSVC_MCP_OAUTH_RESOURCE_URL", "OPENSVC_MCP_OAUTH_RESOURCE_NAME", "OPENSVC_MCP_OAUTH_ISSUER", "OPENSVC_MCP_OAUTH_CA_FILE"} {
+	for _, name := range []string{"OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_CLUSTER_CONFIG_FILE", "OPENSVC_MCP_OAUTH_RESOURCE_URL", "OPENSVC_MCP_OAUTH_RESOURCE_NAME", "OPENSVC_MCP_OAUTH_ISSUER", "OPENSVC_MCP_OAUTH_CA_FILE", "OPENSVC_MCP_AUTH_CONFIG_FILE"} {
 		t.Setenv(name, "")
 	}
 	t.Setenv("OPENSVC_MCP_OAUTH_RESOURCE_URL", "https://mcp.example.test/mcp")
@@ -37,6 +37,36 @@ func TestLoadOAuthDoesNotRequireCatalogue(t *testing.T) {
 	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
 	if cfg, err := Load(); err != nil || cfg.Clusters != nil {
 		t.Fatalf("OAuth bootstrap should not require a daemon catalogue: %v", err)
+	}
+}
+
+func TestLoadExchangeRequiresVersion3AndKnownProfiles(t *testing.T) {
+	clearListenerEnvironment(t)
+	t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
+	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
+	p := testutil.NewOAuthProvider(t)
+	profiles := testutil.WriteExchangeProfiles(t, p, "client_secret_basic")
+	entry := map[string]any{"name": "dev5", "cluster_id": "cluster-a", "endpoint": "https://dev5.test:1215", "request_timeout": "20s", "auth": map[string]string{"profile": "test-sso", "audience": "om3-dev5"}}
+	catalog := testutil.WriteYAML(t, map[string]any{"version": 3, "clusters": map[string]any{"dev5": entry}})
+	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", catalog)
+	if _, err := Load(); err == nil {
+		t.Fatal("version 3 allowed without exchange configuration")
+	}
+	t.Setenv("OPENSVC_MCP_AUTH_CONFIG_FILE", profiles)
+	if cfg, err := Load(); err != nil || cfg.Exchange == nil || cfg.Clusters.Version() != 3 {
+		t.Fatalf("valid exchange configuration rejected: %v", err)
+	}
+	entry["auth"] = map[string]string{"profile": "missing", "audience": "om3-dev5"}
+	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", testutil.WriteYAML(t, map[string]any{"version": 3, "clusters": map[string]any{"dev5": entry}}))
+	if _, err := Load(); err == nil {
+		t.Fatal("unknown profile accepted")
+	}
+	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", testutil.WriteClusters(t, map[string]string{"cluster-a": "Legacy"}))
+	if _, err := Load(); err == nil {
+		t.Fatal("exchange accepted with legacy catalogue")
+	}
+	if p.MetadataCalls.Load() != 0 || p.KeyCalls.Load() != 0 {
+		t.Fatal("startup contacted SSO")
 	}
 }
 

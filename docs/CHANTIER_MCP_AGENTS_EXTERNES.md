@@ -1,9 +1,9 @@
 # Chantier V1 — Agent externe → MCP → multi-clusters OpenSVC
 
 Document de cadrage issu des échanges de conception du 7 octobre 2026.
-Mise à jour du 7 octobre 2026 : l'étape 2 est implémentée et le parcours Codex → authentik → découverte des outils MCP a été validé au lab. L'échange de tokens et les appels aux daemons restent à implémenter et à valider.
+Mise à jour du 8 octobre 2026 : le parcours Codex → authentik → MCP → daemons est implémenté et validé au lab sur dev5 et dev3. Un même prompt a permis de lire dev5n1/dev5 et dev3n1/dev3 avec le même token MCP. Les tests négatifs de grants, l'isolation des droits entre clusters, le renouvellement et Keycloak restent à valider.
 
-Ce fichier de travail est situé hors du dépôt Git `om3-mcp`. Une copie est versionnée dans `om3-mcp/docs/CHANTIER_MCP_AGENTS_EXTERNES.md` lors de la clôture de l'étape 2.
+Ce fichier de travail est situé hors du dépôt Git `om3-mcp`. Une copie est maintenue dans `om3-mcp/docs/CHANTIER_MCP_AGENTS_EXTERNES.md` pour la versionner avec le code.
 
 ## Objectif
 
@@ -65,7 +65,7 @@ L'access token aval est un JWT accepté par l'authentification OpenID du daemon 
 
 ## Catalogue proposé
 
-Schéma indicatif à implémenter, non accepté par le parseur actuel. Les valeurs de dev4 sont illustratives.
+Schéma v3 implémenté. Les valeurs de dev4 sont illustratives. Les options TLS restent : autorités système par défaut, `tls.ca_file`, ou `tls.insecure: true` exclusif de `ca_file`.
 
 ```yaml
 version: 3
@@ -137,7 +137,7 @@ Le token aval doit porter les grants OpenSVC délivrés par le SSO pour cet util
 - [x] Retenir l'absence de scopes métier et de politique locale d'autorisation dans le MCP pour la V1.
 - [x] Confier au SSO l'émission des grants utilisateur et au daemon leur application.
 - [x] Définir `list_clusters` comme la découverte de tous les clusters configurés, sans filtrage par droits utilisateur.
-- [ ] Fixer les champs du catalogue, du profil d'authentification et de la configuration TLS.
+- [x] Fixer les champs du catalogue v3, du fichier de profils SSO v1 et de la configuration TLS ; voir `docs/token-exchange.md` et les exemples de déploiement.
 - [x] Choisir l'URL du service MCP et son identifiant de ressource OAuth : `https://dev5-vip.opensvc.com:8443/mcp`.
 
 Les cases cochées de cette section représentent des décisions de conception, pas des fonctionnalités implémentées.
@@ -159,8 +159,8 @@ Les cases cochées de cette section représentent des décisions de conception, 
 - Application et identifiant du client public : `om3-mcp`.
 - Client testé : Codex CLI 0.160.1, login `codex mcp login opensvc --no-browser`, puis nouvelle session, également testée avec `codex --no-daemon`.
 - Callback enregistré dans authentik en mode Strict / Authorization : `http://127.0.0.1:8765/callback/pINoQlIlx4_k`. Utiliser le callback effectivement annoncé par le client ; ne pas supposer ce suffixe universel.
-- Scope technique demandé par Codex : `openid`. Aucun scope métier n'est ajouté au MCP.
-- Le mapping d'audience sélectionné sur le fournisseur doit avoir **Scope name = `openid`**, avec l'expression suivante :
+- Scope technique initialement demandé par Codex : `openid`, puis remplacé par `om3-mcp` dans la configuration validée. Aucun scope métier n'est ajouté au MCP.
+- Le mapping d'audience sélectionné uniquement sur le fournisseur `om3-mcp` doit avoir **Scope name = `om3-mcp`**, correspondant au scope demandé par Codex, avec l'expression suivante :
 
 ```python
 return {
@@ -173,32 +173,45 @@ return {
 
 Un login réussi ne suffisait pas : le MCP rejetait le token avec `audience_mismatch`, alors que la prévisualisation du fournisseur affichait la bonne audience. Le scope du mapping ne correspondait pas au scope demandé. Après correction en `openid` et nouveau login, Codex a découvert les outils du MCP. Les logs temporaires ayant permis ce diagnostic ont été retirés du code à la clôture de l'étape.
 
-La recette réelle valide la connexion et la découverte des outils, sans JWT daemon fourni à Codex. Aucun appel métier n'a été demandé lors de cette recette. Le serveur bloque encore tous les `tools/call` avec un message explicite tant que l'échange de tokens n'est pas implémenté ; ce comportement est couvert par les tests locaux. Le middleware historique est conservé dans les sources, avec son branchement de production commenté. `om ai` et la webapp restent à adapter.
+La première recette validait la connexion et la découverte des outils, sans JWT daemon fourni à Codex. La recette suivante valide également les appels métier via échange de tokens sur dev5 et dev3. Sans configuration d'échange, les appels restent bloqués. Le middleware historique est conservé dans les sources, avec son branchement de production commenté. `om ai` et la webapp restent à adapter.
 
-Restent à valider : renouvellement et révocation, autres clients externes, Keycloak, puis échange RFC 8693 et accès daemon. La présence de `resource` dans le parcours ne prouve pas sa prise en charge native par authentik : l'audience est configurée explicitement par le mapping.
+Restent à valider : renouvellement et révocation, refus de grants, isolation des droits entre clusters, autres clients externes et Keycloak. La présence de `resource` dans le parcours ne prouve pas sa prise en charge native par authentik : l'audience est configurée explicitement par le mapping.
 
-### 3. Échanger le token pour accéder au daemon — prochain chantier, non commencé
+### 3. Échanger le token pour accéder au daemon — implémenté, lectures dev5/dev3 validées au lab
 
-- [ ] Fixer le contrat du profil SSO et vérifier la prise en charge RFC 8693 de la version déployée avant l'implémentation.
-- [ ] Configurer l'identité confidentielle du MCP, distincte du client public de connexion, et les relations de confiance autorisant l'échange vers les audiences daemon.
-- [ ] Choisir un daemon de lab et aligner son issuer et son audience avec le SSO de test : les fournisseurs daemon existants sur `auth.opensvc.com` ne sont pas automatiquement utilisables avec `labauthentik.opensvc.com`.
-- [ ] Implémenter le client RFC 8693 avec authentification confidentielle du MCP.
-- [ ] Résoudre audience et paramètres d'échange depuis une configuration administrée, jamais depuis une URL ou un issuer fourni par le LLM.
-- [ ] Configurer un token aval accepté par le daemon : issuer, audience, signature, identité et droits OpenSVC attendus.
-- [ ] Vérifier les mappings SSO produisant les grants OpenSVC de l'utilisateur pour le daemon cible, sans réécriture ni élargissement implicite par le MCP.
-- [ ] Garder credentials et tokens hors des entrées/sorties d'outils, erreurs, logs et contexte LLM.
+- [x] Implémenter le profil SSO administré : issuer, client confidentiel, fichier de secret, méthode d'authentification, scopes techniques, TLS et timeout.
+- [x] Vérifier la prise en charge RFC 8693 effective de la version déployée par un échange réel ; appels dev5 et dev3 réussis.
+- [x] Configuration déclarée réalisée par l'opérateur : client confidentiel `om3-mcp-exchange`, grant Token exchange, confiance envers `om3-mcp`, confiance de `osvc-cluster-dev5` envers `om3-mcp-exchange`.
+- [x] Aligner les daemons dev5 et dev3 sur leurs fournisseurs dédiés dans `labauthentik.opensvc.com`, avec audiences `om3-dev5` et `om3-dev3`.
+- [x] Implémenter le client RFC 8693 avec `client_secret_basic` ou `client_secret_post`, sans acteur ni compte de service de repli.
+- [x] Résoudre audience et paramètres d'échange depuis une configuration administrée, jamais depuis une URL ou un issuer fourni par le LLM.
+- [x] Configurer un token aval accepté par les daemons dev5/dev3 pour les lectures de statut : issuer, audience, signature et grants.
+- [x] Vérifier les mappings SSO produisant les grants pour les lectures du compte de test ; aucun grant n'est réécrit par le MCP. Les cas de refus et l'isolation des droits restent à tester.
+- [x] Garder credentials et tokens hors des entrées/sorties d'outils, erreurs, logs et contexte LLM ; contexte de token aval privé, erreurs SSO bornées et sans descriptions brutes, tests locaux.
 - [ ] Préserver l'identité de l'utilisateur et tracer l'application cliente, le cluster, l'outil et le résultat de l'échange et de l'appel daemon.
 - [ ] Si un cache de tokens est nécessaire, l'isoler par identité, délégation, cible et permissions, avec une expiration bornée.
 
+Les appels réels ont été confirmés par l'opérateur sur dev5 et dev3. Les mappings guest/root des fournisseurs cibles utilisent **Scope name = `om3-mcp`**, demandé dans `auth.yaml`, et obtiennent les droits via `user.app_entitlements(provider.application)`. Le mapping d'audience MCP n'est attaché qu'au fournisseur entrant `om3-mcp`.
+
+Le code effectue un échange par appel métier, sans cache de tokens aval ni refresh token. La durée du contexte est bornée par les tokens entrant et sortant et `expires_in`. Les tokens sortants sont vérifiés pour leur type, leur audience et leur durée avant envoi ; le daemon vérifie leur signature, leur issuer et leurs grants. Les tests HTTPS locaux couvrent deux utilisateurs et deux clusters simultanés, les refus SSO et daemon et l'absence de transmission directe du token MCP. Aucun changement distant n'a été effectué ; l'opérateur compile, déploie et modifie `cluster.conf`.
+
+#### Retours de recette et points ouverts
+
+- `list_clusters` a retourné les clusters configurés ; aucun échange ni appel daemon n'est nécessaire pour cette découverte. Le cas d'un cluster configuré mais interdit à l'utilisateur reste à tester.
+- Le 403 initial de dev5 a été résolu en alignant les scopes demandés avec les mappings d'entitlements. Le nom du mapping et son champ **Scope name** sont distincts.
+- Sur dev3, une découverte OpenID en 404 lors du rechargement avait entraîné l'abandon de la stratégie `jwt-openid`, bien que `/api/auth/info` annonce l'issuer configuré. L'appel a ensuite réussi. Suivre côté daemon la reprise après échec temporaire de découverte et la distinction entre configuration et stratégie opérationnelle.
+- Le 8 octobre, l'opérateur a confirmé **Access token validity = 5 minutes** pour le fournisseur entrant `om3-mcp`. Les 24 heures de la prévisualisation ne décrivent pas la durée du token réellement émis. La politique de durée, le renouvellement (`offline_access` pour obtenir un refresh token authentik) et la révocation restent ouverts.
+- Le token entrant reste uniquement dans le contexte mémoire de la requête MCP ; aucun stockage utilisateur persistant. Le cache de clés publiques de cinq minutes est indépendant de la validité du token.
+
 ### 4. Découvrir et résoudre les cibles
 
-- [ ] Implémenter et valider le nouveau catalogue : identifiants uniques, URLs HTTPS, profils connus et limites explicites.
-- [ ] Revoir les limites actuelles du chargeur : 64 clusters et 256 Kio ne constituent pas une base adaptée à la cible annoncée.
-- [ ] Implémenter `list_clusters` avec recherche et pagination sur tous les clusters configurés, sans filtrage par autorisation.
-- [ ] Exiger `cluster_id` dans les outils métier de ce nouveau parcours ; exiger `node` pour ceux dont l'opération le nécessite.
-- [ ] Résoudre `cluster_id → endpoint + profil + audience` indépendamment du nodename.
-- [ ] Valider le token et la cible de chaque appel ; transmettre les refus du SSO ou du daemon, y compris si le client fournit directement un UUID.
-- [ ] Garder les credentials et la cible dans un contexte propre à chaque appel, sans état utilisateur partagé.
+- [x] Implémenter et valider le nouveau catalogue : identifiants uniques, URLs HTTPS, profils connus et limites explicites.
+- [x] Porter les limites du chargeur à 4096 clusters et 4 Mio ; test de chargement de 800 clusters ajouté. La mesure de charge réelle reste à faire.
+- [x] Implémenter `list_clusters` avec recherche et pagination sur tous les clusters configurés, sans filtrage par autorisation.
+- [x] Exiger `cluster_id` dans les outils métier de ce nouveau parcours ; exiger `node` pour ceux dont l'opération le nécessite.
+- [x] Résoudre `cluster_id → endpoint + profil + audience` indépendamment du nodename.
+- [x] Valider le token et la cible de chaque appel ; transmettre les refus du SSO ou du daemon, y compris si le client fournit directement un UUID.
+- [x] Garder les credentials et la cible dans un contexte propre à chaque appel, sans état utilisateur partagé.
 - [ ] Définir les erreurs : cluster inaccessible ou inconnu, nom ambigu, nœud absent, échange refusé, daemon indisponible.
 
 ### 5. Valider authentik et Keycloak
@@ -213,7 +226,7 @@ Restent à valider : renouvellement et révocation, autres clients externes, Key
 
 - [x] Connecter Codex avec OAuth, sans lui fournir de JWT daemon ; découverte des outils validée au lab.
 - [ ] Découvrir tous les clusters configurés avec un token MCP valide, y compris ceux dont une opération sera ensuite refusée par le SSO ou le daemon.
-- [ ] Lire dev5n1/dev5 et dev4n1/dev4 avec le même token MCP.
+- [x] Lire dev5n1/dev5 et dev3n1/dev3 avec le même token MCP ; résultats des deux clusters confirmés dans un même prompt le 7 octobre 2026.
 - [ ] Vérifier les clarifications du LLM lorsque le cluster ou le nœud requis manque, ou que le nom du cluster est ambigu.
 - [ ] Vérifier le cas de deux nœuds homonymes dans deux clusters.
 - [ ] Vérifier la propagation d'un refus d'échange ou d'un refus de grants du daemon, même si l'UUID est fourni directement.

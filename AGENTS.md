@@ -32,10 +32,10 @@ Use Go, the standard library and `github.com/modelcontextprotocol/go-sdk`.
 - `cmd/om3-mcp`: composition root, HTTPS listener, lifecycle and whoami bridge.
   Keep explicit tool registration in `main.go`.
 - `internal/config`: process environment and startup validation.
-- `internal/clusterconfig`: strict version 2 cluster catalogue, node-to-HTTPS
-  mappings and immutable TLS trust loaded at startup.
+- `internal/clusterconfig`: version 3 cluster-to-VIP catalogue and preserved
+  version 2 legacy parser; immutable TLS trust loaded at startup.
 - `internal/auth`: OAuth metadata, signature verification and private request
-  identity; also preserved legacy unverified delegation components.
+  identity, confidential RFC 8693 exchange; also preserved legacy delegation.
 - `internal/client`: catalogue-bound daemon routing, HTTP transport, response
   bounds and normalized API errors. Share immutable clients and connection
   pools, never caller credentials.
@@ -59,23 +59,29 @@ a local daemon dependency, or authentication logic in core/tool handlers.
   redirects, bounded reads and no caller credentials.
 - OAuth identity and tokens use a private context separate from legacy
   `Delegation`. Never pass an incoming MCP token directly to a daemon.
-- Stage 2 exposes initialization and every existing tool declaration, but blocks
-  all `tools/call` requests until token exchange and routing are implemented.
-  The old `/mcp/auth/whoami` bridge returns 501 after OAuth authentication.
+- With a version 3 catalogue and exchange profiles, the registrar adds required
+  `cluster_id` to all daemon tool schemas and prepares one exchange per call.
+  `list_clusters` is local discovery of all configured clusters, without grants
+  filtering. Missing exchange configuration keeps daemon calls blocked.
+  The old `/mcp/auth/whoami` bridge remains disabled with HTTP 501.
 - Legacy native/OpenID delegation remains in source with its production wiring
   commented out at the user's request. Its tests use a test-only handler.
   Do not silently restore it or fall back after an OAuth rejection.
   See [legacy authentication](docs/authentication-legacy.md).
-- Configuration does not require a daemon catalogue during OAuth stage 2. An
-  optional catalogue still uses the strict version 2 parser; version 3 and
-  `list_clusters` are subsequent work.
+- Auth profiles and version 3 catalogue must be configured together. Discovery
+  alone needs neither; a supplied legacy version 2 catalogue is never used as
+  an OAuth routing fallback. Runtime target URLs and audiences come only from
+  the catalogue, never caller URLs or HTTP target headers.
 - SSO TLS uses system roots or an explicit PEM bundle. Daemon TLS settings
   retain their existing semantics and do not change SSO TLS verification.
-- Credentials are never stored in sessions, shared clients, logs, tool data or
-  persistent storage. Only public signing keys are cached. Bound request
-  lifetime by token expiry; expired credentials are unusable.
-- No embedded authorization server, token exchange or refresh-token storage is
-  implemented yet. External clients handle login and renewal with the SSO.
+- User tokens are never stored in sessions, shared clients, logs, tool data or
+  persistent storage. Confidential client secrets are snapshotted from protected
+  files at startup; only public keys and discovery metadata are cached. Bound
+  each call by incoming and exchanged token expiry; never rewrite SSO grants.
+- No embedded authorization server or refresh-token storage. External clients
+  handle login and renewal. SSO refusal stops calls with safe errors, without
+  privileged account fallback. The daemon validates outgoing signatures, issuer
+  and grants. See docs/token-exchange.md for operator setup and test limits.
 
 ## Tool contracts and data
 

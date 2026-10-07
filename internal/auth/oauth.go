@@ -58,6 +58,7 @@ type OAuthIdentity struct {
 	Issuer    string
 	Subject   string
 	ExpiresAt time.Time
+	Resource  string
 }
 
 type oauthContextKey struct{}
@@ -91,9 +92,21 @@ func NewOAuthVerifier(cfg OAuthConfig) (*OAuthVerifier, error) {
 	if cfg.ResourceName == "" {
 		cfg.ResourceName = "OpenSVC Daemon MCP"
 	}
+	client, err := oauthHTTPClient(cfg.CAFile, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+
+	u, _ := url.Parse(cfg.ResourceURL)
+	u.Path = "/.well-known/oauth-protected-resource/mcp"
+	return &OAuthVerifier{config: cfg, metadataURL: u.String(), keys: &oauthKeys{issuer: cfg.Issuer, client: client}}, nil
+}
+
+// oauthHTTPClient never follows redirects or environment proxies.
+func oauthHTTPClient(caFile string, timeout time.Duration) (*http.Client, error) {
 	var roots *x509.CertPool
-	if cfg.CAFile != "" {
-		f, err := os.Open(cfg.CAFile)
+	if caFile != "" {
+		f, err := os.Open(caFile)
 		if err != nil {
 			return nil, errors.New("read OAuth CA file")
 		}
@@ -110,18 +123,16 @@ func NewOAuthVerifier(cfg OAuthConfig) (*OAuthVerifier, error) {
 	}
 	transport := &http.Transport{
 		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots},
-		TLSHandshakeTimeout: 5 * time.Second,
+		TLSHandshakeTimeout: timeout,
 		IdleConnTimeout:     90 * time.Second,
 		MaxIdleConns:        2, MaxIdleConnsPerHost: 2,
 		// No environment proxy and no caller headers on discovery/JWKS requests.
 	}
 	client := &http.Client{
-		Transport: transport, Timeout: 5 * time.Second,
+		Transport: transport, Timeout: timeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	u, _ := url.Parse(cfg.ResourceURL)
-	u.Path = "/.well-known/oauth-protected-resource/mcp"
-	return &OAuthVerifier{config: cfg, metadataURL: u.String(), keys: &oauthKeys{issuer: cfg.Issuer, client: client}}, nil
+	return client, nil
 }
 
 // Metadata serves RFC 9728 metadata. Scopes are intentionally not advertised:
@@ -180,7 +191,7 @@ func (v *OAuthVerifier) verify(ctx context.Context, raw string) (OAuthIdentity, 
 	}, options...); err != nil {
 		return OAuthIdentity{}, errUnauthorized
 	}
-	return OAuthIdentity{Issuer: claims.Issuer, Subject: claims.Subject, ExpiresAt: claims.ExpiresAt.Time}, nil
+	return OAuthIdentity{Issuer: claims.Issuer, Subject: claims.Subject, ExpiresAt: claims.ExpiresAt.Time, Resource: v.config.ResourceURL}, nil
 }
 
 func (v *OAuthVerifier) Middleware(next http.Handler) http.Handler {

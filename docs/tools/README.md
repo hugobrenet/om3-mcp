@@ -1,5 +1,10 @@
 # OpenSVC Daemon MCP Tools
 
+The OAuth stage 2 entrypoint exposes these declarations but returns an explicit
+tool error for daemon calls until token exchange is implemented. The operation
+contracts below describe the preserved daemon integration components; see
+[authentication](../authentication.md) for the current runtime behavior.
+
 This directory documents the human-facing contracts of the OpenSVC daemon MCP
 tools. Names, descriptions, annotations and JSON Schemas are defined in
 `internal/tools` and exposed by bearer-checked `tools/list` calls. These

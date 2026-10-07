@@ -9,12 +9,14 @@ import (
 
 func clearListenerEnvironment(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_CLUSTER_CONFIG_FILE"} {
+	for _, name := range []string{"OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_CLUSTER_CONFIG_FILE", "OPENSVC_MCP_OAUTH_RESOURCE_URL", "OPENSVC_MCP_OAUTH_RESOURCE_NAME", "OPENSVC_MCP_OAUTH_ISSUER", "OPENSVC_MCP_OAUTH_CA_FILE"} {
 		t.Setenv(name, "")
 	}
+	t.Setenv("OPENSVC_MCP_OAUTH_RESOURCE_URL", "https://mcp.example.test/mcp")
+	t.Setenv("OPENSVC_MCP_OAUTH_ISSUER", "https://sso.example.test/issuer/")
 }
 
-func TestLoadNativeJWTConfiguration(t *testing.T) {
+func TestLoadOAuthConfiguration(t *testing.T) {
 	clearListenerEnvironment(t)
 	t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
 	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
@@ -29,12 +31,39 @@ func TestLoadNativeJWTConfiguration(t *testing.T) {
 	}
 }
 
-func TestLoadRequiresCatalogue(t *testing.T) {
+func TestLoadOAuthDoesNotRequireCatalogue(t *testing.T) {
 	clearListenerEnvironment(t)
 	t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
 	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
-	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OPENSVC_MCP_CLUSTER_CONFIG_FILE") {
-		t.Fatalf("got error %v", err)
+	if cfg, err := Load(); err != nil || cfg.Clusters != nil {
+		t.Fatalf("OAuth bootstrap should not require a daemon catalogue: %v", err)
+	}
+}
+
+func TestLoadRejectsInvalidOAuthConfiguration(t *testing.T) {
+	for _, tc := range []struct{ name, variable, value string }{
+		{"missing resource", "OPENSVC_MCP_OAUTH_RESOURCE_URL", ""},
+		{"HTTP resource", "OPENSVC_MCP_OAUTH_RESOURCE_URL", "http://mcp.example.test/mcp"},
+		{"resource credentials", "OPENSVC_MCP_OAUTH_RESOURCE_URL", "https://user:password@mcp.example.test/mcp"},
+		{"wrong resource path", "OPENSVC_MCP_OAUTH_RESOURCE_URL", "https://mcp.example.test/other"},
+		{"resource query", "OPENSVC_MCP_OAUTH_RESOURCE_URL", "https://mcp.example.test/mcp?x=1"},
+		{"resource fragment", "OPENSVC_MCP_OAUTH_RESOURCE_URL", "https://mcp.example.test/mcp#"},
+		{"invalid resource name", "OPENSVC_MCP_OAUTH_RESOURCE_NAME", "MCP\nname"},
+		{"missing issuer", "OPENSVC_MCP_OAUTH_ISSUER", ""},
+		{"HTTP issuer", "OPENSVC_MCP_OAUTH_ISSUER", "http://sso.example.test"},
+		{"issuer credentials", "OPENSVC_MCP_OAUTH_ISSUER", "https://user:password@sso.example.test"},
+		{"issuer query", "OPENSVC_MCP_OAUTH_ISSUER", "https://sso.example.test?"},
+		{"relative trust file", "OPENSVC_MCP_OAUTH_CA_FILE", "ca.pem"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clearListenerEnvironment(t)
+			t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
+			t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
+			t.Setenv(tc.variable, tc.value)
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OPENSVC_MCP_OAUTH") {
+				t.Fatalf("invalid OAuth configuration accepted: %v", err)
+			}
+		})
 	}
 }
 

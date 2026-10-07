@@ -13,7 +13,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/opensvc/om3-mcp/internal/auth"
-	"github.com/opensvc/om3-mcp/internal/client"
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 	"github.com/opensvc/om3-mcp/internal/config"
 	"github.com/opensvc/om3-mcp/internal/core"
@@ -86,24 +85,32 @@ func warnInsecureDaemonTLS(catalog *clusterconfig.Catalog, logger *log.Logger) {
 	}
 }
 
-// Delegation selects a configured daemon from checked claims and target headers.
+// OAuth authenticates the external client locally. Daemon token exchange and
+// multi-cluster routing will be wired in the next stage.
 func newMCPHandler(cfg config.Config) (http.Handler, error) {
-	checker, err := auth.NewChecker(cfg.Clusters)
+	verifier, err := auth.NewOAuthVerifier(cfg.OAuth)
 	if err != nil {
-		return nil, fmt.Errorf("configure JWT delegation: %w", err)
+		return nil, fmt.Errorf("configure MCP OAuth: %w", err)
 	}
-	api, err := client.NewRouted(cfg.Clusters)
-	if err != nil {
-		return nil, err
-	}
-	handler, err := newToolsHandler(api)
+	handler, err := newToolsHandler(nil)
 	if err != nil {
 		return nil, err
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", getHealth)
-	mux.Handle("/mcp", checker.Middleware(handler))
-	mux.Handle("GET /mcp/auth/whoami", checker.Middleware(serveWhoAmI(api)))
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", verifier.Metadata)
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource", verifier.Metadata)
+	mux.Handle("/mcp", verifier.Middleware(handler))
+	mux.Handle("GET /mcp/auth/whoami", verifier.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Daemon identity validation requires token exchange, which is not implemented yet.", http.StatusNotImplemented)
+	})))
+	// Previous om ai/webapp delegation wiring intentionally disabled. Reusing it
+	// here would forward an MCP-audience credential directly to a daemon.
+	// checker, err := auth.NewChecker(cfg.Clusters)
+	// api, err := client.NewRouted(cfg.Clusters)
+	// handler, err := newToolsHandler(api)
+	// mux.Handle("/mcp", checker.Middleware(handler))
+	// mux.Handle("GET /mcp/auth/whoami", checker.Middleware(serveWhoAmI(api)))
 	return mux, nil
 }
 
@@ -120,7 +127,7 @@ func shutdownHTTPServer(server *http.Server, timeout time.Duration) error {
 	return nil
 }
 
-func newToolsHandler(api *client.RoutedClient) (http.Handler, error) {
+func newToolsHandler(api core.JSONGetter) (http.Handler, error) {
 	service := core.New(api)
 	server := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: serverVersion}, nil)
 	registrar, err := tools.NewRegistrar(server)
@@ -135,7 +142,19 @@ func newToolsHandler(api *client.RoutedClient) (http.Handler, error) {
 			return nil, err
 		}
 	}
-	// Tools require no persistent protocol session. Delegation is checked on
+	if api == nil {
+		// Stage 2 exposes every existing tool but cannot execute daemon calls.
+		// A protocol-level guard also covers active probes and future tools.
+		server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+			return func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
+				if method == "tools/call" {
+					return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "Daemon calls require token exchange, which is not implemented yet."}}}, nil
+				}
+				return next(ctx, method, request)
+			}
+		})
+	}
+	// Tools require no persistent protocol session. Authentication is checked on
 	// every request; the shared service never holds a user's credentials.
 	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{
 		Stateless: true, JSONResponse: true,

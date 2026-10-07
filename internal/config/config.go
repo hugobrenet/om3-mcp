@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/opensvc/om3-mcp/internal/auth"
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 )
 
@@ -20,6 +21,7 @@ type Config struct {
 	TLSKeyFile        string
 	Clusters          *clusterconfig.Catalog
 	ClusterConfigFile string
+	OAuth             auth.OAuthConfig
 }
 
 // Load reads and validates process configuration from environment variables.
@@ -37,11 +39,24 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("OPENSVC_MCP_TLS_CERT_FILE and OPENSVC_MCP_TLS_KEY_FILE must be absolute file paths")
 	}
 	clusterFile := strings.TrimSpace(os.Getenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE"))
-	catalog, err := clusterconfig.Load(clusterFile)
-	if err != nil {
-		return Config{}, fmt.Errorf("OPENSVC_MCP_CLUSTER_CONFIG_FILE: %w", err)
+	var catalog *clusterconfig.Catalog
+	if clusterFile != "" {
+		var err error
+		catalog, err = clusterconfig.Load(clusterFile)
+		if err != nil {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_CLUSTER_CONFIG_FILE: %w", err)
+		}
 	}
-	return Config{ListenAddress: listenAddress, TLSCertFile: certFile, TLSKeyFile: keyFile, Clusters: catalog, ClusterConfigFile: clusterFile}, nil
+	oauth := auth.OAuthConfig{
+		ResourceURL:  strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_RESOURCE_URL")),
+		ResourceName: strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_RESOURCE_NAME")),
+		Issuer:       strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_ISSUER")),
+		CAFile:       strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_CA_FILE")),
+	}
+	if err := oauth.Validate(); err != nil {
+		return Config{}, fmt.Errorf("OPENSVC_MCP_OAUTH configuration: %w", err)
+	}
+	return Config{ListenAddress: listenAddress, TLSCertFile: certFile, TLSKeyFile: keyFile, Clusters: catalog, ClusterConfigFile: clusterFile, OAuth: oauth}, nil
 }
 
 func validateListenAddress(address string) error {

@@ -1,5 +1,6 @@
-// Package auth checks delegated JWT claims and routing, not signatures.
-// Only the target daemon authenticates the credential.
+// Package auth authenticates OAuth access JWTs intended for the MCP resource.
+// The legacy Checker below only checks delegation claims and routing; it is
+// disconnected from the production entrypoint and does not verify signatures.
 package auth
 
 import (

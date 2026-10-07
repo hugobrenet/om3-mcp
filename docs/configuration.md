@@ -9,24 +9,35 @@
 | OPENSVC_MCP_LISTEN_ADDR | 127.0.0.1:8443 | TCP bind address, IPv4:port or [IPv6]:port |
 | OPENSVC_MCP_TLS_CERT_FILE | empty | Absolute server certificate PEM path; required |
 | OPENSVC_MCP_TLS_KEY_FILE | empty | Absolute server private key PEM path; required |
-| OPENSVC_MCP_CLUSTER_CONFIG_FILE | empty | Absolute YAML catalogue path; required |
+| OPENSVC_MCP_CLUSTER_CONFIG_FILE | empty | Optional legacy version 2 catalogue; validated if supplied, unused for OAuth stage 2 |
+| OPENSVC_MCP_OAUTH_RESOURCE_URL | empty | Required public HTTPS MCP URL ending in `/mcp`; expected access-token audience |
+| OPENSVC_MCP_OAUTH_RESOURCE_NAME | OpenSVC Daemon MCP | Human-readable `resource_name` in public OAuth metadata |
+| OPENSVC_MCP_OAUTH_ISSUER | empty | Required exact trusted issuer for incoming MCP access JWTs |
+| OPENSVC_MCP_OAUTH_CA_FILE | empty | Optional absolute PEM trust bundle for SSO HTTPS; replaces system roots |
 
 HTTPS is the only transport. There is no local socket mode, local daemon
-dependency, login page or token exchange. Target configuration is loaded from
-the administrator-owned catalogue, not from tool arguments or token URLs.
+dependency, login page or token exchange. Stage 2 exposes authenticated tool discovery; daemon calls remain blocked until
+token exchange is implemented. The catalogue can be omitted at this stage.
+See [authentication](authentication.md) for the complete contract.
 
 ## HTTPS
 
-Install the listener certificate and key, catalogue and any private TLS CA
-bundles before starting. No JWT signing key is installed on the MCP:
+Install the listener certificate/key and any SSO TLS CA bundle before starting.
+JWT verification uses the SSO public JWKS; no JWT signing private key is needed:
 
 ```bash
 OPENSVC_MCP_LISTEN_ADDR=0.0.0.0:8443 \
 OPENSVC_MCP_TLS_CERT_FILE=/etc/opensvc-mcp/tls/server.crt \
 OPENSVC_MCP_TLS_KEY_FILE=/etc/opensvc-mcp/tls/server.key \
-OPENSVC_MCP_CLUSTER_CONFIG_FILE=/etc/opensvc-mcp/clusters.yaml \
+OPENSVC_MCP_OAUTH_RESOURCE_URL=https://dev5-vip.opensvc.com:8443/mcp \
+OPENSVC_MCP_OAUTH_ISSUER=https://auth.example.test/application/o/opensvc-mcp/ \
   ./bin/om3-mcp
 ```
+
+The issuer above is illustrative and must be replaced with the actual issuer
+of MCP access tokens. It does not select a daemon. No client secret is required
+until the token-exchange stage. A ready-to-adapt environment template is in
+[deploy/examples/oauth.env](../deploy/examples/oauth.env).
 
 The agent connects to `https://<mcp-host>:8443/mcp`. The bind address must
 contain an explicit IP and a numeric port from 1 to 65535. Use `0.0.0.0` or
@@ -58,7 +69,11 @@ curl --silent --show-error --fail --max-time 3 \
 
 Use `--cacert /path/to/public-ca.pem` when the MCP listener uses a private CA.
 
-## Target cluster catalogue
+## Legacy target cluster catalogue (not used by OAuth stage 2)
+
+The following format remains supported for validation of existing deployments.
+It does not enable daemon calls in the OAuth entrypoint. The planned version 3
+VIP catalogue will be implemented with multi-cluster routing.
 
 See [the template](../deploy/examples/clusters.yaml). Install real configuration
 outside the repository, for example at `/etc/opensvc-mcp/clusters.yaml`.

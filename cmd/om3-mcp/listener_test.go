@@ -28,7 +28,7 @@ import (
 	"github.com/opensvc/om3-mcp/internal/testutil"
 )
 
-func TestHTTPSBinaryRequiresNativeJWTWithoutDaemonContact(t *testing.T) {
+func TestHTTPSBinaryRequiresOAuthWithoutDaemonContact(t *testing.T) {
 	certFile, keyFile, roots := writeListenerCertificate(t)
 	var daemonCalls atomic.Int32
 	var daemonConnections atomic.Int32
@@ -74,8 +74,8 @@ func TestHTTPSBinaryRequiresNativeJWTWithoutDaemonContact(t *testing.T) {
 			t.Fatal(err)
 		}
 		_ = response.Body.Close()
-		if response.StatusCode != http.StatusUnauthorized || response.Header.Get("WWW-Authenticate") != "Bearer" {
-			t.Fatal("HTTPS binary did not require native JWT authorization")
+		if response.StatusCode != http.StatusUnauthorized || !strings.Contains(response.Header.Get("WWW-Authenticate"), "resource_metadata=") {
+			t.Fatal("HTTPS binary did not require OAuth authorization")
 		}
 	}
 	for _, path := range []string{"/unknown", "/mcp/unknown"} {
@@ -106,11 +106,12 @@ func (l *countingListener) Accept() (net.Conn, error) {
 	return conn, err
 }
 
-func TestHTTPSListenerRequiresTrustedTLSAndNativeJWT(t *testing.T) {
+func TestHTTPSListenerRequiresTrustedTLSAndOAuth(t *testing.T) {
 	certFile, keyFile, roots := writeListenerCertificate(t)
 	cfg := config.Config{
 		ListenAddress: "127.0.0.1:0",
 		TLSCertFile:   certFile, TLSKeyFile: keyFile,
+		OAuth: testOAuthConfig(),
 	}
 	var err error
 	cfg.Clusters, err = clusterconfig.Load(testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster"}))
@@ -279,7 +280,7 @@ func writeListenerCertificate(t *testing.T) (string, string, *x509.CertPool) {
 
 // Start the compiled entrypoint with only the new HTTPS configuration. Keep
 // process output in a file so failed-start diagnostics do not race with writes.
-func startHTTPSBinary(t *testing.T, c *http.Client, certFile, keyFile, clusterFile string) string {
+func startHTTPSBinary(t *testing.T, c *http.Client, certFile, keyFile, clusterFile string, oauthEnv ...string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
@@ -307,7 +308,10 @@ func startHTTPSBinary(t *testing.T, c *http.Client, certFile, keyFile, clusterFi
 		"OPENSVC_MCP_TLS_CERT_FILE="+certFile,
 		"OPENSVC_MCP_TLS_KEY_FILE="+keyFile,
 		"OPENSVC_MCP_CLUSTER_CONFIG_FILE="+clusterFile,
+		"OPENSVC_MCP_OAUTH_RESOURCE_URL="+origin+"/mcp",
+		"OPENSVC_MCP_OAUTH_ISSUER=https://sso.example.test/issuer/",
 	)
+	command.Env = append(command.Env, oauthEnv...)
 	logFile, err := os.Create(filepath.Join(t.TempDir(), "server.log"))
 	if err != nil {
 		t.Fatal(err)

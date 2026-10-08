@@ -30,7 +30,7 @@ func TestHealthWithoutAuthenticationOrDaemonContact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler, err := newMCPHandler(config.Config{Clusters: catalog})
+	handler, err := newMCPHandler(config.Config{Clusters: catalog, OAuth: testOAuthConfig()})
 	if err != nil {
 		t.Fatal(err)
 	}

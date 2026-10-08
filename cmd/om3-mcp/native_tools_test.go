@@ -21,19 +21,9 @@ import (
 	"github.com/opensvc/om3-mcp/internal/testutil"
 )
 
-// Real SDK calls through the compiled HTTPS entrypoint with independent TLS
-// and JWT authorities. Same subjects and issuers in different clusters are safe.
-func TestHTTPSNativeToolsIsolateUsersClustersAndIssuerNodes(t *testing.T) {
-	for _, binary := range []bool{false, true} {
-		name := "in_process"
-		if binary {
-			name = "compiled_entrypoint"
-		}
-		t.Run(name, func(t *testing.T) { testNativeTools(t, binary) })
-	}
-}
-
-func testNativeTools(t *testing.T, binary bool) {
+// Preserve coverage of the old delegation components through test-only wiring.
+// The production entrypoint now uses OAuth and is covered in oauth_test.go.
+func TestLegacyNativeToolsIsolateUsersClustersAndIssuerNodes(t *testing.T) {
 	clusters := make(map[string]any)
 	type caller struct{ token, want string }
 	var callers []caller
@@ -94,28 +84,23 @@ func testNativeTools(t *testing.T, binary bool) {
 	t.Cleanup(transport.CloseIdleConnections)
 	c := &http.Client{Transport: transport, Timeout: 3 * time.Second}
 	clusterFile := testutil.WriteCatalog(t, clusters)
-	var origin string
-	if binary {
-		origin = startHTTPSBinary(t, c, cert, key, clusterFile)
-	} else {
-		catalog, err := clusterconfig.Load(clusterFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		handler, err := newMCPHandler(config.Config{Clusters: catalog})
-		if err != nil {
-			t.Fatal(err)
-		}
-		pair, err := tls.LoadX509KeyPair(cert, key)
-		if err != nil {
-			t.Fatal(err)
-		}
-		server := httptest.NewUnstartedServer(handler)
-		server.TLS = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}}
-		server.StartTLS()
-		t.Cleanup(server.Close)
-		origin = server.URL
+	catalog, err := clusterconfig.Load(clusterFile)
+	if err != nil {
+		t.Fatal(err)
 	}
+	handler, err := newLegacyMCPHandler(config.Config{Clusters: catalog})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair, err := tls.LoadX509KeyPair(cert, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewUnstartedServer(handler)
+	server.TLS = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}}
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	origin := server.URL
 	for _, token := range invalidTokens {
 		request, _ := http.NewRequest("POST", origin+"/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
 		request.Header.Set("Authorization", "Bearer "+token)

@@ -1,11 +1,14 @@
 package tools
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"regexp"
 	"strings"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -20,7 +23,16 @@ var toolNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 type Registrar struct {
 	server *mcp.Server
 	names  map[string]struct{}
+	router ClusterRouter
 }
+
+type ClusterRouter interface {
+	Prepare(context.Context, string) (context.Context, context.CancelFunc, error)
+}
+
+// SetClusterRouter is called before domain tools are registered. The legacy
+// test-only registration remains unchanged when no router is installed.
+func (r *Registrar) SetClusterRouter(router ClusterRouter) { r.router = router }
 
 func NewRegistrar(server *mcp.Server) (*Registrar, error) {
 	if server == nil {
@@ -30,6 +42,10 @@ func NewRegistrar(server *mcp.Server) (*Registrar, error) {
 }
 
 func addTool[In, Out any](registrar *Registrar, tool *mcp.Tool, handler mcp.ToolHandlerFor[In, Out]) (err error) {
+	return registerTool(registrar, tool, handler, true)
+}
+
+func registerTool[In, Out any](registrar *Registrar, tool *mcp.Tool, handler mcp.ToolHandlerFor[In, Out], routed bool) (err error) {
 	if registrar == nil || registrar.server == nil {
 		return fmt.Errorf("tool registrar is nil")
 	}
@@ -54,6 +70,35 @@ func addTool[In, Out any](registrar *Registrar, tool *mcp.Tool, handler mcp.Tool
 			err = fmt.Errorf("register tool %q: %v", tool.Name, recovered)
 		}
 	}()
+	if routed && registrar.router != nil {
+		schema, err := jsonschema.For[In](nil)
+		if err != nil {
+			return fmt.Errorf("tool input schema: %w", err)
+		}
+		if schema.Properties == nil {
+			schema.Properties = make(map[string]*jsonschema.Schema)
+		}
+		schema.Properties["cluster_id"] = &jsonschema.Schema{Type: "string", Description: "Required exact cluster_id from list_clusters. Ask the operator to identify the cluster when ambiguous; never infer it from a node name alone."}
+		schema.Required = append(schema.Required, "cluster_id")
+		tool.InputSchema = schema
+		tool.Description += " Requires an explicit cluster_id from list_clusters. The configured cluster VIP is the endpoint; node arguments select logical nodes, not network destinations."
+		original := handler
+		handler = func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
+			var target struct {
+				ClusterID string `json:"cluster_id"`
+			}
+			var zero Out
+			if err := json.Unmarshal(req.Params.Arguments, &target); err != nil || strings.TrimSpace(target.ClusterID) == "" || len(target.ClusterID) > 256 {
+				return nil, zero, fmt.Errorf("cluster_id is required; use list_clusters")
+			}
+			ctx, cancel, err := registrar.router.Prepare(ctx, target.ClusterID)
+			if err != nil {
+				return nil, zero, err
+			}
+			defer cancel()
+			return original(ctx, req, in)
+		}
+	}
 	mcp.AddTool(registrar.server, tool, handler)
 	registrar.names[tool.Name] = struct{}{}
 	return nil

@@ -32,10 +32,10 @@ Use Go, the standard library and `github.com/modelcontextprotocol/go-sdk`.
 - `cmd/om3-mcp`: composition root, HTTPS listener, lifecycle and whoami bridge.
   Keep explicit tool registration in `main.go`.
 - `internal/config`: process environment and startup validation.
-- `internal/clusterconfig`: strict version 2 cluster catalogue, node-to-HTTPS
-  mappings and immutable TLS trust loaded at startup.
-- `internal/auth`: JWT structure and claim checks; private request-scoped
-  delegation context. Decoded claims are not an authenticated identity.
+- `internal/clusterconfig`: version 3 cluster-to-VIP catalogue and preserved
+  version 2 legacy parser; immutable TLS trust loaded at startup.
+- `internal/auth`: OAuth metadata, signature verification and private request
+  identity, confidential RFC 8693 exchange; also preserved legacy delegation.
 - `internal/client`: catalogue-bound daemon routing, HTTP transport, response
   bounds and normalized API errors. Share immutable clients and connection
   pools, never caller credentials.
@@ -45,43 +45,45 @@ Use Go, the standard library and `github.com/modelcontextprotocol/go-sdk`.
   Handlers stay thin: typed input, one core use case, typed output.
 
 The server exposes stateless Streamable HTTP at `/mcp` over HTTPS only.
-Configuration changes require a restart. Validate TLS and catalogue before
+Configuration changes require a restart. Validate local TLS and configuration before
 binding; startup must not contact daemons. Do not introduce local socket modes,
 a local daemon dependency, or authentication logic in core/tool handlers.
 
 ## Authentication and trust
 
-- Accept native OpenSVC RS256 access JWTs with `cluster_id`, `iss`, `sub`,
-  `exp` and `token_use=access`. Check structure, expiry and optional `nbf`
-  locally; only the daemon verifies the signature and enforces grants.
-- OpenID JWTs require `X-OpenSVC-Cluster-ID`, `X-OpenSVC-Node`, `iss/sub/aud/exp`,
-  `kid` and an accepted asymmetric algorithm. Resolve the explicit cluster/node
-  pair in the catalogue; never use the provider issuer as a node.
-  Native markers select native checks with no fallback to OpenID. An explicit
-  native cluster/node target must match `cluster_id`/`iss`. Reject ambiguous
-  target headers. No implicit node selection or routing fallback.
-- For native tokens, use unverified `cluster_id` and `iss` only to select an
-  exact configured cluster/node. Unknown targets fail closed. Never derive URLs or trust from
-  token headers, arbitrary claims or tool arguments; never fall back to another
-  daemon after rejection.
-- Delegate the unchanged JWT only to that configured HTTPS origin, through
-  private request context. Preserve cancellation and token-expiry deadlines.
-- `GET /mcp/auth/whoami` calls daemon `GET /api/auth/whoami`; require native
-  `jwt` or OpenID `jwt-openid` authentication, matching the checked profile.
-  Match the daemon name to native `sub` or OpenID preferred_username/email/sub
-  in that order. Return the original JWT `sub`, issuer, cluster and expiry,
-  never substitute the OpenID username for its opaque subject.
-  MCP initialization or tool discovery alone does not authenticate a caller.
-- No embedded OAuth server, token exchange, local JWT verification keys,
-  identity cache or credential persistence. This OpenSVC bearer profile is not
-  the generic MCP OAuth authorization profile.
-- Verify TLS chain and hostname by default, use TLS 1.2+, and disable outbound
-  proxies and redirects. System roots apply unless an explicit CA bundle
-  replaces them. `tls.insecure` is an explicit, warned exception, incompatible
-  with `ca_file`; never enable it implicitly or recommend it for production.
-- Never expose JWTs, authorization headers, passwords or private keys in tool
-  inputs, outputs, errors, logs or model-visible data. Preserve daemon 401/403
-  decisions; do not weaken trust or permissions to make a request succeed.
+- The active `/mcp` endpoint is an OAuth resource server. Validate issuer,
+  audience, signature and expiry locally using `internal/auth/oauth*.go`.
+  No business scopes or MCP-local grant policy are applied in V1.
+- Public resource metadata comes only from configuration, never Host or
+  forwarding headers. Discovery and JWKS requests use HTTPS, no proxies or
+  redirects, bounded reads and no caller credentials.
+- OAuth identity and tokens use a private context separate from legacy
+  `Delegation`. Never pass an incoming MCP token directly to a daemon.
+- With a version 3 catalogue and exchange profiles, the registrar adds required
+  `cluster_id` to all daemon tool schemas and prepares one exchange per call.
+  `list_clusters` is local discovery of all configured clusters, without grants
+  filtering. Missing exchange configuration keeps daemon calls blocked.
+  The old `/mcp/auth/whoami` bridge remains disabled with HTTP 501.
+- Legacy native/OpenID delegation remains in source with its production wiring
+  commented out at the user's request. Its tests use a test-only handler.
+  Do not silently restore it or fall back after an OAuth rejection.
+  See [legacy authentication](docs/authentication-legacy.md).
+- Auth profiles and version 3 catalogue must be configured together. Discovery
+  alone needs neither; a supplied legacy version 2 catalogue is never used as
+  an OAuth routing fallback. Runtime target URLs and audiences come only from
+  the catalogue, never caller URLs or HTTP target headers.
+- SSO TLS uses system roots or an explicit PEM bundle. Daemon TLS settings
+  retain their existing semantics and do not change SSO TLS verification.
+- User tokens are never stored in sessions, shared clients, logs, tool data or
+  persistent storage. The `cmd/om3-mcp/audit.go` middleware logs one
+  credential-free line per tool call (identity, client, cluster, tool, exchange
+  and call outcomes); keep it free of tokens, secrets and tool results. Confidential client secrets are snapshotted from protected
+  files at startup; only public keys and discovery metadata are cached. Bound
+  each call by incoming and exchanged token expiry; never rewrite SSO grants.
+- No embedded authorization server or refresh-token storage. External clients
+  handle login and renewal. SSO refusal stops calls with safe errors, without
+  privileged account fallback. The daemon validates outgoing signatures, issuer
+  and grants. See docs/token-exchange.md for operator setup and test limits.
 
 ## Tool contracts and data
 

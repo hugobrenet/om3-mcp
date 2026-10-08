@@ -8,23 +8,28 @@ The OpenSVC daemon enforces the caller's grants.
 
 ## Status
 
-The server uses HTTPS over TCP and accepts native OpenSVC and OpenID JWTs.
-Native tokens route by `cluster_id` and `iss`. OpenID requests supply
-`X-OpenSVC-Cluster-ID` and `X-OpenSVC-Node` to select a configured daemon.
-The unchanged token is delegated to the selected daemon, which verifies it;
-no JWT verification keys are installed on MCP or agent. There is no embedded
-authorization server or token exchange.
+The HTTPS `/mcp` endpoint now implements external-client OAuth discovery and
+local JWT verification, with no business scopes. All existing tools are listed.
+With a version 3 catalogue and confidential SSO profiles, daemon tools require
+`cluster_id` and exchange the MCP token for a target-specific daemon token.
+`list_clusters` discovers every configured cluster. Without exchange
+configuration, daemon calls remain explicitly blocked.
+
+The previous native/OpenID passthrough middleware and daemon identity bridge
+are disconnected. Existing `om ai` / webapp integrations must be adjusted later.
+MCP-audience tokens are never forwarded directly to a daemon.
 
 See the [tool documentation](docs/tools/README.md) for inputs, outputs and usage.
 
 ## Requirements
 
 - Go 1.25.5 or later to build from source.
-- Access to an OpenSVC v3 daemon API.
-- A native OpenSVC access JWT with `cluster_id`, or an OpenID JWT accepted by
-  the target daemon with explicit cluster and node targets.
-- An administrator-owned catalogue of trusted daemon HTTPS endpoints.
+- An OAuth/OIDC issuer publishing discovery metadata and public signing keys.
+- Access JWTs containing the configured MCP resource URL in their audience.
 - A server certificate and private key for HTTPS.
+
+A daemon catalogue and confidential client secret are required for daemon calls.
+They can be omitted when testing incoming OAuth and tool discovery alone.
 
 ## Build
 
@@ -36,7 +41,7 @@ go build -o bin/om3-mcp ./cmd/om3-mcp
 
 ## Remote HTTPS
 
-Configure the HTTPS listener with its certificate and cluster catalogue.
+Configure the HTTPS listener, public MCP resource URL and trusted OAuth issuer.
 The [configuration guide](docs/configuration.md#https) provides a
 complete example and the [cluster template](deploy/examples/clusters.yaml).
 
@@ -47,6 +52,7 @@ This disables daemon certificate verification and is strongly discouraged in pro
 
 - [Configuration reference and deployment](docs/configuration.md)
 - [Authentication and client setup](docs/authentication.md)
+- [Token exchange and multi-cluster deployment](docs/token-exchange.md)
 - [Tools and shared contracts](docs/tools/README.md)
 
 ## Development

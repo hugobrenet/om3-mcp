@@ -9,24 +9,40 @@
 | OPENSVC_MCP_LISTEN_ADDR | 127.0.0.1:8443 | TCP bind address, IPv4:port or [IPv6]:port |
 | OPENSVC_MCP_TLS_CERT_FILE | empty | Absolute server certificate PEM path; required |
 | OPENSVC_MCP_TLS_KEY_FILE | empty | Absolute server private key PEM path; required |
-| OPENSVC_MCP_CLUSTER_CONFIG_FILE | empty | Absolute YAML catalogue path; required |
+| OPENSVC_MCP_CLUSTER_CONFIG_FILE | empty | Version 3 catalogue required for exchanged daemon calls; optional for incoming OAuth discovery only |
+| OPENSVC_MCP_AUTH_CONFIG_FILE | empty | Version 1 confidential SSO profile file; required with a version 3 catalogue |
+| OPENSVC_MCP_OAUTH_RESOURCE_URL | empty | Required public HTTPS MCP URL ending in `/mcp`; expected access-token audience |
+| OPENSVC_MCP_OAUTH_RESOURCE_NAME | OpenSVC Daemon MCP | Human-readable `resource_name` in public OAuth metadata |
+| OPENSVC_MCP_OAUTH_ISSUER | empty | Required exact trusted issuer for incoming MCP access JWTs |
+| OPENSVC_MCP_OAUTH_CA_FILE | empty | Optional absolute PEM trust bundle for SSO HTTPS; replaces system roots |
 
 HTTPS is the only transport. There is no local socket mode, local daemon
-dependency, login page or token exchange. Target configuration is loaded from
-the administrator-owned catalogue, not from tool arguments or token URLs.
+dependency or login page. Daemon calls use RFC 8693 token exchange when a
+version 3 catalogue and auth profiles are supplied together. Without them,
+incoming OAuth and tool discovery work, but daemon calls remain blocked.
+See [authentication](authentication.md) for the complete contract.
 
 ## HTTPS
 
-Install the listener certificate and key, catalogue and any private TLS CA
-bundles before starting. No JWT signing key is installed on the MCP:
+Install the listener certificate/key and any SSO TLS CA bundle before starting.
+JWT verification uses the SSO public JWKS; no JWT signing private key is needed:
 
 ```bash
 OPENSVC_MCP_LISTEN_ADDR=0.0.0.0:8443 \
 OPENSVC_MCP_TLS_CERT_FILE=/etc/opensvc-mcp/tls/server.crt \
 OPENSVC_MCP_TLS_KEY_FILE=/etc/opensvc-mcp/tls/server.key \
+OPENSVC_MCP_OAUTH_RESOURCE_URL=https://mcp.example.com:8443/mcp \
+OPENSVC_MCP_OAUTH_ISSUER=https://sso.example.com/oauth/opensvc-mcp/ \
 OPENSVC_MCP_CLUSTER_CONFIG_FILE=/etc/opensvc-mcp/clusters.yaml \
+OPENSVC_MCP_AUTH_CONFIG_FILE=/etc/opensvc-mcp/auth.yaml \
   ./bin/om3-mcp
 ```
+
+Values are illustrative: use the actual issuer of MCP access tokens, which does
+not select a daemon. The process reads its environment only and loads no
+environment file itself. Omit both `OPENSVC_MCP_CLUSTER_CONFIG_FILE` and
+`OPENSVC_MCP_AUTH_CONFIG_FILE` for discovery-only operation, which needs no
+client secret. Optional variables are listed in the table above.
 
 The agent connects to `https://<mcp-host>:8443/mcp`. The bind address must
 contain an explicit IP and a numeric port from 1 to 65535. Use `0.0.0.0` or
@@ -53,15 +69,47 @@ For a service check, use the hostname covered by the listener certificate:
 
 ```bash
 curl --silent --show-error --fail --max-time 3 \
-  https://mcp.example.test:8443/health >/dev/null
+  https://mcp.example.com:8443/health >/dev/null
 ```
 
 Use `--cacert /path/to/public-ca.pem` when the MCP listener uses a private CA.
 
-## Target cluster catalogue
+## Cluster catalogue and exchange profiles
 
-See [the template](../deploy/examples/clusters.yaml). Install real configuration
-outside the repository, for example at `/etc/opensvc-mcp/clusters.yaml`.
+Use [clusters.yaml](../deploy/examples/clusters.yaml) and
+[auth.yaml](../deploy/examples/auth.yaml) for external-agent daemon calls.
+The catalogue maps `cluster_id` to a single HTTPS VIP, TLS trust, request timeout,
+auth profile and target audience. No node inventory is required. The auth file
+contains confidential client configuration and a secret-file reference, never
+the secret itself. Unknown profile references prevent startup.
+
+The loader accepts up to 4096 clusters and 4 MiB of YAML. Each CA bundle is
+bounded to 1 MiB. Endpoint URLs must be HTTPS origins without credentials, paths,
+queries or fragments. IDs are unique and compared exactly; display names need
+not be unique. Names or nodes alone never select a target for a daemon call.
+TLS uses system roots by default, or `tls.ca_file`, or `tls.insecure: true`;
+`ca_file` and `insecure` are mutually exclusive. Request timeouts range from
+1 second to 2 minutes.
+
+The profile file accepts 1–64 profiles, HTTPS discovery issuers, a confidential
+`client_id`, absolute `client_secret_file`, `client_secret_basic` (default) or
+`client_secret_post`, up to 32 technical scopes, a `request_timeout` from 1 second
+to 1 minute (default 10 seconds), and optional `tls.ca_file`. SSO TLS verification
+cannot be disabled. Secret files must be regular, at most 16 KiB, mode 0600 or
+0400, and contain one nonempty line. All files are loaded at startup; restart to
+apply changes. Public discovery is lazy and cached for five minutes.
+
+See [the deployment guide](token-exchange.md) for SSO setup and daemon
+configuration.
+
+## Legacy version 2 catalogue (not used for external OAuth routing)
+
+The following format remains supported for validation of existing deployments.
+It does not enable daemon calls in the OAuth entrypoint; use the version 3
+catalogue above.
+
+Install real configuration outside the repository, for example at
+`/etc/opensvc-mcp/clusters.yaml`.
 
 ```yaml
 version: 2
@@ -149,7 +197,7 @@ are normalized. Cluster references contain 1–64 ASCII letters, digits, hyphens
 or underscores. Names contain 1–128 bytes, IDs and issuer names 1–256 bytes,
 without surrounding whitespace or control characters.
 
-Limits are 256 KiB of YAML, 64 clusters and 200 nodes per cluster. Trust files
+Limits are 4 MiB of YAML, 4096 clusters and 200 nodes per legacy cluster. Trust files
 must be readable regular files of at most 1 MiB. TLS bundles accept only valid
 public CA certificates, not leaf certificates.
 Changing these files does not alter the running snapshot.
@@ -158,7 +206,7 @@ Changing these files does not alter the running snapshot.
 
 Run `om3-mcp` under a dedicated unprivileged account, for example
 `opensvc-mcp:opensvc-mcp`. It must be able to read the listener certificate/key,
-catalogue and public trust files. Restrict private-key access to that account
+catalogue, confidential secret file and public trust files. Restrict private-key access to that account
 and use an unprivileged port such as `8443`.
 
 An OpenSVC `app.simple` resource can manage the process with the environment

@@ -25,14 +25,15 @@ import (
 )
 
 const (
-	maxConfigBytes = 256 << 10
+	maxConfigBytes = 4 << 20
 	maxCABytes     = 1 << 20
-	maxClusters    = 64
+	maxClusters    = 4096
 	maxNodes       = 200
 )
 
 // Cluster is a copy of one validated target. Public HTTPS trust is snapshotted
-// at startup. JWT signature verification belongs exclusively to the daemon.
+// at startup. Incoming MCP JWT verification belongs to auth; verification of
+// exchanged daemon JWT signatures belongs to the daemon.
 type Cluster struct {
 	Ref               string
 	Name              string
@@ -42,10 +43,23 @@ type Cluster struct {
 	CAPEM             []byte
 	TLSInsecure       bool
 	RequestTimeout    time.Duration
+	Endpoint          string
+	AuthProfile       string
+	Audience          string
 }
 
 // Catalog is immutable after Load. Accessors return independent copies.
-type Catalog struct{ clusters []Cluster }
+type Catalog struct {
+	clusters []Cluster
+	version  int
+}
+
+func (c *Catalog) Version() int {
+	if c == nil {
+		return 0
+	}
+	return c.version
+}
 
 func (c *Catalog) List() []Cluster {
 	if c == nil {
@@ -146,6 +160,12 @@ func (b *boolean) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 type definition struct {
+	ClusterID text `yaml:"cluster_id"`
+	Endpoint  text `yaml:"endpoint"`
+	Auth      *struct {
+		Profile  text `yaml:"profile"`
+		Audience text `yaml:"audience"`
+	} `yaml:"auth"`
 	Name              text          `yaml:"name"`
 	ExpectedClusterID text          `yaml:"expected_cluster_id"`
 	Nodes             map[text]text `yaml:"nodes"`
@@ -176,8 +196,8 @@ func Load(path string) (*Catalog, error) {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return nil, fmt.Errorf("cluster configuration must contain exactly one YAML document")
 	}
-	if doc.Version != 2 {
-		return nil, fmt.Errorf("version: only configuration version 2 is supported; configure issuer-to-endpoint nodes")
+	if doc.Version != 2 && doc.Version != 3 {
+		return nil, fmt.Errorf("version: only configuration versions 2 (legacy) and 3 (OAuth exchange) are supported")
 	}
 	if len(doc.Clusters) == 0 || len(doc.Clusters) > maxClusters {
 		return nil, fmt.Errorf("clusters: provide between 1 and %d clusters", maxClusters)
@@ -190,10 +210,19 @@ func Load(path string) (*Catalog, error) {
 		refs = append(refs, string(ref))
 	}
 	slices.Sort(refs)
-	catalog := &Catalog{}
+	catalog := &Catalog{version: int(doc.Version)}
 	ids := make(map[string]bool)
 	for _, ref := range refs {
-		cluster, err := validate(ref, doc.Clusters[text(ref)])
+		def := doc.Clusters[text(ref)]
+		var cluster Cluster
+		var err error
+		if doc.Version == 3 {
+			cluster, err = validateV3(ref, def)
+		} else if def.ClusterID != "" || def.Endpoint != "" || def.Auth != nil {
+			err = fmt.Errorf("version 3 fields are not allowed in version 2")
+		} else {
+			cluster, err = validate(ref, def)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("clusters.%s.%w", ref, err)
 		}
@@ -204,6 +233,34 @@ func Load(path string) (*Catalog, error) {
 		catalog.clusters = append(catalog.clusters, cluster)
 	}
 	return catalog, nil
+}
+
+func validateV3(ref string, d definition) (Cluster, error) {
+	if d.ExpectedClusterID != "" || d.Nodes != nil {
+		return Cluster{}, fmt.Errorf("version 3 uses cluster_id and endpoint, not expected_cluster_id or nodes")
+	}
+	if !validText(string(d.ClusterID), 256) {
+		return Cluster{}, fmt.Errorf("cluster_id: a nonempty bounded identifier is required")
+	}
+	if d.Auth == nil || !validRef(string(d.Auth.Profile)) || !validText(string(d.Auth.Audience), 256) {
+		return Cluster{}, fmt.Errorf("auth: profile and audience are required")
+	}
+	origin, err := endpointOrigin(string(d.Endpoint))
+	if err != nil {
+		return Cluster{}, fmt.Errorf("endpoint: provide an HTTPS origin without credentials, path, query or fragment")
+	}
+	// Share existing TLS, display-name and timeout validation.
+	d.ExpectedClusterID = d.ClusterID
+	d.Nodes = map[text]text{"_": text(origin)}
+	c, err := validate(ref, d)
+	if err != nil {
+		return Cluster{}, err
+	}
+	c.Endpoint = origin
+	c.AuthProfile = string(d.Auth.Profile)
+	c.Audience = string(d.Auth.Audience)
+	c.Nodes = nil
+	return c, nil
 }
 
 func validate(ref string, d definition) (Cluster, error) {

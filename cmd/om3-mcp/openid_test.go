@@ -103,7 +103,7 @@ func TestOpenIDIdentityAndToolsUseExplicitCatalogueNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler, err := newMCPHandler(config.Config{Clusters: catalog})
+	handler, err := newLegacyMCPHandler(config.Config{Clusters: catalog})
 	if err != nil {
 		t.Fatal(err)
 	}

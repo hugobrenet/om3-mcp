@@ -2,167 +2,150 @@
 
 [Back to README](../README.md) · [Configuration](configuration.md)
 
-## OpenSVC delegation
+## External-client OAuth and daemon token exchange
 
-The MCP accepts native OpenSVC and OpenID JWTs on each `/mcp` and
-`/mcp/auth/whoami` HTTPS request. The separate [`GET /health`](configuration.md#health-check)
-route requires no authentication and returns only local server liveness.
-The native flow is:
+The HTTPS `/mcp` endpoint is an OAuth resource server. It accepts access JWTs
+issued for its configured resource URL and verifies them locally. No business
+scope is required, advertised or used to filter tools. SSO-issued OpenSVC grants
+are enforced by daemons using the exchanged tokens.
+
+Authenticated clients can initialize MCP and discover all existing tools.
+With a version 3 catalogue and SSO exchange profiles, `list_clusters` discovers
+configured cluster identities and each daemon tool requires `cluster_id`.
+Before the tool executes, the MCP exchanges the incoming token for a daemon
+access token and binds it to the configured VIP for the call lifetime.
+See [token exchange](token-exchange.md) for configuration.
+Without exchange configuration, daemon calls return an explicit tool error.
+`GET /mcp/auth/whoami` still returns HTTP 501 after OAuth authentication: the
+legacy identity bridge remains disconnected.
+
+The previous `om ai` / webapp delegation middleware is retained in source with
+its production wiring commented out in `main.go`. Its regression tests use a
+test-only handler. It is never an authentication fallback. Existing daemon
+JWTs and the old chatbot identity flow no longer work at this endpoint.
+See [legacy contracts](authentication-legacy.md) for those components.
+
+## Resource discovery and login
+
+Configure the public resource URL explicitly; it is not inferred from Host or
+forwarding headers, for example:
 
 ```text
-om ai obtains JWT from its daemon
-  -> agent validates JWT through GET /mcp/auth/whoami
-  -> MCP selects its emitting daemon and calls GET /api/auth/whoami
-  <- authenticated native identity, or refusal
-  -> agent forwards the same JWT to /mcp for tools
-  -> MCP calls that daemon with the unchanged JWT
-  <- tool results, then the agent's answer
+https://mcp.example.com:8443/mcp
 ```
 
-There is no second credential, token exchange, consent page, user password
-handling or authorization-server state in the MCP. The agent supplies
-`Authorization: Bearer <JWT>` outside tool arguments and LLM
-messages. The MCP delegates that exact token to the configured daemon.
+Both `GET /.well-known/oauth-protected-resource/mcp` and
+`GET /.well-known/oauth-protected-resource` return public RFC 9728 metadata:
 
-This is an OpenSVC delegation profile for MCP Streamable HTTP, not
-the MCP OAuth authorization profile. Generic clients requiring OAuth discovery
-and login cannot use it as-is. Clients able to supply the bearer and required
-target can call the tools. The webapp chatbot and browser CORS remain separate
-client work; this contract supports OpenID agent-to-MCP delegation.
+```json
+{
+  "resource": "https://mcp.example.com:8443/mcp",
+  "resource_name": "OpenSVC Daemon MCP",
+  "authorization_servers": ["https://sso.example.com/oauth/opensvc-mcp/"],
+  "bearer_methods_supported": ["header"]
+}
+```
 
-## Verification and target selection
+`resource_name` defaults to `OpenSVC Daemon MCP` and can be configured through
+`OPENSVC_MCP_OAUTH_RESOURCE_NAME`. No `resource_documentation` is published.
 
-For native JWTs, the required claims are:
+The issuer above is illustrative: configure the actual issuer for MCP tokens,
+not the daemon provider just because it exists. `scopes_supported` is omitted.
+HEAD is supported; other methods are rejected. Health and metadata require no
+credentials and perform no SSO or daemon requests.
 
-| Claim | Meaning |
-|---|---|
-| `cluster_id` | Exact cluster ID, matching one unique catalogue entry |
-| `iss` | Emitting daemon node name, matching a node in that cluster |
-| `sub` | Nonempty OpenSVC user identity |
-| `exp` | Required future expiry time |
-| `token_use` | Must be `access`, not `refresh` |
-
-Only RS256 is accepted. `nbf` is checked when present. A token is bounded to
-32 KiB. The MCP checks token structure, required claims and dates, but does
-not verify its signature locally. Unverified cluster ID and issuer select only
-an administrator-configured daemon, never an authenticated local identity. No token
-header URL, issuer URL, client-supplied endpoint or embedded key can add a
-trusted authority or target. Missing IDs and unknown clusters/nodes fail
-closed; there is no fallback to the first configured cluster. An optional
-`X-OpenSVC-Cluster-ID` header must match the native `cluster_id`. An optional
-`X-OpenSVC-Node` header must match native `iss`; neither can override the
-emitting daemon.
-
-For OpenID, the client sends these headers on whoami and every MCP request:
+An unauthenticated `/mcp` request receives HTTP 401 and:
 
 ```http
-Authorization: Bearer <OpenID JWT>
-X-OpenSVC-Cluster-ID: <cluster.config.id>
-X-OpenSVC-Node: <daemon.nodename>
+WWW-Authenticate: Bearer resource_metadata="https://mcp.example.com:8443/.well-known/oauth-protected-resource/mcp"
 ```
 
-The cluster ID matches one unique catalogue `expected_cluster_id`. The node
-header must explicitly name an entry in that cluster's `nodes`. Both headers
-are required; no node is inferred, even with one configured. Provider `iss`
-and `aud` never select an endpoint; that daemon must already accept the token's
-OpenID issuer and client audience.
+Invalid credentials also add `error="invalid_token"`. Error bodies are generic
+`application/problem+json`, with `Cache-Control: no-store`; no token or upstream
+response appears in them.
 
-OpenID requires nonempty `iss/sub/aud/exp`, a future expiry, an accepted
-asymmetric algorithm (RS256/384/512, PS256/384/512 or ES256/384/512) and a
-nonempty `kid` in the JWT header. Optional `nbf` is checked. Every audience
-value must be nonempty and well-formed. Expected issuer/audience values and
-the signature are checked by the daemon, not these local prechecks.
+The external client discovers the SSO and performs Authorization Code with
+PKCE there. Configure its client registration, allowed callbacks and token
+claims in the SSO. MCP does not host login, callback, registration or token
+endpoints. It does not need an OAuth client secret for this stage.
 
-A nonempty `cluster_id` or `token_use` selects native checks; an incomplete
-native token is refused without falling back to OpenID. Each target header must
-have exactly one nonempty value of at most 256 bytes, without surrounding
-whitespace, control characters or commas. Duplicate/combined headers, unknown
-targets and missing OpenID cluster/node headers are refused.
+The SSO must issue an **access token**, whose `aud` contains the exact configured
+MCP resource URL. An audience array may additionally contain client IDs needed by the login or
+token-exchange configuration; some SSO products require the confidential
+exchange client in the subject token audience. An ID token intended
+for the external OAuth client is not the credential to send to MCP.
 
-Only the daemon verifies the JWT signature, using its existing native/OpenID
-authentication. Neither MCP nor agent needs a JWT signing public key. The daemon
-HTTPS connection verifies its certificate chain and hostname/IP by default,
-using system roots or the cluster's explicit TLS CA bundle.
+## Incoming-token validation
 
-The [demo-only `tls.insecure` option](configuration.md#demo-only-tls-bypass)
-disables these peer checks. It is strongly discouraged in production: an
-intermediary could steal the JWT or forge `whoami`, so the returned identity
-cannot be trusted without authenticated daemon TLS.
+Every protected HTTP request supplies exactly one `Authorization: Bearer`
+header. Cookies, Basic authentication and query-string access tokens are not
+alternative authentication methods. Tokens are bounded to 32 KiB.
 
-The unchanged JWT carries OpenSVC grants (`grant` for native, `entitlements`
-for OpenID). The MCP does not widen or reissue them. The daemon remains
-authoritative for API permission checks and namespace
-visibility. A valid JWT is not a promise that every tool is permitted.
-Native OpenSVC JWT revocation and changes of rights retain the daemon's semantics.
+The verifier checks:
 
-## Identity validation bridge
+- exact configured `iss` and an `aud` containing the configured resource URL;
+- a nonempty bounded `sub`, a required unexpired `exp`, and `nbf` / `iat` when present;
+- a nonempty `kid` and an asymmetric signature (RS256/384/512, PS256/384/512,
+  ES256/384/512), using the issuer's published signing keys;
+- JWK use/key operations and the declared algorithm when present.
 
-`GET /mcp/auth/whoami` is a dedicated HTTPS route, not an MCP tool, token
-exchange or authorization server. The agent sends the unchanged JWT in
-the Bearer header. The MCP uses the catalogue to call exactly
-`GET /api/auth/whoami` on the selected daemon with that same JWT. It requires
-the strategy matching the checked profile: `jwt` for native, `jwt-openid` for
-OpenID. Public/basic or mismatched JWT strategies cannot establish identity.
-The returned username must match native `sub`, or for OpenID the first nonempty
-`preferred_username`, `email`, then `sub`, matching om3's own selection.
+RSA keys must be 2048–8192 bits. Supported EC curves are P-256, P-384 and P-521.
+There is no HMAC, `none`, opaque-token introspection or scope-based authorization.
+Key URLs and embedded keys from JWT headers are never trusted.
 
-Only after daemon authentication does it return a bounded JSON identity:
-`cluster_id`, `issuer`, `subject`, `expires_at`. OpenID `subject` remains the
-original opaque JWT `sub`, never the daemon username. `issuer` remains the
-provider issuer, not the selected node. It does not forward grants,
-raw daemon responses or credentials. Queries and request bodies are refused.
-Daemon authentication refusals return generic 401/403; daemon outages, malformed
-responses and other upstream failures return generic 502.
+Public keys are discovered lazily from the administrator-configured issuer's
+`/.well-known/openid-configuration`. If that document returns 404, the verifier
+tries RFC 8414 metadata with the well-known path inserted before the issuer
+path. The returned `issuer` must exactly match configuration; `jwks_uri` must
+use HTTPS. Public documents are bounded to 1 MiB and the JWKS to 128 entries.
 
-The agent calls this route before every protected API operation, including
-conversation creation, listing, resumption, renaming, deletion and turns.
-Authenticated conversation ownership is `cluster_id + issuer + subject`.
-There is no identity cache. The agent returns 401 for invalid credentials and
-503 if validation is unavailable, without reading SQLite or starting the LLM.
+SSO HTTPS uses system CA roots or `OPENSVC_MCP_OAUTH_CA_FILE`. No redirects or
+environment proxies are followed, and no caller credential is sent on discovery
+or JWKS requests. Daemon `tls.insecure` has no effect on SSO TLS.
 
-Local MCP checks alone are not authentication: a well-shaped forged JWT can
-reach initialization and public tool metadata. It cannot authorize private
-daemon data, nor establish an agent conversation owner. Every protected daemon
-API call still authenticates the token independently.
+## Lifetime, rotation and failures
 
-## Request lifetime and isolation
+Only public signing keys are cached, for five minutes. An unknown `kid` may
+trigger an earlier refresh, at most once per 30 seconds across callers. A new
+key published immediately after a fetch can therefore require up to 30 seconds
+before acceptance. Concurrent requests share the same refresh.
 
-Credentials live only in the checked delegation request context, never a persistent
-session, catalogue, shared client, connection pool or token database.
-Every request is checked independently; protected daemon calls authenticate it.
-The selected node is distinct from the JWT issuer for OpenID. The HTTP target
-headers are consumed by MCP and are not forwarded to the daemon. Usernames and
-issuer names may be identical across clusters: native routing uses the signed
-cluster ID, while OpenID routing uses the explicit target and daemon validation.
-A protocol session ID cannot select a different identity or target.
+During an SSO outage, valid cached keys remain usable until their TTL. Expired
+keys are not used after a failed refresh. A metadata/JWKS failure returns HTTP
+503 with `Retry-After: 30`, without a login challenge. Invalid tokens or unknown
+keys after a successful JWKS fetch return 401.
 
-The selected transport sends the bearer only to the exact configured HTTPS
-origin for that selected cluster/node. Environment proxies, redirects and
-cross-origin Host overrides are not allowed. No failover silently sends the
-token to another daemon. Shared TLS connection pools do not store credentials.
-Requests are cancelled at JWT expiry; expired credentials cannot start a
-daemon request.
+JWTs are cryptographically verified on every request. This is not online token
+introspection: user/session revocation and grant changes are not immediate;
+a previously issued token can remain usable until expiry. Configure access-token
+lifetimes in the SSO accordingly. The external client handles renewal; MCP does
+not store refresh tokens or implement renewal.
 
-MCP uses stateless Streamable HTTP with JSON responses. Request bodies are
-bounded to 1 MiB, and cross-origin browser requests are refused.
-Secrets must stay out of tool arguments, responses, errors and logs.
-As with any bearer token, a holder can replay it until it expires; HTTPS and
-restricted access to the agent and MCP are essential.
+Validated identity and the incoming token live only in a private request
+context, separate from legacy daemon delegation. The request deadline is bounded
+by token expiry. Incoming Authorization and legacy target headers are removed
+before reaching the MCP protocol handler. Sessions and shared clients do not
+store user credentials. Request bodies remain bounded to 1 MiB and cross-origin
+browser requests remain refused by the MCP SDK.
 
-## Errors and renewal
+## Client setup
 
-Missing, malformed, expired or unknown-target tokens return a
-generic HTTP `401` and `WWW-Authenticate: Bearer`, without authorization-server
-discovery metadata. Only one bearer Authorization header is accepted.
-Cookies, passwords, refresh tokens and query-string access tokens are not
-alternative credentials.
+MCP does not host a registration endpoint. Register a public client with PKCE
+in the SSO, allow the loopback callbacks used by the external agents, and
+configure the incoming audience mapping. Give users the MCP URL and that
+`client_id`. An agent without a configured `client_id` falls back to the
+registration mechanisms advertised by the SSO, if any.
 
-Daemon refusals remain tool errors, with `isError=true`, HTTP status and bounded
-RFC 7807 title/detail. Never retry a denied call using stronger credentials.
+No scope is advertised by MCP. Clients then request the scopes they default to,
+or none; the SSO must still add the MCP resource URL to the access-token
+audience. If the audience mapping depends on a technical scope, configure that
+scope in the client. Request `offline_access` or the SSO equivalent when the
+client should renew access without a new interactive login.
 
-The client must obtain a fresh token through its existing daemon/IdP flow when
-needed, including subsequent chat turns. OpenID clients provide both target
-headers on each operation. The MCP does not renew tokens.
-Restarting the MCP does not invalidate otherwise valid JWTs; it reloads
-the catalogue and trust files. No shared authorization state is needed for
-multiple MCP instances with consistent configuration.
+Validate the real issuer, client registration, callbacks and resource audience
+by connecting an external client and listing the tools. A successful login alone
+does not prove the access token carries the MCP audience; an audience mismatch
+is reported as an invalid token by MCP.
+
+References: [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization),
+[RFC 9728](https://www.rfc-editor.org/rfc/rfc9728.html).

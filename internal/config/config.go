@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/opensvc/om3-mcp/internal/auth"
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 )
 
@@ -20,6 +21,8 @@ type Config struct {
 	TLSKeyFile        string
 	Clusters          *clusterconfig.Catalog
 	ClusterConfigFile string
+	OAuth             auth.OAuthConfig
+	Exchange          *auth.ExchangeProfiles
 }
 
 // Load reads and validates process configuration from environment variables.
@@ -37,11 +40,44 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("OPENSVC_MCP_TLS_CERT_FILE and OPENSVC_MCP_TLS_KEY_FILE must be absolute file paths")
 	}
 	clusterFile := strings.TrimSpace(os.Getenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE"))
-	catalog, err := clusterconfig.Load(clusterFile)
-	if err != nil {
-		return Config{}, fmt.Errorf("OPENSVC_MCP_CLUSTER_CONFIG_FILE: %w", err)
+	var catalog *clusterconfig.Catalog
+	if clusterFile != "" {
+		var err error
+		catalog, err = clusterconfig.Load(clusterFile)
+		if err != nil {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_CLUSTER_CONFIG_FILE: %w", err)
+		}
 	}
-	return Config{ListenAddress: listenAddress, TLSCertFile: certFile, TLSKeyFile: keyFile, Clusters: catalog, ClusterConfigFile: clusterFile}, nil
+	oauth := auth.OAuthConfig{
+		ResourceURL:  strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_RESOURCE_URL")),
+		ResourceName: strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_RESOURCE_NAME")),
+		Issuer:       strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_ISSUER")),
+		CAFile:       strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_CA_FILE")),
+	}
+	if err := oauth.Validate(); err != nil {
+		return Config{}, fmt.Errorf("OPENSVC_MCP_OAUTH configuration: %w", err)
+	}
+	var exchange *auth.ExchangeProfiles
+	if path := strings.TrimSpace(os.Getenv("OPENSVC_MCP_AUTH_CONFIG_FILE")); path != "" {
+		var err error
+		exchange, err = auth.LoadExchangeProfiles(path)
+		if err != nil {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_AUTH_CONFIG_FILE: %w", err)
+		}
+	}
+	if catalog.Version() == 3 {
+		if exchange == nil {
+			return Config{}, fmt.Errorf("version 3 catalogue requires OPENSVC_MCP_AUTH_CONFIG_FILE")
+		}
+		for _, c := range catalog.List() {
+			if !exchange.Has(c.AuthProfile) {
+				return Config{}, fmt.Errorf("cluster %s references an unknown auth profile", c.Ref)
+			}
+		}
+	} else if exchange != nil {
+		return Config{}, fmt.Errorf("token exchange requires a version 3 catalogue")
+	}
+	return Config{ListenAddress: listenAddress, TLSCertFile: certFile, TLSKeyFile: keyFile, Clusters: catalog, ClusterConfigFile: clusterFile, OAuth: oauth, Exchange: exchange}, nil
 }
 
 func validateListenAddress(address string) error {

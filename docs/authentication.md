@@ -2,6 +2,14 @@
 
 [Back to README](../README.md) · [Configuration](configuration.md)
 
+The MCP has two listeners, each with one authentication model and no fallback
+between them:
+
+| Listener | Clients | Authentication |
+|---|---|---|
+| HTTPS `/mcp` | External agents | OAuth access JWT for the MCP resource, then token exchange (this page) |
+| Local Unix socket | OpenSVC components such as the AI agent | Daemon-issued token forwarded unchanged and verified by the selected daemon ([token delegation](delegation.md)) |
+
 ## External-client OAuth and daemon token exchange
 
 The HTTPS `/mcp` endpoint is an OAuth resource server. It accepts access JWTs
@@ -10,20 +18,14 @@ scope is required, advertised or used to filter tools. SSO-issued OpenSVC grants
 are enforced by daemons using the exchanged tokens.
 
 Authenticated clients can initialize MCP and discover all existing tools.
-With a version 3 catalogue and SSO exchange profiles, `list_clusters` discovers
-configured cluster identities and each daemon tool requires `cluster_id`.
+With clusters configured with `auth` and SSO exchange profiles, `list_clusters`
+discovers those cluster identities and each daemon tool requires `cluster_id`.
 Before the tool executes, the MCP exchanges the incoming token for a daemon
 access token and binds it to the configured VIP for the call lifetime.
 See [token exchange](token-exchange.md) for configuration.
 Without exchange configuration, daemon calls return an explicit tool error.
-`GET /mcp/auth/whoami` still returns HTTP 501 after OAuth authentication: the
-legacy identity bridge remains disconnected.
-
-The previous `om ai` / webapp delegation middleware is retained in source with
-its production wiring commented out in `main.go`. Its regression tests use a
-test-only handler. It is never an authentication fallback. Existing daemon
-JWTs and the old chatbot identity flow no longer work at this endpoint.
-See [legacy contracts](authentication-legacy.md) for those components.
+The HTTPS listener never accepts daemon-issued tokens and does not serve the
+`/mcp/auth/whoami` identity bridge, which exists only on the Unix socket.
 
 ## Resource discovery and login
 
@@ -122,8 +124,8 @@ lifetimes in the SSO accordingly. The external client handles renewal; MCP does
 not store refresh tokens or implement renewal.
 
 Validated identity and the incoming token live only in a private request
-context, separate from legacy daemon delegation. The request deadline is bounded
-by token expiry. Incoming Authorization and legacy target headers are removed
+context, separate from delegated daemon tokens. The request deadline is bounded
+by token expiry. Incoming Authorization and OpenSVC target headers are removed
 before reaching the MCP protocol handler. Sessions and shared clients do not
 store user credentials. Request bodies remain bounded to 1 MiB and cross-origin
 browser requests remain refused by the MCP SDK.

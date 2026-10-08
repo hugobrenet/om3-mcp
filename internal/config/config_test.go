@@ -9,7 +9,7 @@ import (
 
 func clearListenerEnvironment(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_CLUSTER_CONFIG_FILE", "OPENSVC_MCP_OAUTH_RESOURCE_URL", "OPENSVC_MCP_OAUTH_RESOURCE_NAME", "OPENSVC_MCP_OAUTH_ISSUER", "OPENSVC_MCP_OAUTH_CA_FILE", "OPENSVC_MCP_AUTH_CONFIG_FILE"} {
+	for _, name := range []string{"OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_CLUSTER_CONFIG_FILE", "OPENSVC_MCP_OAUTH_RESOURCE_URL", "OPENSVC_MCP_OAUTH_RESOURCE_NAME", "OPENSVC_MCP_OAUTH_ISSUER", "OPENSVC_MCP_OAUTH_CA_FILE", "OPENSVC_MCP_AUTH_CONFIG_FILE", "OPENSVC_MCP_DELEGATED_SOCKET"} {
 		t.Setenv(name, "")
 	}
 	t.Setenv("OPENSVC_MCP_OAUTH_RESOURCE_URL", "https://mcp.example.test/mcp")
@@ -40,33 +40,83 @@ func TestLoadOAuthDoesNotRequireCatalogue(t *testing.T) {
 	}
 }
 
-func TestLoadExchangeRequiresVersion3AndKnownProfiles(t *testing.T) {
+func TestLoadExchangeProfilesForClustersWithAuth(t *testing.T) {
 	clearListenerEnvironment(t)
 	t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
 	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
 	p := testutil.NewOAuthProvider(t)
 	profiles := testutil.WriteExchangeProfiles(t, p, "client_secret_basic")
-	entry := map[string]any{"name": "dev5", "cluster_id": "cluster-a", "endpoint": "https://dev5.test:1215", "request_timeout": "20s", "auth": map[string]string{"profile": "test-sso", "audience": "om3-dev5"}}
-	catalog := testutil.WriteYAML(t, map[string]any{"version": 3, "clusters": map[string]any{"dev5": entry}})
+	entry := map[string]any{"name": "cluster-a", "cluster_id": "cluster-a", "endpoint": "https://cluster-a.test:1215", "request_timeout": "20s", "auth": map[string]string{"profile": "test-sso", "audience": "daemon-a"}}
+	catalog := testutil.WriteYAML(t, map[string]any{"clusters": map[string]any{"cluster-a": entry}})
 	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", catalog)
 	if _, err := Load(); err == nil {
-		t.Fatal("version 3 allowed without exchange configuration")
+		t.Fatal("cluster auth allowed without exchange configuration")
 	}
 	t.Setenv("OPENSVC_MCP_AUTH_CONFIG_FILE", profiles)
-	if cfg, err := Load(); err != nil || cfg.Exchange == nil || cfg.Clusters.Version() != 3 {
+	if cfg, err := Load(); err != nil || cfg.Exchange == nil || cfg.Clusters.WithAuth().Len() != 1 {
 		t.Fatalf("valid exchange configuration rejected: %v", err)
 	}
-	entry["auth"] = map[string]string{"profile": "missing", "audience": "om3-dev5"}
-	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", testutil.WriteYAML(t, map[string]any{"version": 3, "clusters": map[string]any{"dev5": entry}}))
+	entry["auth"] = map[string]string{"profile": "missing", "audience": "daemon-a"}
+	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", testutil.WriteYAML(t, map[string]any{"clusters": map[string]any{"cluster-a": entry}}))
 	if _, err := Load(); err == nil {
 		t.Fatal("unknown profile accepted")
 	}
-	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", testutil.WriteClusters(t, map[string]string{"cluster-a": "Legacy"}))
+	// Clusters without auth need no exchange profile.
+	t.Setenv("OPENSVC_MCP_AUTH_CONFIG_FILE", "")
+	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", testutil.WriteClusters(t, map[string]string{"cluster-a": "Delegated only"}))
+	if cfg, err := Load(); err != nil || cfg.Clusters.WithAuth().Len() != 0 {
+		t.Fatalf("catalogue without auth rejected: %v", err)
+	}
+	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", "")
+	t.Setenv("OPENSVC_MCP_AUTH_CONFIG_FILE", profiles)
 	if _, err := Load(); err == nil {
-		t.Fatal("exchange accepted with legacy catalogue")
+		t.Fatal("exchange profiles accepted without a catalogue")
 	}
 	if p.MetadataCalls.Load() != 0 || p.KeyCalls.Load() != 0 {
 		t.Fatal("startup contacted SSO")
+	}
+}
+
+func TestLoadDelegatedSocket(t *testing.T) {
+	clearListenerEnvironment(t)
+	t.Setenv("OPENSVC_MCP_OAUTH_RESOURCE_URL", "")
+	t.Setenv("OPENSVC_MCP_OAUTH_ISSUER", "")
+	clusters := testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster"})
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OPENSVC_MCP_DELEGATED_SOCKET") {
+		t.Fatalf("no listener accepted: %v", err)
+	}
+	t.Setenv("OPENSVC_MCP_DELEGATED_SOCKET", "/run/opensvc-mcp/delegated.sock")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OPENSVC_MCP_CLUSTER_CONFIG_FILE") {
+		t.Fatalf("socket accepted without a catalogue: %v", err)
+	}
+	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", clusters)
+	cfg, err := Load()
+	if err != nil || cfg.HTTPSEnabled() || cfg.DelegatedSocket != "/run/opensvc-mcp/delegated.sock" || cfg.Clusters.Len() != 1 {
+		t.Fatalf("socket-only configuration rejected: %+v %v", cfg, err)
+	}
+	for _, path := range []string{"relative.sock", "/", "/" + strings.Repeat("a", maxUnixSocketPathBytes)} {
+		t.Setenv("OPENSVC_MCP_DELEGATED_SOCKET", path)
+		if _, err := Load(); err == nil {
+			t.Fatalf("invalid socket path %q accepted", path)
+		}
+	}
+	// OAuth, exchange and listen settings require the HTTPS listener.
+	t.Setenv("OPENSVC_MCP_DELEGATED_SOCKET", "/run/opensvc-mcp/delegated.sock")
+	for _, variable := range []string{"OPENSVC_MCP_OAUTH_ISSUER", "OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_AUTH_CONFIG_FILE"} {
+		t.Run(variable, func(t *testing.T) {
+			t.Setenv(variable, "/value")
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "require the HTTPS listener") {
+				t.Fatalf("%s accepted without HTTPS: %v", variable, err)
+			}
+		})
+	}
+	// Both listeners can run together.
+	t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
+	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
+	t.Setenv("OPENSVC_MCP_OAUTH_RESOURCE_URL", "https://mcp.example.test/mcp")
+	t.Setenv("OPENSVC_MCP_OAUTH_ISSUER", "https://sso.example.test/issuer/")
+	if cfg, err := Load(); err != nil || !cfg.HTTPSEnabled() || cfg.DelegatedSocket == "" {
+		t.Fatalf("both listeners rejected: %v", err)
 	}
 }
 

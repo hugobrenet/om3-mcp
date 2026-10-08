@@ -62,7 +62,7 @@ func NewDaemon(t testing.TB, handler http.Handler) Daemon {
 	return Daemon{Server: server, CAFile: path, CAPEM: public, CAKey: key}
 }
 
-func WriteTarget(t testing.TB, name, id, ca string, nodes map[string]string) string {
+func WriteTarget(t testing.TB, name, id, endpoint, ca string) string {
 	t.Helper()
-	return WriteCatalog(t, map[string]any{"cluster-a": map[string]any{"name": name, "expected_cluster_id": id, "nodes": nodes, "tls": map[string]string{"ca_file": ca}, "request_timeout": "2s"}})
+	return WriteCatalog(t, map[string]any{"cluster-a": map[string]any{"name": name, "cluster_id": id, "endpoint": endpoint, "tls": map[string]string{"ca_file": ca}, "request_timeout": "2s"}})
 }

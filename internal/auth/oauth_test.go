@@ -82,10 +82,10 @@ func TestOAuthVerifiesIdentityWithoutScopesOrLegacyDelegation(t *testing.T) {
 		if !ok || identity.Issuer != p.Issuer || identity.Subject != "alice" || token == "" {
 			t.Error("missing authenticated identity")
 		}
-		if _, _, ok := FromContext(r.Context()); ok {
+		if _, _, ok := DelegationFromContext(r.Context()); ok {
 			t.Error("OAuth credential became a daemon delegation")
 		}
-		if r.Header.Get("Authorization") != "" || r.Header.Get(ClusterIDHeader) != "" || r.Header.Get(NodeHeader) != "" {
+		if r.Header.Get("Authorization") != "" || r.Header.Get(ClusterIDHeader) != "" || r.Header.Get(nodeHeader) != "" {
 			t.Error("credentials leaked into protocol headers")
 		}
 		deadline, ok := r.Context().Deadline()
@@ -97,7 +97,7 @@ func TestOAuthVerifiesIdentityWithoutScopesOrLegacyDelegation(t *testing.T) {
 	r := httptest.NewRequest("POST", "/mcp", nil)
 	r.Header.Set("Authorization", "Bearer "+p.Token(t, testResource, "alice", nil))
 	r.Header.Set(ClusterIDHeader, "untrusted-cluster")
-	r.Header.Set(NodeHeader, "untrusted-node")
+	r.Header.Set(nodeHeader, "untrusted-node")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 	if w.Code != 204 || called != 1 {

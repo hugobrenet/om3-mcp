@@ -9,7 +9,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"maps"
 	"net/netip"
 	"net/url"
 	"os"
@@ -28,37 +27,29 @@ const (
 	maxConfigBytes = 4 << 20
 	maxCABytes     = 1 << 20
 	maxClusters    = 4096
-	maxNodes       = 200
 )
 
-// Cluster is a copy of one validated target. Public HTTPS trust is snapshotted
-// at startup. Incoming MCP JWT verification belongs to auth; verification of
-// exchanged daemon JWT signatures belongs to the daemon.
+// Cluster is a copy of one validated target: a cluster ID and the HTTPS
+// origin of its VIP. Public HTTPS trust is snapshotted at startup. Daemon JWT
+// signatures are verified by the daemon itself.
 type Cluster struct {
-	Ref               string
-	Name              string
-	ExpectedClusterID string
-	Nodes             map[string]string
-	CAFile            string
-	CAPEM             []byte
-	TLSInsecure       bool
-	RequestTimeout    time.Duration
-	Endpoint          string
-	AuthProfile       string
-	Audience          string
+	Ref            string
+	Name           string
+	ID             string
+	Endpoint       string
+	CAFile         string
+	CAPEM          []byte
+	TLSInsecure    bool
+	RequestTimeout time.Duration
+	// AuthProfile and Audience configure OAuth token exchange. Both are empty
+	// for a cluster reachable only through the delegated Unix socket.
+	AuthProfile string
+	Audience    string
 }
 
 // Catalog is immutable after Load. Accessors return independent copies.
 type Catalog struct {
 	clusters []Cluster
-	version  int
-}
-
-func (c *Catalog) Version() int {
-	if c == nil {
-		return 0
-	}
-	return c.version
 }
 
 func (c *Catalog) List() []Cluster {
@@ -72,15 +63,16 @@ func (c *Catalog) List() []Cluster {
 	return result
 }
 
-func (c *Catalog) Lookup(ref string) (Cluster, bool) {
-	if c != nil {
-		for _, cluster := range c.clusters {
-			if cluster.Ref == ref {
-				return clone(cluster), true
-			}
+// WithAuth returns the clusters configured for OAuth token exchange. Clusters
+// without auth are reachable only through the delegated Unix socket.
+func (c *Catalog) WithAuth() *Catalog {
+	subset := &Catalog{}
+	for _, cluster := range c.List() {
+		if cluster.AuthProfile != "" {
+			subset.clusters = append(subset.clusters, cluster)
 		}
 	}
-	return Cluster{}, false
+	return subset
 }
 
 func (c *Catalog) Len() int {
@@ -90,19 +82,7 @@ func (c *Catalog) Len() int {
 	return len(c.clusters)
 }
 
-func (c *Catalog) LookupID(id string) (Cluster, bool) {
-	if c != nil {
-		for _, cluster := range c.clusters {
-			if cluster.ExpectedClusterID == id {
-				return clone(cluster), true
-			}
-		}
-	}
-	return Cluster{}, false
-}
-
 func clone(c Cluster) Cluster {
-	c.Nodes = maps.Clone(c.Nodes)
 	c.CAPEM = slices.Clone(c.CAPEM)
 	return c
 }
@@ -124,23 +104,7 @@ func (t *text) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 type document struct {
-	Version  version             `yaml:"version"`
 	Clusters map[text]definition `yaml:"clusters"`
-}
-
-type version int
-
-func (v *version) UnmarshalYAML(unmarshal func(any) error) error {
-	var value any
-	if err := unmarshal(&value); err != nil {
-		return err
-	}
-	n, ok := value.(int)
-	if !ok {
-		return fmt.Errorf("expected integer version")
-	}
-	*v = version(n)
-	return nil
 }
 
 // boolean prevents strings or numbers from enabling a security-sensitive flag.
@@ -160,16 +124,14 @@ func (b *boolean) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 type definition struct {
+	Name      text `yaml:"name"`
 	ClusterID text `yaml:"cluster_id"`
 	Endpoint  text `yaml:"endpoint"`
 	Auth      *struct {
 		Profile  text `yaml:"profile"`
 		Audience text `yaml:"audience"`
 	} `yaml:"auth"`
-	Name              text          `yaml:"name"`
-	ExpectedClusterID text          `yaml:"expected_cluster_id"`
-	Nodes             map[text]text `yaml:"nodes"`
-	TLS               struct {
+	TLS struct {
 		CAFile   text    `yaml:"ca_file"`
 		Insecure boolean `yaml:"insecure"`
 	} `yaml:"tls"`
@@ -196,9 +158,6 @@ func Load(path string) (*Catalog, error) {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return nil, fmt.Errorf("cluster configuration must contain exactly one YAML document")
 	}
-	if doc.Version != 2 && doc.Version != 3 {
-		return nil, fmt.Errorf("version: only configuration versions 2 (legacy) and 3 (OAuth exchange) are supported")
-	}
 	if len(doc.Clusters) == 0 || len(doc.Clusters) > maxClusters {
 		return nil, fmt.Errorf("clusters: provide between 1 and %d clusters", maxClusters)
 	}
@@ -210,86 +169,42 @@ func Load(path string) (*Catalog, error) {
 		refs = append(refs, string(ref))
 	}
 	slices.Sort(refs)
-	catalog := &Catalog{version: int(doc.Version)}
+	catalog := &Catalog{}
 	ids := make(map[string]bool)
 	for _, ref := range refs {
-		def := doc.Clusters[text(ref)]
-		var cluster Cluster
-		var err error
-		if doc.Version == 3 {
-			cluster, err = validateV3(ref, def)
-		} else if def.ClusterID != "" || def.Endpoint != "" || def.Auth != nil {
-			err = fmt.Errorf("version 3 fields are not allowed in version 2")
-		} else {
-			cluster, err = validate(ref, def)
-		}
+		cluster, err := validate(ref, doc.Clusters[text(ref)])
 		if err != nil {
 			return nil, fmt.Errorf("clusters.%s.%w", ref, err)
 		}
-		if ids[cluster.ExpectedClusterID] {
-			return nil, fmt.Errorf("clusters.%s.expected_cluster_id: duplicate cluster identity", ref)
+		if ids[cluster.ID] {
+			return nil, fmt.Errorf("clusters.%s.cluster_id: duplicate cluster identity", ref)
 		}
-		ids[cluster.ExpectedClusterID] = true
+		ids[cluster.ID] = true
 		catalog.clusters = append(catalog.clusters, cluster)
 	}
 	return catalog, nil
 }
 
-func validateV3(ref string, d definition) (Cluster, error) {
-	if d.ExpectedClusterID != "" || d.Nodes != nil {
-		return Cluster{}, fmt.Errorf("version 3 uses cluster_id and endpoint, not expected_cluster_id or nodes")
-	}
-	if !validText(string(d.ClusterID), 256) {
-		return Cluster{}, fmt.Errorf("cluster_id: a nonempty bounded identifier is required")
-	}
-	if d.Auth == nil || !validRef(string(d.Auth.Profile)) || !validText(string(d.Auth.Audience), 256) {
-		return Cluster{}, fmt.Errorf("auth: profile and audience are required")
-	}
-	origin, err := endpointOrigin(string(d.Endpoint))
-	if err != nil {
-		return Cluster{}, fmt.Errorf("endpoint: provide an HTTPS origin without credentials, path, query or fragment")
-	}
-	// Share existing TLS, display-name and timeout validation.
-	d.ExpectedClusterID = d.ClusterID
-	d.Nodes = map[text]text{"_": text(origin)}
-	c, err := validate(ref, d)
-	if err != nil {
-		return Cluster{}, err
-	}
-	c.Endpoint = origin
-	c.AuthProfile = string(d.Auth.Profile)
-	c.Audience = string(d.Auth.Audience)
-	c.Nodes = nil
-	return c, nil
-}
-
 func validate(ref string, d definition) (Cluster, error) {
-	c := Cluster{Ref: ref, Name: string(d.Name), ExpectedClusterID: string(d.ExpectedClusterID), CAFile: string(d.TLS.CAFile), TLSInsecure: bool(d.TLS.Insecure), Nodes: make(map[string]string)}
+	c := Cluster{Ref: ref, Name: string(d.Name), ID: string(d.ClusterID), CAFile: string(d.TLS.CAFile), TLSInsecure: bool(d.TLS.Insecure)}
 	if !validText(c.Name, 128) {
 		return Cluster{}, fmt.Errorf("name: provide 1 to 128 bytes of text without surrounding whitespace or control characters")
 	}
 	// OpenSVC identifiers are compared exactly; do not assume every configured
 	// cluster uses a UUID, or substitute its display name for its identity.
-	if !validText(c.ExpectedClusterID, 256) {
-		return Cluster{}, fmt.Errorf("expected_cluster_id: provide a nonempty identifier of at most 256 bytes")
+	if !validText(c.ID, 256) {
+		return Cluster{}, fmt.Errorf("cluster_id: provide a nonempty identifier of at most 256 bytes")
 	}
-	if len(d.Nodes) == 0 || len(d.Nodes) > maxNodes {
-		return Cluster{}, fmt.Errorf("nodes: provide between 1 and %d issuer-to-HTTPS-origin mappings", maxNodes)
+	origin, err := endpointOrigin(string(d.Endpoint))
+	if err != nil {
+		return Cluster{}, fmt.Errorf("endpoint: provide an HTTPS origin without credentials, path, query or fragment")
 	}
-	origins := make(map[string]bool)
-	for node, endpoint := range d.Nodes {
-		if !validText(string(node), 256) {
-			return Cluster{}, fmt.Errorf("nodes: issuer names must be nonempty text of at most 256 bytes")
+	c.Endpoint = origin
+	if d.Auth != nil {
+		if !validRef(string(d.Auth.Profile)) || !validText(string(d.Auth.Audience), 256) {
+			return Cluster{}, fmt.Errorf("auth: profile and audience are required when auth is set")
 		}
-		origin, err := endpointOrigin(string(endpoint))
-		if err != nil {
-			return Cluster{}, fmt.Errorf("nodes: provide HTTPS origins without credentials, path, query or fragment")
-		}
-		if origins[origin] {
-			return Cluster{}, fmt.Errorf("nodes: duplicate endpoint")
-		}
-		origins[origin] = true
-		c.Nodes[string(node)] = origin
+		c.AuthProfile, c.Audience = string(d.Auth.Profile), string(d.Auth.Audience)
 	}
 	timeout, err := time.ParseDuration(string(d.RequestTimeout))
 	if err != nil || timeout < time.Second || timeout > 2*time.Minute {

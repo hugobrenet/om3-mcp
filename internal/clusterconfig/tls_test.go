@@ -9,7 +9,7 @@ import (
 )
 
 func TestDaemonTLSInsecureIsExplicitAndStrict(t *testing.T) {
-	path := testutil.WriteTarget(t, "Example", "cluster-id", "", map[string]string{"node-a": "https://192.0.2.20:1215"})
+	path := testutil.WriteTarget(t, "Example", "cluster-id", "https://192.0.2.20:1215", "")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

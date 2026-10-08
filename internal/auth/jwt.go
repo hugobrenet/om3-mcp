@@ -1,6 +1,7 @@
-// Package auth authenticates OAuth access JWTs intended for the MCP resource.
-// The legacy Checker below only checks delegation claims and routing; it is
-// disconnected from the production entrypoint and does not verify signatures.
+// Package auth authenticates MCP callers. On the HTTPS listener, OAuth access
+// JWTs intended for the MCP resource are verified locally. On the local Unix
+// socket, delegated OpenSVC daemon tokens are checked for routing only and
+// verified by the daemon of the cluster named in the request header.
 package auth
 
 import (
@@ -19,57 +20,60 @@ import (
 const (
 	maxTokenBytes   = 32 << 10
 	maxMCPBodyBytes = 1 << 20
+	// ClusterIDHeader selects the cluster whose daemon verifies a delegated
+	// token. It is never trusted as an identity on its own.
 	ClusterIDHeader = "X-OpenSVC-Cluster-ID"
-	NodeHeader      = "X-OpenSVC-Node"
-	NativeStrategy  = "jwt"
-	OpenIDStrategy  = "jwt-openid"
+	// nodeHeader is accepted from OpenSVC clients but routing uses the cluster
+	// VIP; it is removed so that it never reaches a daemon.
+	nodeHeader     = "X-OpenSVC-Node"
+	NativeStrategy = "jwt"
+	OpenIDStrategy = "jwt-openid"
 )
 
 var errUnauthorized = errors.New("invalid OpenSVC access token or target")
 
-type claims struct {
-	ClusterID         string `json:"cluster_id"`
+type delegatedClaims struct {
 	TokenUse          string `json:"token_use"`
 	PreferredUsername string `json:"preferred_username"`
 	Email             string `json:"email"`
 	jwt.RegisteredClaims
 }
 
-// Delegation describes UNVERIFIED claims for routing only. It is not an
-// authenticated identity and must never grant access to MCP-local user data.
+// Delegation describes UNVERIFIED claims of a delegated daemon token. They
+// only predict the identity that the selected daemon must confirm; they never
+// establish an identity by themselves.
 type Delegation struct {
 	ClusterID string
 	Issuer    string
 	Subject   string
 	ExpiresAt time.Time
-	Node      string
 	Strategy  string
 	Username  string
 }
 
-type Checker struct {
-	nodes map[string]map[string]string
+// Delegator checks delegated tokens against the clusters of the catalogue.
+type Delegator struct {
+	clusters map[string]bool
 }
 
-func NewChecker(catalog *clusterconfig.Catalog) (*Checker, error) {
+func NewDelegator(catalog *clusterconfig.Catalog) (*Delegator, error) {
 	if catalog.Len() == 0 {
-		return nil, errors.New("JWT delegation requires a cluster catalogue")
+		return nil, errors.New("token delegation requires a cluster catalogue")
 	}
-	c := &Checker{nodes: make(map[string]map[string]string)}
+	d := &Delegator{clusters: make(map[string]bool)}
 	for _, cluster := range catalog.List() {
-		c.nodes[cluster.ExpectedClusterID] = cluster.Nodes
+		d.clusters[cluster.ID] = true
 	}
-	return c, nil
+	return d, nil
 }
 
-func (c *Checker) Check(raw, targetCluster, targetNode string) (Delegation, error) {
-	if raw == "" || len(raw) > maxTokenBytes {
+// Check selects the cluster from the header and predicts the daemon identity.
+// Native tokens are marked by token_use; others follow the OpenID profile.
+func (d *Delegator) Check(raw, clusterID string) (Delegation, error) {
+	if raw == "" || len(raw) > maxTokenBytes || !validTarget(clusterID) || !d.clusters[clusterID] {
 		return Delegation{}, errUnauthorized
 	}
-	if targetCluster != "" && !validTarget(targetCluster) || targetNode != "" && !validTarget(targetNode) {
-		return Delegation{}, errUnauthorized
-	}
-	var parsed claims
+	var parsed delegatedClaims
 	token, _, err := jwt.NewParser().ParseUnverified(raw, &parsed)
 	// Keeping the token shape does not prove the signature is genuine.
 	if err != nil || token == nil {
@@ -81,18 +85,14 @@ func (c *Checker) Check(raw, targetCluster, targetNode string) (Delegation, erro
 	if !validClaimText(parsed.Subject) || !validClaimText(parsed.Issuer) || parsed.ExpiresAt == nil {
 		return Delegation{}, errUnauthorized
 	}
-	node, strategy, username := parsed.Issuer, NativeStrategy, parsed.Subject
-	if parsed.ClusterID != "" || parsed.TokenUse != "" {
+	strategy, username := NativeStrategy, parsed.Subject
+	if parsed.TokenUse != "" {
 		// An incomplete native token must not fall back to the OpenID profile.
-		if token.Method != jwt.SigningMethodRS256 || !validClaimText(parsed.ClusterID) || parsed.TokenUse != "access" || targetCluster != "" && targetCluster != parsed.ClusterID {
-			return Delegation{}, errUnauthorized
-		}
-		targetCluster = parsed.ClusterID
-		if targetNode != "" && targetNode != parsed.Issuer {
+		if token.Method != jwt.SigningMethodRS256 || parsed.TokenUse != "access" {
 			return Delegation{}, errUnauthorized
 		}
 	} else {
-		if targetCluster == "" || targetNode == "" || len(parsed.Audience) == 0 || !openIDSigningMethod(token.Method.Alg()) {
+		if len(parsed.Audience) == 0 || !openIDSigningMethod(token.Method.Alg()) {
 			return Delegation{}, errUnauthorized
 		}
 		kid, ok := token.Header["kid"].(string)
@@ -114,16 +114,9 @@ func (c *Checker) Check(raw, targetCluster, targetNode string) (Delegation, erro
 		if !validClaimText(username) {
 			return Delegation{}, errUnauthorized
 		}
-		node, strategy = targetNode, OpenIDStrategy
+		strategy = OpenIDStrategy
 	}
-	nodes, ok := c.nodes[targetCluster]
-	if !ok || node == "" {
-		return Delegation{}, errUnauthorized
-	}
-	if _, ok := nodes[node]; !ok {
-		return Delegation{}, errUnauthorized
-	}
-	return Delegation{ClusterID: targetCluster, Issuer: parsed.Issuer, Subject: parsed.Subject, ExpiresAt: parsed.ExpiresAt.Time, Node: node, Strategy: strategy, Username: username}, nil
+	return Delegation{ClusterID: clusterID, Issuer: parsed.Issuer, Subject: parsed.Subject, ExpiresAt: parsed.ExpiresAt.Time, Strategy: strategy, Username: username}, nil
 }
 
 func openIDSigningMethod(algorithm string) bool {
@@ -143,35 +136,26 @@ func validTarget(value string) bool {
 	return validClaimText(value) && !strings.Contains(value, ",")
 }
 
-func targetFromHeader(header http.Header, name string) (string, bool) {
-	values := header.Values(name)
-	if len(values) == 0 {
-		return "", true
-	}
-	if len(values) != 1 || !validTarget(values[0]) {
-		return "", false
-	}
-	return values[0], true
-}
-
-type contextKey struct{}
-type credential struct {
+type delegationContextKey struct{}
+type delegatedCredential struct {
 	delegation Delegation
 	token      string
 }
 
-// FromContext never returns credentials for an expired request. Only the
-// claim-checking middleware can populate this request-scoped context. These
+// DelegationFromContext never returns credentials for an expired request.
+// Only the delegation middleware populates this request-scoped context. The
 // claims remain unverified: the daemon alone authenticates the bearer.
-func FromContext(ctx context.Context) (Delegation, string, bool) {
-	c, ok := ctx.Value(contextKey{}).(credential)
+func DelegationFromContext(ctx context.Context) (Delegation, string, bool) {
+	c, ok := ctx.Value(delegationContextKey{}).(delegatedCredential)
 	if !ok || ctx.Err() != nil || !time.Now().Before(c.delegation.ExpiresAt) {
 		return Delegation{}, "", false
 	}
 	return c.delegation, c.token, true
 }
 
-func (c *Checker) Middleware(next http.Handler) http.Handler {
+// Middleware requires one Bearer token and one cluster ID header. It is only
+// mounted on the local Unix socket, never on the OAuth HTTPS listener.
+func (d *Delegator) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		values := r.Header.Values("Authorization")
 		var raw string
@@ -181,26 +165,30 @@ func (c *Checker) Middleware(next http.Handler) http.Handler {
 				raw = parts[1]
 			}
 		}
-		targetCluster, clusterOK := targetFromHeader(r.Header, ClusterIDHeader)
-		targetNode, nodeOK := targetFromHeader(r.Header, NodeHeader)
-		delegation, err := c.Check(raw, targetCluster, targetNode)
+		clusters := r.Header.Values(ClusterIDHeader)
+		var clusterID string
+		if len(clusters) == 1 {
+			clusterID = clusters[0]
+		}
+		delegation, err := d.Check(raw, clusterID)
 		// Tokens in query strings are never an alternative authentication path.
-		if err != nil || !clusterOK || !nodeOK || r.URL.Query().Has("access_token") {
+		if err != nil || len(values) != 1 || len(clusters) != 1 || r.URL.Query().Has("access_token") {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			w.Header().Set("Content-Type", "application/problem+json")
 			w.Header().Set("Cache-Control", "no-store")
 			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"type":"about:blank","title":"Unauthorized","status":401,"detail":"An OpenSVC access JWT with acceptable claims and target is required."}`))
+			_, _ = w.Write([]byte(`{"type":"about:blank","title":"Unauthorized","status":401,"detail":"An OpenSVC access JWT and a configured X-OpenSVC-Cluster-ID are required."}`))
 			return
 		}
 		ctx, cancel := context.WithDeadline(r.Context(), delegation.ExpiresAt)
 		defer cancel()
-		ctx = context.WithValue(ctx, contextKey{}, credential{delegation: delegation, token: raw})
-		r.Header.Del("Authorization")
-		r.Header.Del(ClusterIDHeader)
-		r.Header.Del(NodeHeader)
-		r.Body = http.MaxBytesReader(w, r.Body, maxMCPBodyBytes)
+		ctx = context.WithValue(ctx, delegationContextKey{}, delegatedCredential{delegation: delegation, token: raw})
+		request := r.Clone(ctx)
+		request.Header.Del("Authorization")
+		request.Header.Del(ClusterIDHeader)
+		request.Header.Del(nodeHeader)
+		request.Body = http.MaxBytesReader(w, request.Body, maxMCPBodyBytes)
 		w.Header().Set("Cache-Control", "no-store")
-		next.ServeHTTP(w, r.WithContext(ctx))
+		next.ServeHTTP(w, request)
 	})
 }

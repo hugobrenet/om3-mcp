@@ -69,8 +69,8 @@ func TestExchangeUsesAuthenticatedSubjectAndConfidentialClient(t *testing.T) {
 				if !ok || id != "cluster-a" || token != outgoing {
 					t.Error("incorrect credential binding")
 				}
-				if _, _, ok := FromContext(ctx); ok {
-					t.Error("exchange became legacy delegation")
+				if _, _, ok := DelegationFromContext(ctx); ok {
+					t.Error("exchange became a token delegation")
 				}
 				deadline, _ := ctx.Deadline()
 				if time.Until(deadline) > 61*time.Second {

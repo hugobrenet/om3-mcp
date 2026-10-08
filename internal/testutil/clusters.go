@@ -51,9 +51,9 @@ func WriteClusters(t testing.TB, names map[string]string) string {
 	slices.Sort(refs)
 	for i, ref := range refs {
 		clusters[ref] = map[string]any{
-			"name": names[ref], "expected_cluster_id": fmt.Sprintf("00000000-0000-4000-8000-%012d", i+1),
-			"nodes": map[string]string{"node-a": "https://192.0.2.20:1215", "node-b": "https://192.0.2.21:1215"},
-			"tls":   map[string]string{"ca_file": ca}, "request_timeout": "20s",
+			"name": names[ref], "cluster_id": fmt.Sprintf("00000000-0000-4000-8000-%012d", i+1),
+			"endpoint": fmt.Sprintf("https://192.0.2.%d:1215", 20+i%200),
+			"tls":      map[string]string{"ca_file": ca}, "request_timeout": "20s",
 		}
 	}
 	return WriteCatalog(t, clusters)
@@ -71,7 +71,7 @@ func NewJWTKey(t testing.TB) *rsa.PrivateKey {
 
 func WriteCatalog(t testing.TB, clusters map[string]any) string {
 	t.Helper()
-	data, err := yaml.Marshal(map[string]any{"version": 2, "clusters": clusters})
+	data, err := yaml.Marshal(map[string]any{"clusters": clusters})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,9 +1,10 @@
 # OpenSVC Daemon MCP Tools
 
-With a version 3 catalogue and exchange profiles, every daemon tool has a
-required `cluster_id` input added by the registrar. The domain-specific inputs
-below are unchanged. `list_clusters(query?, limit?, cursor?)` discovers all
-configured names and IDs without contacting daemons or checking grants.
+On the HTTPS listener, with clusters configured with `auth` and exchange
+profiles, every daemon tool has a required `cluster_id` input added by the
+registrar. The domain-specific inputs below are unchanged.
+`list_clusters(query?, limit?, cursor?)` discovers those names and IDs without
+contacting daemons or checking grants.
 See [token exchange](../token-exchange.md#tool-contracts) for the shared target
 contract. Without exchange configuration, daemon tools remain listed but blocked.
 
@@ -38,8 +39,11 @@ Missing or invalid incoming credentials return HTTP 401 with the OAuth
 discovery challenge. Tool target errors, SSO exchange refusals and daemon
 refusals return `isError=true`. SSO descriptions and response bodies are not
 exposed. Daemon errors use the existing bounded API error contract. No request
-or session can replace another call's identity or target. The legacy whoami
-bridge remains disabled.
+or session can replace another call's identity or target.
+
+On the delegated Unix socket, tools take no `cluster_id` argument and
+`list_clusters` is not offered: the `X-OpenSVC-Cluster-ID` header binds every
+call to one cluster. See [token delegation](../delegation.md).
 
 ## Freshness model
 

@@ -96,7 +96,7 @@ func TestOAuthExchangeFailureIsolation(t *testing.T) {
 	}
 	redirectURL = daemons[0].Server.URL
 	t.Cleanup(func() { close(release) })
-	catalog, err := clusterconfig.Load(testutil.WriteYAML(t, map[string]any{"version": 3, "clusters": clusters}))
+	catalog, err := clusterconfig.Load(testutil.WriteYAML(t, map[string]any{"clusters": clusters}))
 	if err != nil {
 		t.Fatal(err)
 	}

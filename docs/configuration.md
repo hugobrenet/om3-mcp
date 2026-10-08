@@ -6,21 +6,29 @@
 
 | Variable | Default | Description |
 |---|---|---|
-| OPENSVC_MCP_LISTEN_ADDR | 127.0.0.1:8443 | TCP bind address, IPv4:port or [IPv6]:port |
-| OPENSVC_MCP_TLS_CERT_FILE | empty | Absolute server certificate PEM path; required |
-| OPENSVC_MCP_TLS_KEY_FILE | empty | Absolute server private key PEM path; required |
-| OPENSVC_MCP_CLUSTER_CONFIG_FILE | empty | Version 3 catalogue required for exchanged daemon calls; optional for incoming OAuth discovery only |
-| OPENSVC_MCP_AUTH_CONFIG_FILE | empty | Version 1 confidential SSO profile file; required with a version 3 catalogue |
-| OPENSVC_MCP_OAUTH_RESOURCE_URL | empty | Required public HTTPS MCP URL ending in `/mcp`; expected access-token audience |
+| OPENSVC_MCP_LISTEN_ADDR | 127.0.0.1:8443 | HTTPS bind address, IPv4:port or [IPv6]:port |
+| OPENSVC_MCP_TLS_CERT_FILE | empty | Absolute server certificate PEM path; enables the HTTPS listener |
+| OPENSVC_MCP_TLS_KEY_FILE | empty | Absolute server private key PEM path; required with the certificate |
+| OPENSVC_MCP_OAUTH_RESOURCE_URL | empty | Public HTTPS MCP URL ending in `/mcp`; expected access-token audience; required with HTTPS |
 | OPENSVC_MCP_OAUTH_RESOURCE_NAME | OpenSVC Daemon MCP | Human-readable `resource_name` in public OAuth metadata |
-| OPENSVC_MCP_OAUTH_ISSUER | empty | Required exact trusted issuer for incoming MCP access JWTs |
+| OPENSVC_MCP_OAUTH_ISSUER | empty | Exact trusted issuer for incoming MCP access JWTs; required with HTTPS |
 | OPENSVC_MCP_OAUTH_CA_FILE | empty | Optional absolute PEM trust bundle for SSO HTTPS; replaces system roots |
+| OPENSVC_MCP_AUTH_CONFIG_FILE | empty | Version 1 confidential SSO profile file; required when a cluster sets `auth` |
+| OPENSVC_MCP_CLUSTER_CONFIG_FILE | empty | Cluster catalogue; required for the Unix socket and for exchanged daemon calls |
+| OPENSVC_MCP_DELEGATED_SOCKET | empty | Absolute Unix socket path, at most 103 bytes; enables the delegated listener |
 
-HTTPS is the only transport. There is no local socket mode, local daemon
-dependency or login page. Daemon calls use RFC 8693 token exchange when a
-version 3 catalogue and auth profiles are supplied together. Without them,
-incoming OAuth and tool discovery work, but daemon calls remain blocked.
-See [authentication](authentication.md) for the complete contract.
+The MCP has two optional listeners; configure at least one:
+
+- **HTTPS** for external agents, enabled by the certificate and key. It always
+  requires OAuth. Daemon calls use RFC 8693 token exchange for the clusters
+  configured with `auth`. Without exchange, incoming OAuth and tool discovery
+  work, but daemon calls remain blocked. `OPENSVC_MCP_LISTEN_ADDR`, the OAuth
+  variables and `OPENSVC_MCP_AUTH_CONFIG_FILE` are refused without HTTPS.
+- **Unix socket** for OpenSVC components such as the AI agent, enabled by
+  `OPENSVC_MCP_DELEGATED_SOCKET`. It requires the catalogue and no SSO.
+
+See [authentication](authentication.md) and [token delegation](delegation.md)
+for the complete contracts.
 
 ## HTTPS
 
@@ -76,77 +84,61 @@ Use `--cacert /path/to/public-ca.pem` when the MCP listener uses a private CA.
 
 ## Cluster catalogue and exchange profiles
 
-Use [clusters.yaml](../deploy/examples/clusters.yaml) and
-[auth.yaml](../deploy/examples/auth.yaml) for external-agent daemon calls.
-The catalogue maps `cluster_id` to a single HTTPS VIP, TLS trust, request timeout,
-auth profile and target audience. No node inventory is required. The auth file
-contains confidential client configuration and a secret-file reference, never
-the secret itself. Unknown profile references prevent startup.
-
-The loader accepts up to 4096 clusters and 4 MiB of YAML. Each CA bundle is
-bounded to 1 MiB. Endpoint URLs must be HTTPS origins without credentials, paths,
-queries or fragments. IDs are unique and compared exactly; display names need
-not be unique. Names or nodes alone never select a target for a daemon call.
-TLS uses system roots by default, or `tls.ca_file`, or `tls.insecure: true`;
-`ca_file` and `insecure` are mutually exclusive. Request timeouts range from
-1 second to 2 minutes.
-
-The profile file accepts 1–64 profiles, HTTPS discovery issuers, a confidential
-`client_id`, absolute `client_secret_file`, `client_secret_basic` (default) or
-`client_secret_post`, up to 32 technical scopes, a `request_timeout` from 1 second
-to 1 minute (default 10 seconds), and optional `tls.ca_file`. SSO TLS verification
-cannot be disabled. Secret files must be regular, at most 16 KiB, mode 0600 or
-0400, and contain one nonempty line. All files are loaded at startup; restart to
-apply changes. Public discovery is lazy and cached for five minutes.
-
-See [the deployment guide](token-exchange.md) for SSO setup and daemon
-configuration.
-
-## Legacy version 2 catalogue (not used for external OAuth routing)
-
-The following format remains supported for validation of existing deployments.
-It does not enable daemon calls in the OAuth entrypoint; use the version 3
-catalogue above.
-
-Install real configuration outside the repository, for example at
-`/etc/opensvc-mcp/clusters.yaml`.
+Use [clusters.yaml](../deploy/examples/clusters.yaml) and, for external agents,
+[auth.yaml](../deploy/examples/auth.yaml). Install real configuration outside
+the repository, for example at `/etc/opensvc-mcp/clusters.yaml`.
 
 ```yaml
-version: 2
 clusters:
   cluster-a:
-    name: Example cluster
-    expected_cluster_id: 00000000-0000-4000-8000-000000000001
-    nodes:
-      node-a: https://192.0.2.20:1215
-      node-b: https://192.0.2.21:1215
+    name: cluster-a
+    cluster_id: 00000000-0000-4000-8000-000000000001
+    endpoint: https://cluster-a-vip.example.com:1215
+    auth:
+      profile: customer-sso
+      audience: opensvc-cluster-a
     tls:
       ca_file: /etc/opensvc-mcp/trust/cluster-a-tls-ca.pem
     request_timeout: 20s
 ```
 
-- `clusters`: stable administrative references; these are not JWT identities.
-- `name`: human-readable name.
-- `expected_cluster_id`: exact native JWT `cluster_id` or OpenID HTTP target
-  (`X-OpenSVC-Cluster-ID`) routing key; must be unique.
-- `nodes`: exact daemon node names (native JWT `iss` or OpenID HTTP target
-  `X-OpenSVC-Node`) mapped to authorized
-  HTTPS daemon origins. No credentials, API paths, queries or fragments.
+- `clusters`: stable administrative references; these are not identities.
+- `name`: human-readable name; it need not be unique.
+- `cluster_id`: exact OpenSVC cluster ID; unique. It is the `cluster_id` tool
+  argument on HTTPS and the `X-OpenSVC-Cluster-ID` header on the socket.
+- `endpoint`: HTTPS origin of the cluster VIP, without credentials, path,
+  query or fragment. No node inventory is required.
+- `auth`: optional. `profile` names an entry of the profile file and
+  `audience` the daemon token audience requested by token exchange. A cluster
+  without `auth` is reachable only through the Unix socket, and is not listed
+  to external agents.
 - `tls.ca_file`: optional absolute public CA bundle path for daemon TLS.
   Omit `tls` for the system CA roots, for example with Let's Encrypt.
   An explicit bundle replaces, rather than extends, system roots.
-- `tls.insecure`: optional boolean, default `false`. Setting it to `true`
-  disables daemon certificate chain and hostname/IP verification for demos only.
-  It cannot be combined with `tls.ca_file`.
+- `tls.insecure`: optional boolean, default `false`; see below. It cannot be
+  combined with `tls.ca_file`.
 - `request_timeout`: required duration between `1s` and `2m`.
 
-The daemon verifies native/OpenID JWT signatures itself. Neither JWT public keys
-nor daemon private signing keys belong on the MCP host. The optional TLS CA
-bundle validates only the daemon HTTPS certificate chain.
+The profile file contains confidential client configuration and a secret-file
+reference, never the secret itself. It accepts 1–64 profiles, HTTPS discovery
+issuers, a confidential `client_id`, absolute `client_secret_file`,
+`client_secret_basic` (default) or `client_secret_post`, up to 32 technical
+scopes, a `request_timeout` from 1 second to 1 minute (default 10 seconds), and
+optional `tls.ca_file`. SSO TLS verification cannot be disabled. Secret files
+must be regular, at most 16 KiB, mode 0600 or 0400, and contain one nonempty
+line. Unknown profile references prevent startup. Public discovery is lazy and
+cached for five minutes.
 
-Issuer names need not be DNS-resolvable: they are catalogue keys. With TLS
-verification enabled, an IP endpoint works if its certificate covers that IP.
-A DNS-only certificate requires an endpoint using that DNS name.
+The daemon verifies JWT signatures itself. Neither JWT public keys nor daemon
+private signing keys belong on the MCP host. The optional TLS CA bundle
+validates only the daemon HTTPS certificate chain. With TLS verification
+enabled, an IP endpoint works if its certificate covers that IP; a DNS-only
+certificate requires an endpoint using that DNS name. Administrators must
+ensure each endpoint belongs to the declared cluster. Adding a catalogue entry
+does not register or modify a daemon.
+
+See [the deployment guide](token-exchange.md) for SSO setup and daemon
+configuration.
 
 ### Demo-only TLS bypass
 
@@ -164,50 +156,28 @@ forge daemon responses and impersonate a user through `whoami`. The MCP logs a
 startup warning for each affected cluster. The default is `false`.
 
 This applies to MCP-to-daemon requests, including `whoami`, only. It does not
-change listener TLS, agent-to-MCP TLS, HTTPS-only endpoints, origin binding or
-JWT checks. Restart the MCP after changing the catalogue.
-
-### Routing and validation
-
-For native JWTs, `cluster_id` selects a configured cluster and `iss` selects
-exactly one configured node. An optional `X-OpenSVC-Cluster-ID` header must
-match the native claim. An optional `X-OpenSVC-Node` header must match `iss`;
-neither header can override the emitting daemon.
-
-For OpenID, the required `X-OpenSVC-Cluster-ID` header selects the cluster's
-`expected_cluster_id`; the required `X-OpenSVC-Node` header selects exactly
-one entry in that cluster's `nodes`. No node is inferred, even if there is only
-one configured. The provider's `iss` and `aud` do not select an endpoint.
-That daemon must already
-be configured to validate the token's OpenID issuer and audience.
-
-Claims and HTTP targets remain unverified until the daemon authenticates the
-token; they cannot establish local identity. There is no first-endpoint
-fallback, failover, discovery or retry on a different node, including after
-an authentication refusal or outage. Administrators must ensure endpoints
-belong to the declared cluster and node. Adding a catalogue entry does not
-register or modify a daemon.
+change listener TLS, HTTPS-only endpoints, origin binding or JWT checks.
 
 ### Validation and bounds
 
 The strict loader rejects unknown fields, duplicate keys, multiple documents,
-invalid scalar types, duplicate cluster IDs, duplicate node origins within a
-cluster, empty catalogues and unsupported versions. Equivalent HTTPS origins
-are normalized. Cluster references contain 1–64 ASCII letters, digits, hyphens
-or underscores. Names contain 1–128 bytes, IDs and issuer names 1–256 bytes,
-without surrounding whitespace or control characters.
+invalid scalar types, duplicate cluster IDs and empty catalogues. Equivalent HTTPS origins are normalized. Cluster
+references contain 1–64 ASCII letters, digits, hyphens or underscores. Names
+contain 1–128 bytes, IDs and audiences 1–256 bytes, without surrounding
+whitespace or control characters.
 
-Limits are 4 MiB of YAML, 4096 clusters and 200 nodes per legacy cluster. Trust files
-must be readable regular files of at most 1 MiB. TLS bundles accept only valid
-public CA certificates, not leaf certificates.
-Changing these files does not alter the running snapshot.
+Limits are 4 MiB of YAML and 4096 clusters. Trust files must be readable regular
+files of at most 1 MiB. TLS bundles accept only valid public CA certificates,
+not leaf certificates. All files are loaded at startup; restart to apply
+changes, which do not alter the running snapshot.
 
 ## Runtime account
 
 Run `om3-mcp` under a dedicated unprivileged account, for example
 `opensvc-mcp:opensvc-mcp`. It must be able to read the listener certificate/key,
 catalogue, confidential secret file and public trust files. Restrict private-key access to that account
-and use an unprivileged port such as `8443`.
+and use an unprivileged port such as `8443`. For the Unix socket, see the
+directory and group setup in [token delegation](delegation.md#socket-access).
 
 An OpenSVC `app.simple` resource can manage the process with the environment
 variables above. The binary does not load an environment file itself and does

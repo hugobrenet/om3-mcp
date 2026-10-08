@@ -30,8 +30,9 @@ type ClusterRouter interface {
 	Prepare(context.Context, string) (context.Context, context.CancelFunc, error)
 }
 
-// SetClusterRouter is called before domain tools are registered. The legacy
-// test-only registration remains unchanged when no router is installed.
+// SetClusterRouter is called before domain tools are registered. Without a
+// router, as on the delegated Unix socket, the cluster comes from the request
+// context and tools take no cluster_id argument.
 func (r *Registrar) SetClusterRouter(router ClusterRouter) { r.router = router }
 
 func NewRegistrar(server *mcp.Server) (*Registrar, error) {

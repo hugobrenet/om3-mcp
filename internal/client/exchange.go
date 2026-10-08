@@ -22,8 +22,8 @@ type ExchangeClient struct {
 }
 
 func NewExchange(catalog *clusterconfig.Catalog, profiles *auth.ExchangeProfiles) (*ExchangeClient, error) {
-	if catalog.Version() != 3 || catalog.Len() == 0 || profiles == nil {
-		return nil, errors.New("token exchange requires a version 3 catalogue and auth profiles")
+	if catalog.Len() == 0 || profiles == nil {
+		return nil, errors.New("token exchange requires clusters with auth and auth profiles")
 	}
 	c := &ExchangeClient{profiles: profiles, targets: make(map[string]clusterconfig.Cluster), clients: make(map[string]*Client)}
 	for _, cluster := range catalog.List() {
@@ -41,14 +41,14 @@ func NewExchange(catalog *clusterconfig.Catalog, profiles *auth.ExchangeProfiles
 			TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, InsecureSkipVerify: cluster.TLSInsecure},
 			TLSHandshakeTimeout: cluster.RequestTimeout, IdleConnTimeout: 90 * time.Second, MaxIdleConns: 2, MaxIdleConnsPerHost: 2,
 		}
-		client := &http.Client{Transport: &exchangedTransport{base: base, clusterID: cluster.ExpectedClusterID, origin: cluster.Endpoint}, Timeout: cluster.RequestTimeout,
+		client := &http.Client{Transport: &exchangedTransport{base: base, clusterID: cluster.ID, origin: cluster.Endpoint}, Timeout: cluster.RequestTimeout,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		api, err := New(cluster.Endpoint, client)
 		if err != nil {
 			return nil, err
 		}
-		c.targets[cluster.ExpectedClusterID] = cluster
-		c.clients[cluster.ExpectedClusterID] = api
+		c.targets[cluster.ID] = cluster
+		c.clients[cluster.ID] = api
 	}
 	return c, nil
 }
@@ -58,7 +58,7 @@ func (c *ExchangeClient) Prepare(ctx context.Context, clusterID string) (context
 	if !ok {
 		return nil, nil, errors.New("Unknown cluster_id. Use list_clusters and specify the cluster explicitly.")
 	}
-	return c.profiles.Prepare(ctx, cluster.AuthProfile, cluster.Audience, cluster.ExpectedClusterID)
+	return c.profiles.Prepare(ctx, cluster.AuthProfile, cluster.Audience, cluster.ID)
 }
 
 func (c *ExchangeClient) selected(ctx context.Context) (*Client, error) {
@@ -89,7 +89,7 @@ func (t *exchangedTransport) RoundTrip(r *http.Request) (*http.Response, error) 
 	request := r.Clone(r.Context())
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Del(auth.ClusterIDHeader)
-	request.Header.Del(auth.NodeHeader)
+	request.Header.Del("X-OpenSVC-Node")
 	return t.base.RoundTrip(request)
 }
 

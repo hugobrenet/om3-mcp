@@ -29,13 +29,14 @@ Use Go, the standard library and `github.com/modelcontextprotocol/go-sdk`.
 
 ## Architecture
 
-- `cmd/om3-mcp`: composition root, HTTPS listener, lifecycle and whoami bridge.
+- `cmd/om3-mcp`: composition root, HTTPS and Unix socket listeners, lifecycle
+  and the socket-only whoami bridge.
   Keep explicit tool registration in `main.go`.
 - `internal/config`: process environment and startup validation.
-- `internal/clusterconfig`: version 3 cluster-to-VIP catalogue and preserved
-  version 2 legacy parser; immutable TLS trust loaded at startup.
+- `internal/clusterconfig`: cluster-to-VIP catalogue with optional
+  exchange settings; immutable TLS trust loaded at startup.
 - `internal/auth`: OAuth metadata, signature verification and private request
-  identity, confidential RFC 8693 exchange; also preserved legacy delegation.
+  identity, confidential RFC 8693 exchange, and delegated daemon token checks.
 - `internal/client`: catalogue-bound daemon routing, HTTP transport, response
   bounds and normalized API errors. Share immutable clients and connection
   pools, never caller credentials.
@@ -44,34 +45,37 @@ Use Go, the standard library and `github.com/modelcontextprotocol/go-sdk`.
 - `internal/tools`: MCP declarations, schemas, annotations and registrar.
   Handlers stay thin: typed input, one core use case, typed output.
 
-The server exposes stateless Streamable HTTP at `/mcp` over HTTPS only.
-Configuration changes require a restart. Validate local TLS and configuration before
-binding; startup must not contact daemons. Do not introduce local socket modes,
-a local daemon dependency, or authentication logic in core/tool handlers.
+The server exposes stateless Streamable HTTP at `/mcp` on two optional
+listeners, each with its own router: HTTPS for OAuth external agents, and a
+local Unix socket reserved for delegated tokens of trusted OpenSVC components.
+Do not share routes between them or add other socket modes. Configuration
+changes require a restart. Validate local TLS and configuration before binding;
+startup must not contact daemons. Do not introduce a local daemon dependency,
+or authentication logic in core/tool handlers.
 
 ## Authentication and trust
 
-- The active `/mcp` endpoint is an OAuth resource server. Validate issuer,
+- The HTTPS `/mcp` endpoint is an OAuth resource server. Validate issuer,
   audience, signature and expiry locally using `internal/auth/oauth*.go`.
   No business scopes or MCP-local grant policy are applied in V1.
 - Public resource metadata comes only from configuration, never Host or
   forwarding headers. Discovery and JWKS requests use HTTPS, no proxies or
   redirects, bounded reads and no caller credentials.
-- OAuth identity and tokens use a private context separate from legacy
-  `Delegation`. Never pass an incoming MCP token directly to a daemon.
-- With a version 3 catalogue and exchange profiles, the registrar adds required
+- OAuth identity and tokens use a private context separate from `Delegation`.
+  Never pass an incoming MCP token directly to a daemon.
+- For clusters with `auth` and exchange profiles, the registrar adds required
   `cluster_id` to all daemon tool schemas and prepares one exchange per call.
-  `list_clusters` is local discovery of all configured clusters, without grants
+  `list_clusters` is local discovery of those clusters, without grants
   filtering. Missing exchange configuration keeps daemon calls blocked.
-  The old `/mcp/auth/whoami` bridge remains disabled with HTTP 501.
-- Legacy native/OpenID delegation remains in source with its production wiring
-  commented out at the user's request. Its tests use a test-only handler.
-  Do not silently restore it or fall back after an OAuth rejection.
-  See [legacy authentication](docs/authentication-legacy.md).
-- Auth profiles and version 3 catalogue must be configured together. Discovery
-  alone needs neither; a supplied legacy version 2 catalogue is never used as
-  an OAuth routing fallback. Runtime target URLs and audiences come only from
-  the catalogue, never caller URLs or HTTP target headers.
+- The Unix socket (`internal/auth/jwt.go`, `internal/client/delegated.go`)
+  forwards a daemon-issued token unchanged to the VIP of the cluster named by
+  the required `X-OpenSVC-Cluster-ID` header. Claims are checked for shape
+  only; the daemon verifies signatures and grants. Tools there take no
+  `cluster_id`. `/mcp/auth/whoami` exists only on the socket. Socket access
+  relies on filesystem permissions. Never fall back between listeners.
+  See [token delegation](docs/delegation.md).
+- Runtime target URLs and audiences come only from the catalogue, never caller
+  URLs or HTTP target headers beyond the catalogue cluster ID.
 - SSO TLS uses system roots or an explicit PEM bundle. Daemon TLS settings
   retain their existing semantics and do not change SSO TLS verification.
 - User tokens are never stored in sessions, shared clients, logs, tool data or

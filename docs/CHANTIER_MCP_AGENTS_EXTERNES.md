@@ -1,7 +1,7 @@
 # Chantier V1 — Agent externe → MCP → multi-clusters OpenSVC
 
 Document de cadrage issu des échanges de conception du 7 octobre 2026.
-Mise à jour du 8 octobre 2026 : le parcours Codex → authentik → MCP → daemons est implémenté et validé au lab sur dev5 et dev3. Un même prompt a permis de lire dev5n1/dev5 et dev3n1/dev3 avec le même token MCP. Les tests négatifs de grants, l'isolation des droits entre clusters, le renouvellement et Keycloak restent à valider.
+Mise à jour du 8 octobre 2026 : le parcours Codex → authentik → MCP → daemons est implémenté et validé au lab sur dev5 et dev3. Un même prompt a permis de lire dev5n1/dev5 et dev3n1/dev3 avec le même token MCP. Les tests du compte `mcp-test` valident les refus de grants, la séparation des droits dev5/dev3, le retrait/restauration de guest, l'expiration sans renouvellement, le renouvellement automatique et la reprise après suppression des refresh tokens. La traçabilité, les cas de robustesse et la validation Keycloak restent ouverts.
 
 Ce fichier de travail est situé hors du dépôt Git `om3-mcp`. Une copie est maintenue dans `om3-mcp/docs/CHANTIER_MCP_AGENTS_EXTERNES.md` pour la versionner avec le code.
 
@@ -148,7 +148,8 @@ Les cases cochées de cette section représentent des décisions de conception, 
 - [x] Configurer le parcours Authorization Code avec PKCE et un client public préinscrit `om3-mcp` dans authentik de lab.
 - [x] Valider avec Codex la découverte du serveur d'autorisation, le callback et le parcours utilisant le paramètre `resource` et un mapping explicite d'audience.
 - [x] Vérifier les JWT entrants localement : issuer de confiance, audience MCP, signature asymétrique via JWKS et validité temporelle. Aucun scope métier MCP n'est requis.
-- [ ] Définir la durée des tokens, la stratégie de renouvellement et le délai effectif de révocation.
+- [x] Valider au lab des access tokens de cinq minutes, le renouvellement via `offline_access` et la perte d'accès après suppression des refresh tokens puis expiration de l'access token ; voir la recette du 8 octobre ci-dessous.
+- [ ] Arrêter la politique de durée et de révocation pour les déploiements clients ; la recette lab ne constitue pas une politique de production ni une preuve de révocation immédiate des JWT.
 - [x] Refuser les tokens invalides sans repli vers un autre mécanisme d'authentification.
 
 #### Recette lab du 7 octobre 2026
@@ -175,9 +176,31 @@ Un login réussi ne suffisait pas : le MCP rejetait le token avec `audience_mism
 
 La première recette validait la connexion et la découverte des outils, sans JWT daemon fourni à Codex. La recette suivante valide également les appels métier via échange de tokens sur dev5 et dev3. Sans configuration d'échange, les appels restent bloqués. Le middleware historique est conservé dans les sources, avec son branchement de production commenté. `om ai` et la webapp restent à adapter.
 
-Restent à valider : renouvellement et révocation, refus de grants, isolation des droits entre clusters, autres clients externes et Keycloak. La présence de `resource` dans le parcours ne prouve pas sa prise en charge native par authentik : l'audience est configurée explicitement par le mapping.
+Les refus de grants, la séparation des droits entre clusters et le cycle de vie décrit ci-dessous sont désormais validés au lab. Restent notamment les autres clients externes, Keycloak et les cas de robustesse. La présence de `resource` dans le parcours ne prouve pas sa prise en charge native par authentik : l'audience est configurée explicitement par le mapping.
 
-### 3. Échanger le token pour accéder au daemon — implémenté, lectures dev5/dev3 validées au lab
+#### Recette opérateur du 8 octobre 2026 — droits et cycle de vie
+
+Résultats rapportés par l'opérateur depuis Codex, sans manipulation ni affichage de tokens bruts. Compte dédié : `mcp-test`. Les modifications authentik et les appels ont été réalisés par l'opérateur.
+
+| Cas | Observation | Portée de la validation |
+|---|---|---|
+| Aucun entitlement sur dev5/dev3 | `list_clusters` réussit ; statuts cluster/nœud dev5 et configuration dev5 refusés en 403 | Authentification et échange possibles, autorisation daemon refusée |
+| Guest sur dev5 seulement | Statuts dev5 et dev5n1 accessibles ; configuration dev5 refusée (`root` requis) ; statut dev3n1 refusé | Séparation guest/root et des droits entre clusters |
+| Retrait puis restauration de guest, même session Codex | Succès → 403 daemon sur `/api/cluster/status` → succès, sans login | Les nouveaux échanges reflètent les entitlements actualisés |
+| Login à 09:55 sans `offline_access` | Appels réussis, `list_clusters` échoue après six minutes, nouveau login rétablit l'accès | Expiration et reprise observées côté client |
+| Login à 10:07 avec `offline_access` | Appels réussis immédiatement puis après six et douze minutes, sans login interactif | Maintien de l'accès par renouvellement automatique au-delà de la validité initiale |
+| Suppression des refresh tokens de `mcp-test` pour `om3-mcp`, à 10:38 | Appels encore possibles immédiatement, puis `list_clusters` échoue après six minutes avec authentification requise | Le renouvellement ne maintient plus l'accès ; l'access token déjà émis n'est pas invalidé immédiatement |
+| Nouveau login après cette suppression | Appels à nouveau réussis | Reprise après révocation du renouvellement |
+
+Les heures ci-dessus sont celles indiquées par l'opérateur ; aucun fuseau supplémentaire n'est inféré.
+
+Configuration du renouvellement : scopes Codex `om3-mcp` et `offline_access`, mapping standard `offline_access` attaché au fournisseur entrant `om3-mcp`, grant Refresh token activé, access token de cinq minutes. Une durée de refresh token de trente minutes a été proposée pour la recette et les ajouts ont été confirmés par l'opérateur ; son expiration naturelle et sa rotation ne sont pas validées par ce test. Le profil d'échange `auth.yaml` reste distinct et demande `om3-mcp`.
+
+Un premier essai de retrait de guest avait produit `invalid_grant` au SSO, persistant après restauration. Cet incident ne valide pas un refus de grants du daemon. Une déconnexion de la session authentik utilisée pour le login a été identifiée comme piste, sans confirmation par logs. Le test a été reproduit avec deux sessions navigateur séparées (administrateur et `mcp-test`), sans déconnecter le compte de test : le résultat final était bien le 403 daemon attendu, puis le retour au succès après réattribution.
+
+Le MCP valide localement les JWT entrants, sans introspection. La suppression d'un refresh token empêche son renouvellement mais ne garantit pas la révocation immédiate d'un access token déjà émis. Le test valide le comportement du client et du parcours lab ; il ne mesure pas un délai précis de révocation et ne démontre pas le rejet HTTP serveur d'un token expiré lorsque Codex bloque l'appel en amont.
+
+### 3. Échanger le token pour accéder au daemon — parcours et droits validés au lab, traçabilité ouverte
 
 - [x] Implémenter le profil SSO administré : issuer, client confidentiel, fichier de secret, méthode d'authentification, scopes techniques, TLS et timeout.
 - [x] Vérifier la prise en charge RFC 8693 effective de la version déployée par un échange réel ; appels dev5 et dev3 réussis.
@@ -186,10 +209,10 @@ Restent à valider : renouvellement et révocation, refus de grants, isolation d
 - [x] Implémenter le client RFC 8693 avec `client_secret_basic` ou `client_secret_post`, sans acteur ni compte de service de repli.
 - [x] Résoudre audience et paramètres d'échange depuis une configuration administrée, jamais depuis une URL ou un issuer fourni par le LLM.
 - [x] Configurer un token aval accepté par les daemons dev5/dev3 pour les lectures de statut : issuer, audience, signature et grants.
-- [x] Vérifier les mappings SSO produisant les grants pour les lectures du compte de test ; aucun grant n'est réécrit par le MCP. Les cas de refus et l'isolation des droits restent à tester.
+- [x] Vérifier les mappings SSO sur les opérations testées : sans grants, guest sur dev5 seulement, refus de lecture de configuration sans root et refus de statut sur dev3. Aucun grant n'est réécrit par le MCP.
 - [x] Garder credentials et tokens hors des entrées/sorties d'outils, erreurs, logs et contexte LLM ; contexte de token aval privé, erreurs SSO bornées et sans descriptions brutes, tests locaux.
-- [ ] Préserver l'identité de l'utilisateur et tracer l'application cliente, le cluster, l'outil et le résultat de l'échange et de l'appel daemon.
-- [ ] Si un cache de tokens est nécessaire, l'isoler par identité, délégation, cible et permissions, avec une expiration bornée.
+- [x] Préserver l'identité de l'utilisateur et tracer l'application cliente, le cluster, l'outil et le résultat de l'échange et de l'appel daemon : une ligne d'audit `mcp tool call` par appel d'outil, sans token ni résultat ; voir « Audit trail » dans `docs/token-exchange.md`. Validé au lab depuis Claude Code le 8 octobre 2026 ; `client_id` provient de `azp`.
+- Aucun cache de tokens aval en V1 : un échange par appel. Si ce choix évolue, prévoir une isolation par identité, délégation, cible et permissions, avec une expiration bornée et une nouvelle recette de retrait des droits.
 
 Les appels réels ont été confirmés par l'opérateur sur dev5 et dev3. Les mappings guest/root des fournisseurs cibles utilisent **Scope name = `om3-mcp`**, demandé dans `auth.yaml`, et obtiennent les droits via `user.app_entitlements(provider.application)`. Le mapping d'audience MCP n'est attaché qu'au fournisseur entrant `om3-mcp`.
 
@@ -197,10 +220,10 @@ Le code effectue un échange par appel métier, sans cache de tokens aval ni ref
 
 #### Retours de recette et points ouverts
 
-- `list_clusters` a retourné les clusters configurés ; aucun échange ni appel daemon n'est nécessaire pour cette découverte. Le cas d'un cluster configuré mais interdit à l'utilisateur reste à tester.
+- `list_clusters` a retourné les clusters configurés ; aucun échange ni appel daemon n'est nécessaire pour cette découverte. Avec `mcp-test`, dev3 reste visible alors que son statut est refusé faute de grants : comportement V1 validé.
 - Le 403 initial de dev5 a été résolu en alignant les scopes demandés avec les mappings d'entitlements. Le nom du mapping et son champ **Scope name** sont distincts.
 - Sur dev3, une découverte OpenID en 404 lors du rechargement avait entraîné l'abandon de la stratégie `jwt-openid`, bien que `/api/auth/info` annonce l'issuer configuré. L'appel a ensuite réussi. Suivre côté daemon la reprise après échec temporaire de découverte et la distinction entre configuration et stratégie opérationnelle.
-- Le 8 octobre, l'opérateur a confirmé **Access token validity = 5 minutes** pour le fournisseur entrant `om3-mcp`. Les 24 heures de la prévisualisation ne décrivent pas la durée du token réellement émis. La politique de durée, le renouvellement (`offline_access` pour obtenir un refresh token authentik) et la révocation restent ouverts.
+- Le 8 octobre, l'opérateur a confirmé **Access token validity = 5 minutes** pour le fournisseur entrant `om3-mcp`. Les 24 heures de la prévisualisation ne décrivent pas la durée du token réellement émis. Le renouvellement via `offline_access` et la suppression des refresh tokens ont ensuite été testés avec succès ; la politique de durée pour les clients reste à définir.
 - Le token entrant reste uniquement dans le contexte mémoire de la requête MCP ; aucun stockage utilisateur persistant. Le cache de clés publiques de cinq minutes est indépendant de la validité du token.
 
 ### 4. Découvrir et résoudre les cibles
@@ -212,31 +235,86 @@ Le code effectue un échange par appel métier, sans cache de tokens aval ni ref
 - [x] Résoudre `cluster_id → endpoint + profil + audience` indépendamment du nodename.
 - [x] Valider le token et la cible de chaque appel ; transmettre les refus du SSO ou du daemon, y compris si le client fournit directement un UUID.
 - [x] Garder les credentials et la cible dans un contexte propre à chaque appel, sans état utilisateur partagé.
-- [ ] Définir les erreurs : cluster inaccessible ou inconnu, nom ambigu, nœud absent, échange refusé, daemon indisponible.
+- [x] Tester localement les erreurs de cluster inconnu, nœud absent, échange refusé, daemon indisponible et timeout via le transport MCP réel ; les noms ambigus restent listés avec leurs UUID distincts.
+- [ ] Finaliser le contrat des erreurs et sa recette lab, notamment les clarifications du LLM sur un nom ambigu.
 
 ### 5. Valider authentik et Keycloak
 
 - [ ] Établir une configuration reproductible authentik : clients, relations de confiance, audience et mappings.
 - [ ] Établir une configuration reproductible Keycloak : clients, audience du token entrant, échange standard, scopes, mappings et restrictions.
-- [ ] Vérifier pour chaque produit les deux étapes : connexion OAuth au MCP et échange vers le daemon.
+- [x] Vérifier les deux étapes sur authentik de lab : connexion OAuth au MCP et échange vers les daemons dev5/dev3.
+- [ ] Vérifier ces deux étapes sur Keycloak.
 - [ ] Documenter les versions testées, fonctionnalités requises et éventuelles différences de configuration.
 - [ ] Documenter le contrat permettant d'intégrer un autre serveur d'autorisation ; ne pas annoncer une compatibilité universelle non testée.
 
 ### 6. Recette de bout en bout
 
 - [x] Connecter Codex avec OAuth, sans lui fournir de JWT daemon ; découverte des outils validée au lab.
-- [ ] Découvrir tous les clusters configurés avec un token MCP valide, y compris ceux dont une opération sera ensuite refusée par le SSO ou le daemon.
+- [x] Découvrir dev5 et dev3 avec `mcp-test`, sans grants puis avec guest sur dev5 seulement ; dev3 reste visible malgré le refus de son statut.
 - [x] Lire dev5n1/dev5 et dev3n1/dev3 avec le même token MCP ; résultats des deux clusters confirmés dans un même prompt le 7 octobre 2026.
 - [ ] Vérifier les clarifications du LLM lorsque le cluster ou le nœud requis manque, ou que le nom du cluster est ambigu.
-- [ ] Vérifier le cas de deux nœuds homonymes dans deux clusters.
-- [ ] Vérifier la propagation d'un refus d'échange ou d'un refus de grants du daemon, même si l'UUID est fourni directement.
-- [ ] Vérifier que tous les outils actuels sont exposés et que les grants du token aval déterminent leur exécution au daemon, sans scope métier MCP.
-- [ ] Refuser un token expiré, altéré ou destiné à une autre ressource.
+- [x] Vérifier localement deux nœuds homonymes dans deux clusters ; les UUID sélectionnent bien les résultats et les tokens distincts.
+- [ ] Reproduire le scénario de nœuds homonymes au lab avec un client LLM.
+- [x] Vérifier la propagation des refus de grants du daemon (403 statut et configuration) et d'un refus SSO (`invalid_grant`) sans appel daemon ; les outils ciblent des UUID explicites. La cause exacte de l'incident SSO n'a pas été établie par logs.
+- [x] Valider guest/root sur `get_cluster_status`, `get_node_status`, `get_cluster_config` et `get_node_config` (403 sans root, 8 octobre), sans scope métier MCP.
+- [ ] Compléter la matrice d'autorisations sur les autres outils ; ne pas extrapoler ces trois opérations à tout le catalogue.
+- [x] Observer la perte d'accès après expiration sans refresh token et la reprise après login, côté Codex. Les tests locaux couvrent le rejet serveur des JWT expirés, altérés et de mauvaise audience.
+- [ ] Compléter la recette directe contre le MCP déployé pour ces JWT invalides ; le message Codex seul ne prouve pas qu'une requête a atteint le serveur.
 - [ ] Vérifier que le token MCP n'est pas accepté directement par le daemon et que le client externe ne peut pas effectuer l'échange réservé au MCP.
-- [ ] Vérifier que les appels simultanés vers plusieurs clusters ne mélangent ni identité, ni cible, ni token.
-- [ ] Restituer les succès partiels si l'un des clusters est indisponible, sans masquer l'échec ni changer de cible.
-- [ ] Vérifier l'absence de credentials dans les sorties et journaux.
+- [x] Vérifier localement, avec le SDK MCP et `-race`, les appels simultanés de deux utilisateurs vers deux clusters sans mélange d’identité, de cible ou de token.
+- [ ] Compléter cette vérification sur le déploiement réel et sous charge représentative.
+- [x] Vérifier localement que les appels simultanés renvoient séparément le succès du cluster sain et l'erreur du cluster défaillant, sans repli ni redirection.
+- [ ] Valider la synthèse des succès partiels par le LLM sur un scénario de panne lab contrôlé.
+- [ ] Vérifier l'absence de credentials dans les sorties et journaux. Couvert localement ; journaux `opensvc-mcp` du déploiement dev5 vérifiés sans JWT ni secret le 8 octobre, à étendre aux autres journaux.
 - [ ] Évaluer la découverte et le routage avec un catalogue représentatif de 800 clusters.
+
+### Recette locale de robustesse du 8 octobre 2026
+
+Tests exécutés par l'agent dans un environnement isolé : faux SSO HTTPS et deux faux daemons HTTPS, véritable gestionnaire MCP et SDK client. Aucun changement ni interruption des services du lab. Nouveau fichier : `cmd/om3-mcp/exchange_failures_test.go` (`TestOAuthExchangeFailureIsolation`), en complément de `TestOAuthExchangeMultiClusterTools`.
+
+| Scénario | Résultat vérifié |
+|---|---|
+| Deux clusters de même nom, nœuds homonymes | `list_clusters` conserve les deux UUID ; le nom de cluster seul n'est pas accepté comme UUID et ne déclenche aucun appel SSO/daemon |
+| Cluster inconnu ou paramètre manquant | Refus avant échange, couvert également par les tests existants |
+| Nœud absent du statut du cluster sélectionné | Erreur explicite ; aucun essai sur l'autre cluster |
+| Daemon b répond 503, appel a simultané | Erreur de b conservée et résultat de a réussi ; aucun repli |
+| Daemon b dépasse son timeout d'une seconde | Erreur `Client.Timeout` de b et résultat de a réussi ; requêtes bornées |
+| Daemon b redirige vers a (307) | Redirection refusée, aucune transmission du token de b à a |
+| Endpoint d'échange répond 503 | Catalogue toujours accessible avec les clés entrantes en cache ; les deux appels métier échouent avant tout appel daemon, sans exposition du corps SSO |
+| Rétablissement du endpoint d'échange | Appel métier réussi dans la même session MCP |
+| Fermeture du serveur daemon b | Erreur réseau explicite ; a reste accessible ; aucun changement de cible |
+
+Les assertions vérifient les compteurs d'appels, l'association token/cible et l'absence des tokens de test, du secret client et des détails privés du SSO dans les résultats. La suite complète `go test -race ./...`, `go vet ./...` et `git diff --check` passent. Une assertion initiale de timeout a été ajustée au libellé `Client.Timeout` renvoyé par Go ; aucune modification du code de production n'a été nécessaire.
+
+Ces tests démontrent l'isolation des résultats au niveau MCP, pas la synthèse du LLM. Ils ne valident ni une panne réelle du lab, ni une panne du SSO avec cache JWKS expiré, ni le comportement sous charge. La découverte SSO sous forte concurrence reste un point de robustesse distinct.
+
+## Position actuelle du chantier
+
+- **Étape 1 : contrats fixés.**
+- **Étape 2 : parcours Codex/authentik et cycle de vie testés au lab.** La politique de durée et de révocation pour les clients reste ouverte.
+- **Étape 3 : échange et application des grants validés sur les opérations testées.** Traçabilité implémentée et validée au lab ; aucun cache de tokens n'est prévu en V1.
+- **Étape 4 : découverte et routage implémentés, scénario dev5/dev3 validé.** Les erreurs de cible et de disponibilité sont couvertes localement ; restent leur recette lab et les clarifications du LLM.
+- **Étape 5 : authentik validé fonctionnellement ; Keycloak non testé.** Formaliser la reproduction et relever les versions réellement déployées.
+- **Étape 6 : recette nominale, droits et cycle de vie validés dans le périmètre décrit.** Poursuivre les cas de robustesse, la matrice des autres outils, les contrôles directs de sécurité et la charge représentative.
+
+Prochaine séquence proposée : recette LLM des ambiguïtés et succès partiels, puis recette de charge et validation Keycloak.
+
+Mise à jour du 8 octobre 2026 (après-midi), sans changement distant :
+
+- Découverte du endpoint d'échange : une seule requête partagée par profil, effectuée hors mutex ; chaque appel en attente reste borné par son propre contexte ; un échec est réutilisé cinq secondes avant nouvel essai ; l'annulation propre à un appelant n'est pas mémorisée comme panne SSO. Test : `TestExchangeDiscoverySharedAndBounded`.
+- Traçabilité : middleware `cmd/om3-mcp/audit.go`, une ligne par `tools/call` avec `tool`, `cluster_id`, `issuer`, `subject`, `client_id` (`client_id` ou `azp`), `exchange`, `daemon_subject`, `outcome`, `detail` borné et `duration`. Assertions ajoutées à `TestOAuthExchangeMultiClusterTools`, y compris l'absence de JWT, secret client et description SSO dans les logs.
+- Claude Code ajouté comme second client externe, avec le client public `om3-mcp` existant : `claude mcp add-json --scope user opensvc-mcp '{"type":"http","url":"https://dev5-vip.opensvc.com:8443/mcp","oauth":{"clientId":"om3-mcp","callbackPort":8766,"scopes":"om3-mcp offline_access"}}'`, redirect URI `http://localhost:8766/callback` acceptée par la regex loopback du fournisseur. Les scopes doivent être fixés, le MCP n'en annonçant aucun. Login, outils et appel daemon validés par l'opérateur.
+- Recette lab de l'audit, binaire déployé sur dev5n1 à 13:37, logs journald `opensvc-mcp`, depuis Claude Code :
+
+| Cas | Ligne d'audit observée |
+|---|---|
+| `list_clusters` | `exchange=none outcome=ok`, `cluster_id` vide |
+| `get_node_status` dev5 | `exchange=ok outcome=ok`, `daemon_subject` renseigné, 544 ms |
+| `cluster_id` inventé | `exchange=none outcome=tool_error`, `detail="Unknown cluster_id…"`, aucun échange ni appel daemon |
+| `get_node_config` sans root | `exchange=ok outcome=tool_error`, `detail` avec HTTP 403 `need one of [root] grant` |
+
+  `client_id=om3-mcp` provient de `azp` : Codex et Claude Code partagent ce client et ne sont pas distingués. Le `sub` haché authentik est identique dans le token entrant et le token daemon, ce qui permet la corrélation avec les logs daemon mais reste illisible sans authentik ; l'ajout de `preferred_username` reste à décider. Aucune occurrence de `eyJ`, `Bearer` ou `client_secret` dans les logs depuis le déploiement. Appel Codex avec ce binaire non retesté.
+- Reste ouvert : le cache JWKS entrant garde encore son mutex pendant l'appel réseau, limité à une tentative toutes les 30 secondes et à 5 secondes par requête ; à réévaluer lors de la recette de charge.
 
 ## V2 — Restrictions à réexaminer
 

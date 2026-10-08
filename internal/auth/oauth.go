@@ -57,6 +57,7 @@ func httpsURL(value string) (*url.URL, error) {
 type OAuthIdentity struct {
 	Issuer    string
 	Subject   string
+	ClientID  string // client_id (RFC 9068) or azp claim, for audit only; may be empty
 	ExpiresAt time.Time
 	Resource  string
 }
@@ -159,7 +160,11 @@ func (v *OAuthVerifier) verify(ctx context.Context, raw string) (OAuthIdentity, 
 	}
 	// Reject obviously invalid claims before contacting the issuer. Unverified
 	// claims never establish an identity or select an issuer, key URL or daemon.
-	var claims jwt.RegisteredClaims
+	var claims struct {
+		jwt.RegisteredClaims
+		ClientID string `json:"client_id"`
+		AZP      string `json:"azp"`
+	}
 	token, _, err := jwt.NewParser().ParseUnverified(raw, &claims)
 	if err != nil || token == nil {
 		return OAuthIdentity{}, errUnauthorized
@@ -191,7 +196,14 @@ func (v *OAuthVerifier) verify(ctx context.Context, raw string) (OAuthIdentity, 
 	}, options...); err != nil {
 		return OAuthIdentity{}, errUnauthorized
 	}
-	return OAuthIdentity{Issuer: claims.Issuer, Subject: claims.Subject, ExpiresAt: claims.ExpiresAt.Time, Resource: v.config.ResourceURL}, nil
+	clientID := claims.ClientID
+	if clientID == "" {
+		clientID = claims.AZP
+	}
+	if !validClaimText(clientID) {
+		clientID = ""
+	}
+	return OAuthIdentity{Issuer: claims.Issuer, Subject: claims.Subject, ClientID: clientID, ExpiresAt: claims.ExpiresAt.Time, Resource: v.config.ResourceURL}, nil
 }
 
 func (v *OAuthVerifier) Middleware(next http.Handler) http.Handler {

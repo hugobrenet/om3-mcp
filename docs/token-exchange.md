@@ -122,7 +122,11 @@ behavior remains a separate daemon/tool contract.
 
 ## Token lifetime and failures
 
-Only public discovery metadata is cached (five minutes). There is no exchanged
+Only public discovery metadata is cached (five minutes). Concurrent calls share
+one discovery request per profile, made without holding the lock; each waiter
+stays bounded by its own deadline. A failed discovery is reused for five seconds
+before a new attempt, so an SSO outage does not multiply discovery requests. A
+caller's own cancellation is not cached as an SSO failure. There is no exchanged
 token cache or refresh-token storage. One tool call can make several API requests
 with its own exchanged token. Its context expires at the earliest of the parent
 request deadline, incoming JWT expiry, outgoing JWT expiry and `expires_in`.
@@ -146,6 +150,29 @@ or bodies. A refused exchange stops the call; a daemon refusal is returned using
 the existing API error contract. Temporary OAuth debug logging remains removed.
 Health and tool discovery continue to work while the SSO token endpoint or a
 daemon is unavailable, provided the incoming MCP JWT can still be verified.
+
+## Audit trail
+
+When exchange is configured, every `tools/call` emits one `INFO` line
+`mcp tool call` through the process logger (standard error), for example:
+
+```text
+2026/10/08 13:20:41 INFO mcp tool call tool=get_node_status cluster_id=3bc5a684-0f37-4504-9f50-4107ff8d1f24 issuer=https://labauthentik.opensvc.com/application/o/om3-mcp/ subject=<sub> client_id=om3-mcp exchange=ok daemon_subject=<sub> outcome=ok duration=212ms
+```
+
+| Field | Meaning |
+|---|---|
+| `tool`, `cluster_id` | Requested tool and target argument, bounded to 256 bytes; `cluster_id` is empty for `list_clusters` |
+| `issuer`, `subject` | Verified incoming MCP token identity |
+| `client_id` | Client application from the incoming `client_id` (RFC 9068) or `azp` claim; empty if absent |
+| `exchange` | `none` when no exchange was attempted (discovery, missing or unknown target), `ok`, or the safe error message returned to the client |
+| `daemon_subject` | Subject of the exchanged token, to correlate with daemon logs; subject modes may differ between providers |
+| `outcome`, `detail` | `ok`, `tool_error` (exchange refusal, daemon refusal such as HTTP 403, or validation error) or `error` (protocol error); `detail` is the bounded error text already returned to the client |
+| `duration` | Total call duration, including exchange and daemon requests |
+
+Tokens, secrets, raw arguments other than `cluster_id`, and tool results are
+never logged. Values come from verified claims or are quoted by the structured
+logger. Retention and shipping of these logs belong to the deployment.
 
 ## Portability and validation status
 

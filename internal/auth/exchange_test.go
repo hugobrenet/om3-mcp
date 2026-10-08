@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -198,16 +199,110 @@ func TestExchangeSecretFileAndDiscoveryTrust(t *testing.T) {
 		{"issuer": p.Issuer, "token_endpoint": p.Server.URL + "/token", "token_endpoint_auth_methods_supported": []string{"none"}},
 	} {
 		p.Metadata = metadata
+		profile.retry = time.Time{}
 		if _, err := profile.tokenEndpoint(t.Context()); err == nil {
 			t.Fatal("untrusted discovery accepted")
 		}
 	}
 	p.Metadata = map[string]any{"issuer": p.Issuer, "token_endpoint": p.Server.URL + "/token"}
+	profile.retry = time.Time{}
 	profile.client, err = oauthHTTPClient("", time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := profile.tokenEndpoint(t.Context()); err == nil {
 		t.Fatal("untrusted SSO certificate accepted")
+	}
+}
+
+func TestExchangeDiscoverySharedAndBounded(t *testing.T) {
+	var calls atomic.Int32
+	var fail atomic.Bool
+	gate := make(chan struct{})
+	var issuer string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		select {
+		case <-gate:
+		case <-r.Context().Done():
+			return
+		}
+		if fail.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"issuer": issuer, "token_endpoint": issuer + "token"})
+	}))
+	defer server.Close()
+	issuer = server.URL + "/"
+	profile := &exchangeProfile{settings: exchangeSettings{Issuer: issuer, Method: "client_secret_basic"}, client: server.Client()}
+
+	// A waiter is bounded by its own context while discovery is in flight.
+	started := make(chan struct{})
+	var wg sync.WaitGroup
+	results := make(chan error, 8)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		close(started)
+		_, err := profile.tokenEndpoint(t.Context())
+		results <- err
+	}()
+	<-started
+	for calls.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	if _, err := profile.tokenEndpoint(ctx); err == nil {
+		t.Fatal("waiter ignored its own deadline")
+	}
+	cancel()
+	for range 7 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := profile.tokenEndpoint(t.Context())
+			results <- err
+		}()
+	}
+	time.Sleep(20 * time.Millisecond)
+	close(gate)
+	wg.Wait()
+	close(results)
+	for err := range results {
+		if err != nil {
+			t.Fatalf("shared discovery failed: %v", err)
+		}
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("expected one shared discovery request, got %d", n)
+	}
+
+	// A failure is reused during the retry window, then discovery recovers.
+	profile.expires = time.Time{}
+	fail.Store(true)
+	for range 3 {
+		if _, err := profile.tokenEndpoint(t.Context()); err == nil {
+			t.Fatal("failed discovery accepted")
+		}
+	}
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("failure not reused: %d discovery requests", n)
+	}
+	fail.Store(false)
+	profile.retry = time.Now()
+	if endpoint, err := profile.tokenEndpoint(t.Context()); err != nil || endpoint != issuer+"token" {
+		t.Fatalf("discovery did not recover: %q %v", endpoint, err)
+	}
+
+	// A leader cancelled by its caller does not poison later calls.
+	profile.expires = time.Time{}
+	ctx, cancel = context.WithCancel(t.Context())
+	cancel()
+	if _, err := profile.tokenEndpoint(ctx); err == nil {
+		t.Fatal("cancelled discovery succeeded")
+	}
+	if _, err := profile.tokenEndpoint(t.Context()); err != nil {
+		t.Fatalf("caller cancellation was cached as an SSO failure: %v", err)
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -77,6 +78,9 @@ func TestOAuthExchangeMultiClusterTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var audit syncBuffer
+	defer func(logger *slog.Logger) { auditLogger = logger }(auditLogger)
+	auditLogger = slog.New(slog.NewTextHandler(&audit, nil))
 	h, err := newMCPHandler(config.Config{Clusters: catalog, Exchange: profiles, OAuth: auth.OAuthConfig{ResourceURL: resource, Issuer: p.Issuer, CAFile: p.CAFile}})
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +88,7 @@ func TestOAuthExchangeMultiClusterTools(t *testing.T) {
 	mcpServer := testutil.NewDaemon(t, h)
 	connect := func(user string) *mcp.ClientSession {
 		t.Helper()
-		token := p.Token(t, resource, user, nil)
+		token := p.Token(t, resource, user, func(c jwt.MapClaims) { c["azp"] = "codex-test" })
 		client := &http.Client{Transport: mcpBearerTransport{base: mcpServer.Server.Client().Transport, token: token, clusterID: "ignored-header", node: "ignored-node"}}
 		session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(t.Context(), &mcp.StreamableClientTransport{Endpoint: mcpServer.Server.URL + "/mcp", HTTPClient: client, DisableStandaloneSSE: true}, nil)
 		if err != nil {
@@ -180,4 +184,51 @@ func TestOAuthExchangeMultiClusterTools(t *testing.T) {
 	if !strings.Contains(string(data), "403") {
 		t.Fatal("daemon refusal not reported")
 	}
+
+	// One credential-free audit line per tool call.
+	logs := audit.String()
+	for _, secret := range []string{"eyJ", "secret-must-not-leak", "Bearer", "test-secret"} {
+		if strings.Contains(logs, secret) {
+			t.Fatalf("audit log contains credential material %q:\n%s", secret, logs)
+		}
+	}
+	for _, want := range [][]string{
+		{"tool=list_clusters", "cluster_id=\"\"", "subject=alice", "client_id=codex-test", "exchange=none", "outcome=ok"},
+		{"tool=get_node_status", "cluster_id=unknown", "exchange=none", "outcome=tool_error"},
+		{"tool=get_node_status", "cluster_id=cluster-b", "subject=bob", "exchange=ok", "daemon_subject=bob", "outcome=ok"},
+		{"cluster_id=cluster-a", "subject=alice", `exchange="Token exchange refused by SSO (invalid_target)."`, "daemon_subject=\"\"", "outcome=tool_error"},
+		{"cluster_id=cluster-a", "subject=denied", "exchange=ok", "daemon_subject=denied", "outcome=tool_error", "403"},
+	} {
+		found := false
+		for _, line := range strings.Split(logs, "\n") {
+			matched := strings.Contains(line, "msg=\"mcp tool call\"")
+			for _, field := range want {
+				matched = matched && strings.Contains(line, " "+field)
+			}
+			found = found || matched
+		}
+		if !found {
+			t.Errorf("missing audit line with %v in:\n%s", want, logs)
+		}
+	}
+	if n := strings.Count(logs, "msg=\"mcp tool call\""); n != 14 {
+		t.Errorf("expected 14 audited tool calls, got %d", n)
+	}
+}
+
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

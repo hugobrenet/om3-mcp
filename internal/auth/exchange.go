@@ -45,7 +45,15 @@ type exchangeProfile struct {
 	mu       sync.Mutex
 	endpoint string
 	expires  time.Time
+	pending  chan struct{} // closed when the shared discovery request ends
+	lastErr  error
+	retry    time.Time
 }
+
+const (
+	exchangeDiscoveryLifetime = 5 * time.Minute
+	exchangeDiscoveryRetry    = 5 * time.Second
+)
 
 // LoadExchangeProfiles loads a local snapshot, without contacting the SSO.
 func LoadExchangeProfiles(path string) (*ExchangeProfiles, error) {
@@ -153,12 +161,52 @@ func (p *ExchangeProfiles) Has(name string) bool {
 	return ok
 }
 
+// tokenEndpoint shares one discovery request between concurrent calls. The
+// network request runs without the lock; waiters remain bounded by their own
+// context. A failure is reused briefly so an SSO outage does not turn every
+// tool call into a new discovery request.
 func (p *exchangeProfile) tokenEndpoint(ctx context.Context) (string, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if time.Now().Before(p.expires) {
-		return p.endpoint, nil
+	for {
+		p.mu.Lock()
+		now := time.Now()
+		if now.Before(p.expires) {
+			endpoint := p.endpoint
+			p.mu.Unlock()
+			return endpoint, nil
+		}
+		if now.Before(p.retry) {
+			err := p.lastErr
+			p.mu.Unlock()
+			return "", err
+		}
+		if p.pending == nil {
+			done := make(chan struct{})
+			p.pending = done
+			p.mu.Unlock()
+			endpoint, err := p.discover(ctx)
+			p.mu.Lock()
+			p.pending = nil
+			if err == nil {
+				p.endpoint, p.expires = endpoint, time.Now().Add(exchangeDiscoveryLifetime)
+			} else if ctx.Err() == nil {
+				// A caller's own cancellation says nothing about the SSO.
+				p.lastErr, p.retry = err, time.Now().Add(exchangeDiscoveryRetry)
+			}
+			p.mu.Unlock()
+			close(done)
+			return endpoint, err
+		}
+		done := p.pending
+		p.mu.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return "", errors.New("Token exchange discovery unavailable.")
+		}
 	}
+}
+
+func (p *exchangeProfile) discover(ctx context.Context) (string, error) {
 	var metadata struct {
 		Issuer   string   `json:"issuer"`
 		Endpoint string   `json:"token_endpoint"`
@@ -188,8 +236,7 @@ func (p *exchangeProfile) tokenEndpoint(ctx context.Context) (string, error) {
 	if len(metadata.Methods) > 0 && !slices.Contains(metadata.Methods, p.settings.Method) {
 		return "", errors.New("Token exchange client authentication method is not supported by the SSO.")
 	}
-	p.endpoint, p.expires = metadata.Endpoint, time.Now().Add(5*time.Minute)
-	return p.endpoint, nil
+	return metadata.Endpoint, nil
 }
 
 type exchangedContextKey struct{}
@@ -210,17 +257,29 @@ func ExchangedFromContext(ctx context.Context) (clusterID, token string, ok bool
 // Prepare exchanges the authenticated MCP token once for one tool call. Target
 // values must come from the administrator catalogue, never raw tool arguments.
 func (p *ExchangeProfiles) Prepare(ctx context.Context, profile, audience, clusterID string) (context.Context, context.CancelFunc, error) {
+	exchanged, cancel, subject, err := p.prepare(ctx, profile, audience, clusterID)
+	if trace, ok := ctx.Value(callTraceKey{}).(*CallTrace); ok {
+		if err != nil {
+			trace.Exchange = err.Error()
+		} else {
+			trace.Exchange, trace.DaemonSubject = "ok", subject
+		}
+	}
+	return exchanged, cancel, err
+}
+
+func (p *ExchangeProfiles) prepare(ctx context.Context, profile, audience, clusterID string) (context.Context, context.CancelFunc, string, error) {
 	identity, subject, ok := OAuthFromContext(ctx)
 	if !ok {
-		return nil, nil, errors.New("Token exchange requires authenticated MCP credentials.")
+		return nil, nil, "", errors.New("Token exchange requires authenticated MCP credentials.")
 	}
 	if !p.Has(profile) || !validClaimText(audience) || !validClaimText(clusterID) {
-		return nil, nil, errors.New("Token exchange target is not configured.")
+		return nil, nil, "", errors.New("Token exchange target is not configured.")
 	}
 	s := p.profiles[profile]
 	endpoint, err := s.tokenEndpoint(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	form := url.Values{
 		"grant_type":    {"urn:ietf:params:oauth:grant-type:token-exchange"},
@@ -236,7 +295,7 @@ func (p *ExchangeProfiles) Prepare(ctx context.Context, profile, audience, clust
 	}
 	r, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
-		return nil, nil, errors.New("Token exchange request could not be constructed.")
+		return nil, nil, "", errors.New("Token exchange request could not be constructed.")
 	}
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.Header.Set("Accept", "application/json")
@@ -245,12 +304,12 @@ func (p *ExchangeProfiles) Prepare(ctx context.Context, profile, audience, clust
 	}
 	resp, err := s.client.Do(r)
 	if err != nil {
-		return nil, nil, errors.New("Token exchange request failed or timed out.")
+		return nil, nil, "", errors.New("Token exchange request failed or timed out.")
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxOAuthDocumentBytes+1))
 	if err != nil || len(data) > maxOAuthDocumentBytes {
-		return nil, nil, errors.New("Token exchange response is unreadable or too large.")
+		return nil, nil, "", errors.New("Token exchange response is unreadable or too large.")
 	}
 	if resp.StatusCode != http.StatusOK {
 		// Never echo error_description, upstream body, endpoint or credentials.
@@ -260,9 +319,9 @@ func (p *ExchangeProfiles) Prepare(ctx context.Context, profile, audience, clust
 		_ = json.Unmarshal(data, &problem)
 		switch problem.Code {
 		case "invalid_grant", "invalid_target", "invalid_scope", "invalid_client", "unauthorized_client", "unsupported_grant_type", "invalid_request", "access_denied":
-			return nil, nil, fmt.Errorf("Token exchange refused by SSO (%s).", problem.Code)
+			return nil, nil, "", fmt.Errorf("Token exchange refused by SSO (%s).", problem.Code)
 		default:
-			return nil, nil, errors.New("Token exchange failed at the SSO.")
+			return nil, nil, "", errors.New("Token exchange failed at the SSO.")
 		}
 	}
 	var result struct {
@@ -272,14 +331,14 @@ func (p *ExchangeProfiles) Prepare(ctx context.Context, profile, audience, clust
 		Expires    *int64 `json:"expires_in"`
 	}
 	if json.Unmarshal(data, &result) != nil || !strings.EqualFold(result.Type, "Bearer") || result.IssuedType != accessTokenType || result.Token == subject || len(result.Token) > maxTokenBytes {
-		return nil, nil, errors.New("Token exchange returned an invalid access-token response.")
+		return nil, nil, "", errors.New("Token exchange returned an invalid access-token response.")
 	}
 	// ParseUnverified does not decode the signature segment. Validate the compact
 	// token alphabet too, so an invalid Authorization header cannot cause an HTTP
 	// transport error that quotes the credential back into a tool result.
 	for _, c := range result.Token {
 		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
-			return nil, nil, errors.New("Token exchange returned an invalid compact JWT.")
+			return nil, nil, "", errors.New("Token exchange returned an invalid compact JWT.")
 		}
 	}
 	// The authenticated SSO response is checked for target and lifetime before
@@ -288,11 +347,11 @@ func (p *ExchangeProfiles) Prepare(ctx context.Context, profile, audience, clust
 	token, _, err := jwt.NewParser().ParseUnverified(result.Token, &claims)
 	if err != nil || token == nil || !openIDSigningMethod(token.Method.Alg()) || !validClaimText(claims.Subject) || !validClaimText(claims.Issuer) ||
 		jwt.NewValidator(jwt.WithAudience(audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt()).Validate(&claims) != nil {
-		return nil, nil, errors.New("Token exchange returned a JWT with invalid target or lifetime.")
+		return nil, nil, "", errors.New("Token exchange returned a JWT with invalid target or lifetime.")
 	}
 	// Refuse a token that would still be usable as the MCP credential.
 	if identity.Resource == "" || slices.Contains(claims.Audience, identity.Resource) {
-		return nil, nil, errors.New("Token exchange did not separate MCP and daemon audiences.")
+		return nil, nil, "", errors.New("Token exchange did not separate MCP and daemon audiences.")
 	}
 	deadline := claims.ExpiresAt.Time
 	if identity.ExpiresAt.Before(deadline) {
@@ -300,7 +359,7 @@ func (p *ExchangeProfiles) Prepare(ctx context.Context, profile, audience, clust
 	}
 	if result.Expires != nil {
 		if *result.Expires <= 0 || *result.Expires > int64((365*24*time.Hour)/time.Second) {
-			return nil, nil, errors.New("Token exchange returned an invalid lifetime.")
+			return nil, nil, "", errors.New("Token exchange returned an invalid lifetime.")
 		}
 		if end := time.Now().Add(time.Duration(*result.Expires) * time.Second); end.Before(deadline) {
 			deadline = end
@@ -308,5 +367,5 @@ func (p *ExchangeProfiles) Prepare(ctx context.Context, profile, audience, clust
 	}
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	ctx = context.WithValue(ctx, exchangedContextKey{}, exchangedCredential{clusterID: clusterID, token: result.Token, expires: deadline})
-	return ctx, cancel, nil
+	return ctx, cancel, claims.Subject, nil
 }

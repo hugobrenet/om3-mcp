@@ -75,7 +75,9 @@ a local daemon dependency, or authentication logic in core/tool handlers.
 - SSO TLS uses system roots or an explicit PEM bundle. Daemon TLS settings
   retain their existing semantics and do not change SSO TLS verification.
 - User tokens are never stored in sessions, shared clients, logs, tool data or
-  persistent storage. Confidential client secrets are snapshotted from protected
+  persistent storage. The `cmd/om3-mcp/audit.go` middleware logs one
+  credential-free line per tool call (identity, client, cluster, tool, exchange
+  and call outcomes); keep it free of tokens, secrets and tool results. Confidential client secrets are snapshotted from protected
   files at startup; only public keys and discovery metadata are cached. Bound
   each call by incoming and exchanged token expiry; never rewrite SSO grants.
 - No embedded authorization server or refresh-token storage. External clients

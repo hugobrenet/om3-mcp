@@ -150,6 +150,7 @@ func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catal
 	}
 	if router != nil {
 		registrar.SetClusterRouter(router)
+		server.AddReceivingMiddleware(auditToolCalls)
 		if err := tools.RegisterCatalogTool(registrar, catalog); err != nil {
 			return nil, err
 		}

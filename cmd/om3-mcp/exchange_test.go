@@ -59,7 +59,7 @@ func TestOAuthExchangeMultiClusterTools(t *testing.T) {
 				w.WriteHeader(401)
 				return
 			}
-			if r.Header.Get(auth.ClusterIDHeader) != "" || r.Header.Get(auth.NodeHeader) != "" {
+			if r.Header.Get(auth.ClusterIDHeader) != "" || r.Header.Get("X-OpenSVC-Node") != "" {
 				t.Error("legacy target headers leaked")
 			}
 			if claims.Subject == "denied" {
@@ -70,7 +70,7 @@ func TestOAuthExchangeMultiClusterTools(t *testing.T) {
 		}))
 		clusters[id] = map[string]any{"name": "dev" + id, "cluster_id": "cluster-" + id, "endpoint": d.Server.URL, "auth": map[string]string{"profile": "test-sso", "audience": "daemon-" + id}, "request_timeout": "2s", "tls": map[string]string{"ca_file": d.CAFile}}
 	}
-	catalog, err := clusterconfig.Load(testutil.WriteYAML(t, map[string]any{"version": 3, "clusters": clusters}))
+	catalog, err := clusterconfig.Load(testutil.WriteYAML(t, map[string]any{"clusters": clusters}))
 	if err != nil {
 		t.Fatal(err)
 	}

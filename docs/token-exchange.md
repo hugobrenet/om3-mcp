@@ -155,7 +155,7 @@ lifetimes with client-side renewal bound this window.
 
 ## Audit trail
 
-When exchange is configured, every `tools/call` emits one `INFO` line
+When exchange is configured, and always on the Unix socket, every `tools/call` emits one `INFO` line
 `mcp tool call` through the process logger (standard error), for example:
 
 ```text
@@ -167,7 +167,7 @@ INFO mcp tool call tool=get_node_status cluster_id=00000000-0000-4000-8000-00000
 | `tool`, `cluster_id` | Requested tool and target argument, bounded to 256 bytes; `cluster_id` is empty for `list_clusters` |
 | `issuer`, `subject` | Verified incoming MCP token identity |
 | `client_id` | Client application from the incoming `client_id` (RFC 9068) or `azp` claim; empty if absent |
-| `exchange` | `none` when no exchange was attempted (discovery, missing or unknown target), `ok`, or the safe error message returned to the client |
+| `exchange` | `none` when no exchange was attempted (discovery, missing or unknown target), `ok`, the safe error message returned to the client, or `delegated` on the [Unix socket](delegation.md) |
 | `daemon_subject` | Subject of the exchanged token, to correlate with daemon logs; subject modes may differ between providers |
 | `outcome`, `detail` | `ok`, `tool_error` (exchange refusal, daemon refusal such as HTTP 403, or validation error) or `error` (protocol error); `detail` is the bounded error text already returned to the client |
 | `duration` | Total call duration, including exchange and daemon requests |

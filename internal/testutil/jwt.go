@@ -8,9 +8,11 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func AccessToken(t testing.TB, key *rsa.PrivateKey, id, issuer, subject string, change func(jwt.MapClaims)) string {
+// AccessToken represents a daemon-issued native token. Like the daemon, it
+// carries no cluster claim: the request header names the issuing cluster.
+func AccessToken(t testing.TB, key *rsa.PrivateKey, issuer, subject string, change func(jwt.MapClaims)) string {
 	t.Helper()
-	claims := jwt.MapClaims{"cluster_id": id, "iss": issuer, "sub": subject, "exp": time.Now().Add(time.Hour).Unix(), "token_use": "access", "grant": []string{"guest:" + subject}}
+	claims := jwt.MapClaims{"iss": issuer, "sub": subject, "exp": time.Now().Add(time.Hour).Unix(), "token_use": "access", "grant": []string{"guest:" + subject}}
 	if change != nil {
 		change(claims)
 	}

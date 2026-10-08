@@ -14,7 +14,7 @@ func TestCatalogueDiscoveryPaginationAndNoPrivateFields(t *testing.T) {
 	for _, id := range []string{"a", "b", "c"} {
 		clusters[id] = map[string]any{"name": "dev" + id, "cluster_id": id, "endpoint": "https://private.test", "auth": map[string]string{"profile": "private-profile", "audience": "private-audience"}, "request_timeout": "20s"}
 	}
-	c, err := clusterconfig.Load(testutil.WriteYAML(t, map[string]any{"version": 3, "clusters": clusters}))
+	c, err := clusterconfig.Load(testutil.WriteYAML(t, map[string]any{"clusters": clusters}))
 	if err != nil {
 		t.Fatal(err)
 	}

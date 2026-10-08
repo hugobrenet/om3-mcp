@@ -33,9 +33,16 @@ func auditToolCalls(next mcp.MethodHandler) mcp.MethodHandler {
 			ClusterID string `json:"cluster_id"`
 		}
 		_ = json.Unmarshal(call.Params.Arguments, &target)
-		exchange := trace.Exchange
+		exchange, daemonSubject := trace.Exchange, trace.DaemonSubject
 		if exchange == "" {
 			exchange = "none"
+		}
+		// On the Unix socket, the cluster comes from the header and the daemon
+		// receives the caller's token unchanged. Its claims are verified by the
+		// daemon on each call: a refused call may log unverified claims.
+		if delegation, _, ok := auth.DelegationFromContext(ctx); ok {
+			identity.Issuer, identity.Subject = delegation.Issuer, delegation.Subject
+			target.ClusterID, exchange, daemonSubject = delegation.ClusterID, "delegated", delegation.Subject
 		}
 		outcome, detail := "ok", ""
 		if err != nil {
@@ -56,7 +63,7 @@ func auditToolCalls(next mcp.MethodHandler) mcp.MethodHandler {
 			slog.String("subject", identity.Subject),
 			slog.String("client_id", identity.ClientID),
 			slog.String("exchange", auditValue(exchange)),
-			slog.String("daemon_subject", trace.DaemonSubject),
+			slog.String("daemon_subject", daemonSubject),
 			slog.String("outcome", outcome),
 			slog.Duration("duration", time.Since(start).Round(time.Millisecond)),
 		}

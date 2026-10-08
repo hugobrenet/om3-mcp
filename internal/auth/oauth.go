@@ -53,7 +53,7 @@ func httpsURL(value string) (*url.URL, error) {
 }
 
 // OAuthIdentity is authenticated locally. It is deliberately separate from
-// legacy Delegation: an MCP access token must never reach a daemon transport.
+// delegated daemon tokens: an MCP access token must never reach a daemon.
 type OAuthIdentity struct {
 	Issuer    string
 	Subject   string
@@ -238,7 +238,7 @@ func (v *OAuthVerifier) Middleware(next http.Handler) http.Handler {
 		request := r.Clone(ctx)
 		request.Header.Del("Authorization")
 		request.Header.Del(ClusterIDHeader)
-		request.Header.Del(NodeHeader)
+		request.Header.Del(nodeHeader)
 		request.Body = http.MaxBytesReader(w, request.Body, maxMCPBodyBytes)
 		w.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, request)

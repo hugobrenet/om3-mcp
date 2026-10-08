@@ -79,7 +79,7 @@ func TestOAuthHTTPSDiscoveryInitializationAndToolBoundary(t *testing.T) {
 			if p.MetadataCalls.Load() != 0 {
 				t.Fatal("public discovery contacted SSO")
 			}
-			for _, token := range []string{"", testutil.AccessToken(t, p.Key, "cluster-a", "node-a", "alice", nil), p.Token(t, "om3-dev5", "alice", nil)} {
+			for _, token := range []string{"", testutil.AccessToken(t, p.Key, "node-a", "alice", nil), p.Token(t, "om3-dev5", "alice", nil)} {
 				r, _ := http.NewRequest("POST", origin+"/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
 				if token != "" {
 					r.Header.Set("Authorization", "Bearer "+token)
@@ -128,8 +128,8 @@ func TestOAuthHTTPSDiscoveryInitializationAndToolBoundary(t *testing.T) {
 				t.Fatal(err)
 			}
 			response.Body.Close()
-			if response.StatusCode != 501 {
-				t.Error("legacy daemon identity bridge still exposed")
+			if response.StatusCode != 404 {
+				t.Error("daemon identity bridge exposed on the HTTPS listener")
 			}
 			// Each HTTP request must authenticate again, regardless of prior login.
 			response, err = client.Get(origin + "/mcp")

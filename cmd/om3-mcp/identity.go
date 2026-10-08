@@ -11,10 +11,11 @@ import (
 )
 
 // serveWhoAmI is a narrow identity bridge, not an MCP tool or token issuer.
-// It proves native/OpenID authentication by asking the catalogue-selected daemon.
-func serveWhoAmI(api *client.RoutedClient) http.HandlerFunc {
+// It is served only on the delegated Unix socket, and proves native/OpenID
+// authentication by asking the daemon of the cluster named by the header.
+func serveWhoAmI(api *client.DelegatedClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		delegation, _, ok := auth.FromContext(r.Context())
+		delegation, _, ok := auth.DelegationFromContext(r.Context())
 		if !ok {
 			writeIdentityProblem(w, 401)
 			return
@@ -47,7 +48,7 @@ func serveWhoAmI(api *client.RoutedClient) http.HandlerFunc {
 			writeIdentityProblem(w, 401)
 			return
 		}
-		if _, _, ok := auth.FromContext(r.Context()); !ok {
+		if _, _, ok := auth.DelegationFromContext(r.Context()); !ok {
 			writeIdentityProblem(w, 401)
 			return
 		}

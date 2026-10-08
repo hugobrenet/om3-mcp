@@ -8,28 +8,32 @@ The OpenSVC daemon enforces the caller's grants.
 
 ## Status
 
-The HTTPS `/mcp` endpoint now implements external-client OAuth discovery and
-local JWT verification, with no business scopes. All existing tools are listed.
-With a version 3 catalogue and confidential SSO profiles, daemon tools require
-`cluster_id` and exchange the MCP token for a target-specific daemon token.
-`list_clusters` discovers every configured cluster. Without exchange
-configuration, daemon calls remain explicitly blocked.
+The MCP has two listeners, each with one authentication model:
 
-The previous native/OpenID passthrough middleware and daemon identity bridge
-are disconnected. Existing `om ai` / webapp integrations must be adjusted later.
-MCP-audience tokens are never forwarded directly to a daemon.
+- **HTTPS `/mcp`** for external agents: OAuth discovery and local JWT
+  verification, with no business scopes. For clusters configured with `auth`
+  and confidential SSO profiles, daemon tools require `cluster_id` and exchange
+  the MCP token for a target-specific daemon token. `list_clusters` discovers
+  those clusters. Without exchange configuration, daemon calls remain blocked.
+  MCP-audience tokens are never forwarded directly to a daemon.
+- **Local Unix socket** for OpenSVC components such as the AI agent behind
+  `om ai`: a daemon-issued token and an `X-OpenSVC-Cluster-ID` header are
+  forwarded unchanged to the cluster VIP, whose daemon verifies them. The
+  socket also serves the `whoami` identity bridge.
 
 See the [tool documentation](docs/tools/README.md) for inputs, outputs and usage.
 
 ## Requirements
 
 - Go 1.25.5 or later to build from source.
-- An OAuth/OIDC issuer publishing discovery metadata and public signing keys.
-- Access JWTs containing the configured MCP resource URL in their audience.
-- A server certificate and private key for HTTPS.
+- For HTTPS: an OAuth/OIDC issuer publishing discovery metadata and public
+  signing keys, access JWTs containing the configured MCP resource URL in their
+  audience, and a server certificate and private key.
+- For the Unix socket: a cluster catalogue and a socket directory shared with
+  the agent account.
 
-A daemon catalogue and confidential client secret are required for daemon calls.
-They can be omitted when testing incoming OAuth and tool discovery alone.
+A cluster catalogue is required for daemon calls, plus a confidential client
+secret for token exchange. HTTPS discovery alone needs neither.
 
 ## Build
 
@@ -53,6 +57,7 @@ This disables daemon certificate verification and is strongly discouraged in pro
 - [Configuration reference and deployment](docs/configuration.md)
 - [Authentication and client setup](docs/authentication.md)
 - [Token exchange and multi-cluster deployment](docs/token-exchange.md)
+- [Token delegation over the Unix socket](docs/delegation.md)
 - [Tools and shared contracts](docs/tools/README.md)
 
 ## Development

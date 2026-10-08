@@ -23,8 +23,8 @@ func TestHealthWithoutAuthenticationOrDaemonContact(t *testing.T) {
 	t.Cleanup(daemon.Close)
 	catalog, err := clusterconfig.Load(testutil.WriteCatalog(t, map[string]any{
 		"cluster-a": map[string]any{
-			"name": "Example cluster", "expected_cluster_id": "cluster-a",
-			"nodes": map[string]string{"node-a": daemon.URL}, "request_timeout": "1s",
+			"name": "Example cluster", "cluster_id": "cluster-a",
+			"endpoint": daemon.URL, "request_timeout": "1s",
 		},
 	}))
 	if err != nil {
@@ -91,7 +91,7 @@ func TestHealthWithoutAuthenticationOrDaemonContact(t *testing.T) {
 		{http.MethodDelete, "/health", http.StatusMethodNotAllowed},
 		{http.MethodGet, "/health/unknown", http.StatusNotFound},
 		{http.MethodPost, "/mcp", http.StatusUnauthorized},
-		{http.MethodGet, "/mcp/auth/whoami", http.StatusUnauthorized},
+		{http.MethodGet, "/mcp/auth/whoami", http.StatusNotFound},
 	} {
 		request := httptest.NewRequest(tc.method, tc.path, nil)
 		response := httptest.NewRecorder()

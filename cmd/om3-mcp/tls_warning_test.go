@@ -11,8 +11,8 @@ import (
 
 func TestStartupWarnsOnlyForExplicitInsecureTargets(t *testing.T) {
 	path := testutil.WriteCatalog(t, map[string]any{
-		"secure": map[string]any{"name": "Secure", "expected_cluster_id": "secure-id", "nodes": map[string]string{"node-a": "https://192.0.2.20:1215"}, "request_timeout": "2s"},
-		"demo":   map[string]any{"name": "Demo", "expected_cluster_id": "demo-id", "nodes": map[string]string{"node-a": "https://192.0.2.21:1215"}, "tls": map[string]any{"insecure": true}, "request_timeout": "2s"},
+		"secure": map[string]any{"name": "Secure", "cluster_id": "secure-id", "endpoint": "https://192.0.2.20:1215", "request_timeout": "2s"},
+		"demo":   map[string]any{"name": "Demo", "cluster_id": "demo-id", "endpoint": "https://192.0.2.21:1215", "tls": map[string]any{"insecure": true}, "request_timeout": "2s"},
 	})
 	catalog, err := clusterconfig.Load(path)
 	if err != nil {

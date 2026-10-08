@@ -47,29 +47,22 @@ func TestLoadSnapshotAndIndependentCopies(t *testing.T) {
 	if catalog.Len() != 2 || list[0].Ref != "cluster-a" || list[1].Ref != "cluster-b" {
 		t.Fatalf("unexpected catalogue order: %+v", list)
 	}
-	want, ok := catalog.Lookup("cluster-a")
-	if !ok || want.Name != "Example cluster" || want.RequestTimeout != 20*time.Second || want.ExpectedClusterID != "00000000-0000-4000-8000-000000000001" || !reflect.DeepEqual(want.Nodes, map[string]string{"node-a": "https://192.0.2.20:1215", "node-b": "https://192.0.2.21:1215"}) || len(want.CAPEM) == 0 {
+	want := list[0]
+	if want.Name != "Example cluster" || want.RequestTimeout != 20*time.Second || want.ID != "00000000-0000-4000-8000-000000000001" || want.Endpoint != "https://192.0.2.20:1215" || want.AuthProfile != "" || len(want.CAPEM) == 0 {
 		t.Fatal("loaded target lost its configuration")
 	}
 	// Neither consumers nor file replacement can alter the loaded snapshot.
 	list[0].Name = "changed"
-	list[0].Nodes["node-a"] = "https://other.example"
 	list[0].CAPEM[0] = '!'
-	copy, _ := catalog.Lookup("cluster-a")
-	copy.Nodes["node-a"] = "https://other.example"
-	copy.CAPEM[0] = '!'
 	if err := os.WriteFile(want.CAFile, []byte("replaced"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte("replaced"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := catalog.Lookup("cluster-a")
-	if !reflect.DeepEqual(got, want) {
+	want.Name, want.CAPEM = "Example cluster", catalog.List()[0].CAPEM
+	if got := catalog.List()[0]; !reflect.DeepEqual(got, want) || got.CAPEM[0] == '!' {
 		t.Fatal("catalogue changed after loading")
-	}
-	if _, ok := catalog.Lookup("unknown"); ok {
-		t.Fatal("unknown target resolved")
 	}
 	var absent *Catalog
 	if absent.Len() != 0 || absent.List() != nil {
@@ -80,24 +73,21 @@ func TestLoadSnapshotAndIndependentCopies(t *testing.T) {
 func TestLoadRejectsAmbiguousYAML(t *testing.T) {
 	base := string(fixture(t))
 	for name, data := range map[string]string{
-		"empty": "", "null": "null", "unsupported version": strings.Replace(base, "version: 2", "version: 1", 1),
-		"float version":        strings.Replace(base, "version: 2", "version: 2.0", 1),
-		"quoted version":       strings.Replace(base, "version: 2", `version: "1"`, 1),
-		"empty catalogue":      "version: 2\nclusters: {}\n",
+		"empty": "", "null": "null", "version field": "version: 3\n" + base,
+		"empty catalogue":      "clusters: {}\n",
 		"unknown field":        base + "secret: never-echo-this-value\n",
 		"unknown nested field": strings.Replace(base, "name:", "password: never-echo-this-value\n    name:", 1),
-		"duplicate field":      base + "version: 2\n",
+		"duplicate field":      base + "clusters: {}\n",
 		"duplicate cluster":    strings.Replace(base, "  cluster-a:\n", "  cluster-a: {}\n  cluster-a:\n", 1),
 		"duplicate name":       strings.Replace(base, "    name:", "    name: duplicate\n    name:", 1),
-		"another document":     base + "---\nversion: 2\n",
+		"another document":     base + "---\nclusters: {}\n",
 		"empty extra document": base + "---\n",
 		"non-string ref":       strings.Replace(base, "cluster-a:", "123:", 1),
 		"boolean name":         strings.Replace(base, "name: Example cluster", "name: true", 1),
-		"numeric ID":           strings.Replace(base, "expected_cluster_id: 00000000-0000-4000-8000-000000000001", "expected_cluster_id: 123", 1),
+		"numeric ID":           strings.Replace(base, "cluster_id: 00000000-0000-4000-8000-000000000001", "cluster_id: 123", 1),
 		"unknown TLS field":    strings.Replace(base, "    tls:\n", "    tls:\n      unknown: true\n", 1),
-		"numeric node":         strings.Replace(base, "node-a:", "42:", 1),
-		"duplicate node":       strings.Replace(base, "node-a:", "node-a: https://example.com\n      node-a:", 1),
 		"boolean endpoint":     strings.Replace(base, "https://192.0.2.20:1215", "true", 1),
+		"nodes field":          strings.Replace(base, "    name:", "    nodes:\n      node-a: https://192.0.2.20:1215\n    name:", 1),
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Load(writeConfig(t, []byte(data)))
@@ -115,14 +105,11 @@ func TestLoadRejectsInvalidTargets(t *testing.T) {
 		value any
 	}{
 		{"name", ""}, {"name", " padded "}, {"name", "line\nbreak"}, {"name", strings.Repeat("a", 129)},
-		{"expected_cluster_id", ""}, {"expected_cluster_id", " padded "},
-		{"nodes", map[string]string{}}, {"nodes", map[string]string{"node-a": "http://192.0.2.20:1215"}},
-		{"nodes", map[string]string{"node-a": "https://user:never-echo-this-value@192.0.2.20:1215"}},
-		{"nodes", map[string]string{"node-a": "https://192.0.2.20:1215", "node-b": "https://192.0.2.20:01215/"}},
-		{"nodes", map[string]string{"node-a": "https://EXAMPLE.COM:443/", "node-b": "https://example.com"}},
-		{"nodes", map[string]string{"": "https://example.com"}},
-		{"nodes", map[string]string{" padded ": "https://example.com"}},
-		{"nodes", map[string]string{"line\nbreak": "https://example.com"}},
+		{"cluster_id", ""}, {"cluster_id", " padded "}, {"cluster_id", strings.Repeat("a", 257)},
+		{"endpoint", ""}, {"endpoint", "http://192.0.2.20:1215"}, {"endpoint", "https://192.0.2.20:1215/api"},
+		{"endpoint", "https://user:never-echo-this-value@192.0.2.20:1215"},
+		{"auth", map[string]string{}}, {"auth", map[string]string{"profile": "sso"}}, {"auth", map[string]string{"audience": "daemon"}},
+		{"auth", map[string]string{"profile": "../sso", "audience": "daemon"}},
 		{"request_timeout", ""}, {"request_timeout", "0s"}, {"request_timeout", "500ms"}, {"request_timeout", "2m1s"},
 		{"tls", map[string]string{"ca_file": "relative.pem"}},
 		{"tls", map[string]string{"ca_file": filepath.Join(t.TempDir(), "absent.pem")}},

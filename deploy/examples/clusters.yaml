@@ -1,11 +1,12 @@
 # OPENSVC_MCP_CLUSTER_CONFIG_FILE=/etc/opensvc-mcp/clusters.yaml
 # Values are fictional. Keep actual deployment configuration outside Git.
-version: 3
 clusters:
   cluster-a:
     name: cluster-a
     cluster_id: 00000000-0000-4000-8000-000000000001
     endpoint: https://cluster-a-vip.example.com:1215
+    # Optional: token exchange for external agents on HTTPS. Without auth,
+    # the cluster is reachable only through the delegated Unix socket.
     auth:
       profile: customer-sso
       audience: opensvc-cluster-a

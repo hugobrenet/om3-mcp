@@ -12,72 +12,103 @@ import (
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 )
 
-const defaultListenAddress = "127.0.0.1:8443"
+const (
+	defaultListenAddress = "127.0.0.1:8443"
+	// maxUnixSocketPathBytes is the portable sun_path limit, including the NUL.
+	maxUnixSocketPathBytes = 103
+)
 
-// Config contains the runtime configuration of the HTTPS MCP server process.
+// Config contains the runtime configuration of the MCP server process. It has
+// two optional listeners, at least one of which is enabled: HTTPS for OAuth
+// external agents, and a local Unix socket for delegated OpenSVC tokens.
 type Config struct {
-	ListenAddress     string
-	TLSCertFile       string
-	TLSKeyFile        string
+	// HTTPS listener, enabled when TLSCertFile is set. It requires OAuth.
+	ListenAddress string
+	TLSCertFile   string
+	TLSKeyFile    string
+	OAuth         auth.OAuthConfig
+	Exchange      *auth.ExchangeProfiles
+	// DelegatedSocket enables the Unix socket listener. It requires a catalogue.
+	DelegatedSocket   string
 	Clusters          *clusterconfig.Catalog
 	ClusterConfigFile string
-	OAuth             auth.OAuthConfig
-	Exchange          *auth.ExchangeProfiles
 }
+
+func (c Config) HTTPSEnabled() bool { return c.TLSCertFile != "" }
 
 // Load reads and validates process configuration from environment variables.
 func Load() (Config, error) {
+	var cfg Config
+	cfg.TLSCertFile = strings.TrimSpace(os.Getenv("OPENSVC_MCP_TLS_CERT_FILE"))
+	cfg.TLSKeyFile = strings.TrimSpace(os.Getenv("OPENSVC_MCP_TLS_KEY_FILE"))
 	listenAddress := strings.TrimSpace(os.Getenv("OPENSVC_MCP_LISTEN_ADDR"))
-	if listenAddress == "" {
-		listenAddress = defaultListenAddress
-	}
-	if err := validateListenAddress(listenAddress); err != nil {
-		return Config{}, fmt.Errorf("parse OPENSVC_MCP_LISTEN_ADDR: %w", err)
-	}
-	certFile := strings.TrimSpace(os.Getenv("OPENSVC_MCP_TLS_CERT_FILE"))
-	keyFile := strings.TrimSpace(os.Getenv("OPENSVC_MCP_TLS_KEY_FILE"))
-	if !filepath.IsAbs(certFile) || !filepath.IsAbs(keyFile) {
-		return Config{}, fmt.Errorf("OPENSVC_MCP_TLS_CERT_FILE and OPENSVC_MCP_TLS_KEY_FILE must be absolute file paths")
-	}
-	clusterFile := strings.TrimSpace(os.Getenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE"))
-	var catalog *clusterconfig.Catalog
-	if clusterFile != "" {
-		var err error
-		catalog, err = clusterconfig.Load(clusterFile)
-		if err != nil {
-			return Config{}, fmt.Errorf("OPENSVC_MCP_CLUSTER_CONFIG_FILE: %w", err)
-		}
-	}
 	oauth := auth.OAuthConfig{
 		ResourceURL:  strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_RESOURCE_URL")),
 		ResourceName: strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_RESOURCE_NAME")),
 		Issuer:       strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_ISSUER")),
 		CAFile:       strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_CA_FILE")),
 	}
-	if err := oauth.Validate(); err != nil {
-		return Config{}, fmt.Errorf("OPENSVC_MCP_OAUTH configuration: %w", err)
+	exchangeFile := strings.TrimSpace(os.Getenv("OPENSVC_MCP_AUTH_CONFIG_FILE"))
+	if cfg.TLSCertFile != "" || cfg.TLSKeyFile != "" {
+		if !filepath.IsAbs(cfg.TLSCertFile) || !filepath.IsAbs(cfg.TLSKeyFile) {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_TLS_CERT_FILE and OPENSVC_MCP_TLS_KEY_FILE must be absolute file paths")
+		}
+		if listenAddress == "" {
+			listenAddress = defaultListenAddress
+		}
+		if err := validateListenAddress(listenAddress); err != nil {
+			return Config{}, fmt.Errorf("parse OPENSVC_MCP_LISTEN_ADDR: %w", err)
+		}
+		if err := oauth.Validate(); err != nil {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_OAUTH configuration: %w", err)
+		}
+		cfg.ListenAddress, cfg.OAuth = listenAddress, oauth
+	} else if listenAddress != "" || oauth != (auth.OAuthConfig{}) || exchangeFile != "" {
+		return Config{}, fmt.Errorf("OPENSVC_MCP_LISTEN_ADDR, OPENSVC_MCP_OAUTH_* and OPENSVC_MCP_AUTH_CONFIG_FILE require the HTTPS listener (OPENSVC_MCP_TLS_CERT_FILE and OPENSVC_MCP_TLS_KEY_FILE)")
 	}
-	var exchange *auth.ExchangeProfiles
-	if path := strings.TrimSpace(os.Getenv("OPENSVC_MCP_AUTH_CONFIG_FILE")); path != "" {
+	if socket := strings.TrimSpace(os.Getenv("OPENSVC_MCP_DELEGATED_SOCKET")); socket != "" {
+		path := filepath.Clean(socket)
+		if !filepath.IsAbs(path) || path == string(filepath.Separator) || len(path) > maxUnixSocketPathBytes {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_DELEGATED_SOCKET must be an absolute socket path of at most %d bytes", maxUnixSocketPathBytes)
+		}
+		cfg.DelegatedSocket = path
+	}
+	if !cfg.HTTPSEnabled() && cfg.DelegatedSocket == "" {
+		return Config{}, fmt.Errorf("configure the HTTPS listener (OPENSVC_MCP_TLS_CERT_FILE and OPENSVC_MCP_TLS_KEY_FILE), OPENSVC_MCP_DELEGATED_SOCKET, or both")
+	}
+	cfg.ClusterConfigFile = strings.TrimSpace(os.Getenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE"))
+	if cfg.ClusterConfigFile != "" {
 		var err error
-		exchange, err = auth.LoadExchangeProfiles(path)
+		cfg.Clusters, err = clusterconfig.Load(cfg.ClusterConfigFile)
+		if err != nil {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_CLUSTER_CONFIG_FILE: %w", err)
+		}
+	}
+	if cfg.DelegatedSocket != "" && cfg.Clusters == nil {
+		return Config{}, fmt.Errorf("OPENSVC_MCP_DELEGATED_SOCKET requires OPENSVC_MCP_CLUSTER_CONFIG_FILE")
+	}
+	if exchangeFile != "" {
+		if cfg.Clusters == nil {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_AUTH_CONFIG_FILE requires OPENSVC_MCP_CLUSTER_CONFIG_FILE")
+		}
+		var err error
+		cfg.Exchange, err = auth.LoadExchangeProfiles(exchangeFile)
 		if err != nil {
 			return Config{}, fmt.Errorf("OPENSVC_MCP_AUTH_CONFIG_FILE: %w", err)
 		}
 	}
-	if catalog.Version() == 3 {
-		if exchange == nil {
-			return Config{}, fmt.Errorf("version 3 catalogue requires OPENSVC_MCP_AUTH_CONFIG_FILE")
+	for _, c := range cfg.Clusters.List() {
+		if c.AuthProfile == "" {
+			continue
 		}
-		for _, c := range catalog.List() {
-			if !exchange.Has(c.AuthProfile) {
-				return Config{}, fmt.Errorf("cluster %s references an unknown auth profile", c.Ref)
-			}
+		if !cfg.HTTPSEnabled() {
+			return Config{}, fmt.Errorf("cluster %s: auth requires the HTTPS listener", c.Ref)
 		}
-	} else if exchange != nil {
-		return Config{}, fmt.Errorf("token exchange requires a version 3 catalogue")
+		if !cfg.Exchange.Has(c.AuthProfile) {
+			return Config{}, fmt.Errorf("cluster %s references an auth profile missing from OPENSVC_MCP_AUTH_CONFIG_FILE", c.Ref)
+		}
 	}
-	return Config{ListenAddress: listenAddress, TLSCertFile: certFile, TLSKeyFile: keyFile, Clusters: catalog, ClusterConfigFile: clusterFile, OAuth: oauth, Exchange: exchange}, nil
+	return cfg, nil
 }
 
 func validateListenAddress(address string) error {

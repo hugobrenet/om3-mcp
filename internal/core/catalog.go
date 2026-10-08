@@ -35,7 +35,7 @@ func ListConfiguredClusters(catalog *clusterconfig.Catalog, query string, limit 
 	filter := strings.ToLower(strings.TrimSpace(query))
 	all := make([]ConfiguredCluster, 0, catalog.Len())
 	for _, c := range catalog.List() {
-		all = append(all, ConfiguredCluster{ClusterID: c.ExpectedClusterID, Name: c.Name})
+		all = append(all, ConfiguredCluster{ClusterID: c.ID, Name: c.Name})
 	}
 	snapshot, _ := json.Marshal(all)
 	sum := sha256.Sum256(append(append(snapshot, 0), []byte(filter)...))

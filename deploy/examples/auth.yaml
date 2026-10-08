@@ -1,14 +1,15 @@
 # OPENSVC_MCP_AUTH_CONFIG_FILE=/etc/opensvc-mcp/auth.yaml
-# No secret values belong in this file or in Git.
+# Values are fictional. No secret values belong in this file or in Git.
 version: 1
 profiles:
   customer-sso:
-    issuer: https://labauthentik.opensvc.com/application/o/om3-mcp-exchange/
-    client_id: om3-mcp-exchange
-    client_secret_file: /etc/opensvc-mcp/secrets/om3-mcp-exchange
+    # Issuer of the confidential token-exchange client.
+    issuer: https://sso.example.com/oauth/opensvc-mcp-exchange/
+    client_id: opensvc-mcp-exchange
+    client_secret_file: /etc/opensvc-mcp/secrets/opensvc-mcp-exchange
     token_endpoint_auth_method: client_secret_basic
-    # Must match the scope names of the target provider's entitlement mappings.
-    scopes: [om3-mcp]
+    # Technical scopes the SSO needs to emit daemon claims (e.g. entitlements).
+    scopes: [opensvc-mcp]
     request_timeout: 10s
     # Omit tls for system roots. For a private SSO CA:
     # tls:

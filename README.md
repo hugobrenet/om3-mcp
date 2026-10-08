@@ -53,7 +53,6 @@ This disables daemon certificate verification and is strongly discouraged in pro
 - [Configuration reference and deployment](docs/configuration.md)
 - [Authentication and client setup](docs/authentication.md)
 - [Token exchange and multi-cluster deployment](docs/token-exchange.md)
-- [External-agent integration plan and lab validation (French)](docs/CHANTIER_MCP_AGENTS_EXTERNES.md)
 - [Tools and shared contracts](docs/tools/README.md)
 
 ## Development

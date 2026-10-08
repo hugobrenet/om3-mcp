@@ -1,94 +1,90 @@
 # Token exchange and multi-cluster calls
 
-The external client authenticates to MCP as before. For each daemon tool call,
-the registrar validates the input schema, selects the administrator-configured
-cluster, and exchanges the caller's access token once. Only the exchanged token
-is sent to the configured cluster VIP. No daemon token is returned to the client.
+[Back to README](../README.md) · [Configuration](configuration.md) · [Authentication](authentication.md)
 
-## Lab deployment
+The external client authenticates to MCP with an access token intended for the
+MCP resource. For each daemon tool call, the registrar validates the input
+schema, selects the administrator-configured cluster, and exchanges the
+caller's access token once (RFC 8693). Only the exchanged token is sent to the
+configured cluster VIP. No daemon token is returned to the client.
 
-The implementation does not modify authentik, daemons or remote files. Install
-the following configuration when deploying the compiled MCP.
+## Installation
 
-1. Adapt [clusters-v3.yaml](../deploy/examples/clusters-v3.yaml) into
-   `/etc/opensvc-mcp/clusters.yaml`. This replaces the version 2 node catalogue
-   with `cluster_id`, one VIP `endpoint`, and `auth.profile` / `auth.audience`.
+The MCP does not modify the SSO, daemons or remote files. Values below are
+fictional; keep deployment configuration outside Git.
+
+1. Adapt [clusters.yaml](../deploy/examples/clusters.yaml) into
+   `/etc/opensvc-mcp/clusters.yaml`: one entry per cluster with its
+   `cluster_id`, VIP `endpoint`, and `auth.profile` / `auth.audience`.
 2. Adapt [auth.yaml](../deploy/examples/auth.yaml) into
    `/etc/opensvc-mcp/auth.yaml`.
-3. Store only the confidential client's secret in
-   `/etc/opensvc-mcp/secrets/om3-mcp-exchange`, owned by the MCP runtime account,
-   mode `0600` or `0400`. A final newline is accepted. The process reads the
-   secret at startup; restart after rotating it. Do not put it in Git, tool
-   arguments, a chat, or shell command-line arguments.
-4. Add `OPENSVC_MCP_AUTH_CONFIG_FILE=/etc/opensvc-mcp/auth.yaml` to the MCP
-   process environment. Keep the incoming resource and issuer unchanged:
+3. Store only the confidential exchange client's secret in
+   `/etc/opensvc-mcp/secrets/opensvc-mcp-exchange`, owned by the MCP runtime
+   account, mode `0600` or `0400`. A final newline is accepted. The process
+   reads the secret at startup; restart after rotating it. Do not put it in Git,
+   tool arguments, a chat, or shell command-line arguments.
+4. Set the MCP process environment (see [environment variables](configuration.md#environment-variables)):
 
    ```text
-   OPENSVC_MCP_OAUTH_RESOURCE_URL=https://dev5-vip.opensvc.com:8443/mcp
-   OPENSVC_MCP_OAUTH_ISSUER=https://labauthentik.opensvc.com/application/o/om3-mcp/
+   OPENSVC_MCP_OAUTH_RESOURCE_URL=https://mcp.example.com:8443/mcp
+   OPENSVC_MCP_OAUTH_ISSUER=https://sso.example.com/oauth/opensvc-mcp/
    OPENSVC_MCP_CLUSTER_CONFIG_FILE=/etc/opensvc-mcp/clusters.yaml
    OPENSVC_MCP_AUTH_CONFIG_FILE=/etc/opensvc-mcp/auth.yaml
    ```
 
-5. The operator must configure the dev5 daemon to trust the target provider:
+5. Configure each daemon to trust its target issuer and audience:
 
    ```ini
    [listener]
-   openid_issuer = https://labauthentik.opensvc.com/application/o/osvc-cluster-dev5/
-   openid_client_id = om3-dev5
+   openid_issuer = https://sso.example.com/oauth/opensvc-cluster-a/
+   openid_client_id = opensvc-cluster-a
    ```
 
-   This replaces the previous trusted provider; tokens from that old provider
-   will no longer authenticate. Follow the daemon's configuration reload
-   procedure. The MCP does not change `cluster.conf`.
+   This replaces the previously trusted provider. Follow the daemon's
+   configuration reload procedure and check that its OpenID strategy initialized
+   successfully on the node carrying the VIP once the provider is reachable.
 
-## Authentik configuration
+## SSO requirements
 
-There are three separate provider roles:
+The SSO must support Authorization Code with PKCE and OAuth 2.0 Token Exchange
+(RFC 8693). Three client roles are involved:
 
-| Provider / client ID | Purpose |
-|---|---|
-| `om3-mcp` (public) | Codex Authorization Code + PKCE login; token audience includes the MCP URL |
-| `om3-mcp-exchange` (confidential) | Server-side RFC 8693 requests using its client secret |
-| `osvc-cluster-dev5` / `om3-dev5` | Issues daemon tokens with its own issuer, signing key and audience |
+| Role | Example client ID | Purpose |
+|---|---|---|
+| Incoming, public | `opensvc-mcp` | Agent login with PKCE; the access token audience contains the MCP resource URL |
+| Exchange, confidential | `opensvc-mcp-exchange` | Server-side RFC 8693 requests authenticated with its client secret |
+| Target, one per cluster | `opensvc-cluster-a` | Issues daemon tokens for its own audience, carrying the user's OpenSVC grants |
 
-The operator reported creating the exchange application and provider, enabling
-the Token exchange grant, selecting a signing key and configuring these trusts:
+Configure in the SSO:
 
-- `om3-mcp-exchange` → Federated OAuth2/OpenID Providers includes `om3-mcp`.
-- `osvc-cluster-dev5` → Federated OAuth2/OpenID Providers includes
-  `om3-mcp-exchange`.
+- the exchange client allowed to use the token-exchange grant and to accept
+  subject tokens issued for the incoming client;
+- each target allowing tokens to be issued for the exchange client;
+- the target token carrying the user's OpenSVC grants in the `entitlements`
+  claim expected by the daemon, emitted for the technical scopes requested in
+  `auth.yaml`. Exchange mappings are not necessarily copied from the incoming
+  token: verify the claims of an actually exchanged token, not a preview;
+- the user or group entitlements and the target application access policies.
 
-On the target provider, attach the `opensvc-om3-root` and `opensvc-om3-guest`
-scope mappings with Scope name `om3-mcp` for the validated lab configuration. They obtain entitlements from
-`user.app_entitlements(provider.application)`, filtering the OpenSVC grant names.
-Assign the application entitlements to the intended user or group. Keep claims
-enabled. Request `om3-mcp` in the exchange profile. Additional `openid` or
-`profile` scopes can be requested when their mappings are attached; `profile`
-can supply `preferred_username`. These technical scopes are not MCP business
-permissions. The target application policies also apply.
+Some SSO products require the exchange client to appear in the incoming token
+audience; add it next to the MCP resource URL when needed. The `audience`
+request parameter generally selects among audiences the SSO is configured to
+issue; it does not create a missing one.
 
-The operator validated real daemon calls on dev5 and dev3, including a single
-Codex prompt retrieving dev5n1/dev5 and dev3n1/dev3 with the same MCP credential.
-Each target uses its own provider (`osvc-cluster-dev5` or `osvc-cluster-dev3`),
-audience (`om3-dev5` or `om3-dev3`), and catalogue VIP. Each target provider trusts
-`om3-mcp-exchange`. The MCP audience mapping remains attached only to `om3-mcp`;
-its scope name also matches the `om3-mcp` scope requested by Codex.
-
-The MCP uses the confidential provider's discovery document, verifies its issuer,
-then posts a form to the discovered HTTPS token endpoint:
+The MCP uses the exchange profile issuer's discovery document, verifies its
+issuer, then posts a form to the discovered HTTPS token endpoint:
 
 ```text
 grant_type=urn:ietf:params:oauth:grant-type:token-exchange
 subject_token=<authenticated incoming MCP access token>
 subject_token_type=urn:ietf:params:oauth:token-type:access_token
 requested_token_type=urn:ietf:params:oauth:token-type:access_token
-audience=om3-dev5
-scope=om3-mcp
+audience=opensvc-cluster-a
+scope=opensvc-mcp
 ```
 
-The configured confidential client authenticates using `client_secret_basic`
-(default) or `client_secret_post`. No browser redirects, `resource`, actor token,
+The confidential client authenticates using `client_secret_basic` (default) or
+`client_secret_post`. No browser redirects, `resource`, actor token,
 client-credentials grant, or service-account fallback is used for the exchange.
 
 ## Tool contracts
@@ -100,7 +96,7 @@ The opaque cursor is bound to the query and public catalogue snapshot.
 
 ```json
 {
-  "items": [{"cluster_id": "3bc5a684-0f37-4504-9f50-4107ff8d1f24", "name": "dev5"}],
+  "items": [{"cluster_id": "00000000-0000-4000-8000-000000000001", "name": "cluster-a"}],
   "next_cursor": null,
   "provenance": {"source": "opensvc_mcp_catalog", "observed_at": "<UTC timestamp>"}
 }
@@ -109,7 +105,7 @@ The opaque cursor is bound to the query and public catalogue snapshot.
 Every daemon tool has an additional required `cluster_id` argument, for example:
 
 ```json
-{"cluster_id":"3bc5a684-0f37-4504-9f50-4107ff8d1f24","node":"dev5n1"}
+{"cluster_id":"00000000-0000-4000-8000-000000000001","node":"node-a"}
 ```
 
 This target field is added centrally to each typed tool's schema and handled by
@@ -117,8 +113,7 @@ the registrar; business inputs and core use cases remain unchanged. An omitted
 or unknown cluster fails before exchange. Target headers cannot override it.
 The tool's `node` retains its existing logical API semantics and never changes
 the configured network endpoint. Existing optional-node defaults still mean the
-daemon receiving the request, which may move with the VIP. Precise node-proxy
-behavior remains a separate daemon/tool contract.
+daemon receiving the request, which may move with the VIP.
 
 ## Token lifetime and failures
 
@@ -126,10 +121,12 @@ Only public discovery metadata is cached (five minutes). Concurrent calls share
 one discovery request per profile, made without holding the lock; each waiter
 stays bounded by its own deadline. A failed discovery is reused for five seconds
 before a new attempt, so an SSO outage does not multiply discovery requests. A
-caller's own cancellation is not cached as an SSO failure. There is no exchanged
-token cache or refresh-token storage. One tool call can make several API requests
-with its own exchanged token. Its context expires at the earliest of the parent
-request deadline, incoming JWT expiry, outgoing JWT expiry and `expires_in`.
+caller's own cancellation is not cached as an SSO failure.
+
+There is no exchanged token cache or refresh-token storage. One tool call can
+make several API requests with its own exchanged token. Its context expires at
+the earliest of the parent request deadline, incoming JWT expiry, outgoing JWT
+expiry and `expires_in`.
 
 The SSO response is bounded, and must return a Bearer access JWT for the selected
 audience with a valid lifetime. Returning the incoming token or a token still
@@ -147,9 +144,14 @@ and per cluster. No network contact occurs at startup.
 
 SSO errors expose only recognized OAuth error codes, never response descriptions
 or bodies. A refused exchange stops the call; a daemon refusal is returned using
-the existing API error contract. Temporary OAuth debug logging remains removed.
-Health and tool discovery continue to work while the SSO token endpoint or a
-daemon is unavailable, provided the incoming MCP JWT can still be verified.
+the existing API error contract. Health and tool discovery continue to work
+while the SSO token endpoint or a daemon is unavailable, provided the incoming
+MCP JWT can still be verified.
+
+Access-token lifetime and revocation are SSO policy. MCP verifies JWTs locally
+without introspection: revoking a refresh token prevents renewal, but an access
+token already issued remains usable until it expires. Short access-token
+lifetimes with client-side renewal bound this window.
 
 ## Audit trail
 
@@ -157,7 +159,7 @@ When exchange is configured, every `tools/call` emits one `INFO` line
 `mcp tool call` through the process logger (standard error), for example:
 
 ```text
-2026/10/08 13:20:41 INFO mcp tool call tool=get_node_status cluster_id=3bc5a684-0f37-4504-9f50-4107ff8d1f24 issuer=https://labauthentik.opensvc.com/application/o/om3-mcp/ subject=<sub> client_id=om3-mcp exchange=ok daemon_subject=<sub> outcome=ok duration=212ms
+INFO mcp tool call tool=get_node_status cluster_id=00000000-0000-4000-8000-000000000001 issuer=https://sso.example.com/oauth/opensvc-mcp/ subject=<sub> client_id=opensvc-mcp exchange=ok daemon_subject=<sub> outcome=ok duration=212ms
 ```
 
 | Field | Meaning |
@@ -174,41 +176,5 @@ Tokens, secrets, raw arguments other than `cluster_id`, and tool results are
 never logged. Values come from verified claims or are quoted by the structured
 logger. Retention and shipping of these logs belong to the deployment.
 
-## Portability and validation status
-
-The exchange implementation has no authentik-specific URL or provider-name
-logic. For Keycloak, use standard token exchange in one realm, a confidential
-requester enabled for exchange, its authentication method, and the required
-audience/scope mappings. In particular, Keycloak requires the requester client
-to appear in the incoming subject token's audience in this flow; this may
-require adding `om3-mcp-exchange` alongside the MCP URL to the incoming audience.
-`audience` filters audiences made available by Keycloak's configured mappings;
-it does not create a missing audience by itself. The example lab profile is not
-a claim of validated Keycloak compatibility.
-
-Local tests cover actual HTTPS discovery, confidential exchange, safe failures,
-MCP SDK calls, concurrent users and clusters, daemon 403 propagation, TLS and
-catalogue bounds. A catalogue with 800 entries loads successfully. This is not a
-load test of 800 live clusters. On 2026-10-07, the operator confirmed real
-authentik exchange and daemon acceptance on dev5 and dev3. Negative grant tests,
-cross-cluster permission isolation, renewals and Keycloak remain to be validated.
-
-Two lab failures clarified the deployment requirements:
-
-- A daemon 403 was resolved by aligning the exchange scopes with the target
-  entitlement mappings. A provider preview alone does not validate the claims
-  of a token issued through exchange.
-- On dev3, OpenID discovery initially returned 404 during daemon configuration
-  reload, causing its OpenID strategy to be ignored. `/api/auth/info` advertised
-  the configured issuer despite that failure. Check successful strategy
-  initialization on the node carrying the VIP after the provider is available.
-
-On 2026-10-08, the operator confirmed the incoming `om3-mcp` provider's access
-token validity was five minutes. The provider preview showed 24 hours and must
-not be used to infer the actual access-token lifetime. Automatic renewal has
-not been validated; authentik requires `offline_access` for refresh-token issuance
-in the login flow. This scope is independent of the daemon exchange configuration.
-
-References: [authentik token exchange](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/token_exchange/),
-[Keycloak standard token exchange](https://www.keycloak.org/securing-apps/token-exchange),
-[RFC 8693](https://www.rfc-editor.org/rfc/rfc8693.html).
+References: [RFC 8693](https://www.rfc-editor.org/rfc/rfc8693.html),
+[MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization).

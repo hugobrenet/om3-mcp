@@ -1,25 +1,16 @@
-# OPENSVC_MCP_CLUSTER_CONFIG_FILE selects this administrator-owned file.
-# Restart after changing the catalogue or public trust files.
+# OPENSVC_MCP_CLUSTER_CONFIG_FILE=/etc/opensvc-mcp/clusters.yaml
 # Values are fictional. Keep actual deployment configuration outside Git.
-version: 2
-
+version: 3
 clusters:
   cluster-a:
-    name: Example cluster
-    expected_cluster_id: 00000000-0000-4000-8000-000000000001
-
-    # Exact native JWT issuer or OpenID X-OpenSVC-Node names.
-    # These are catalogue keys, not DNS lookup hints. No implicit failover.
-    nodes:
-      node-a: https://192.0.2.20:1215
-      node-b: https://192.0.2.21:1215
-
-    # Optional: omit tls to use system roots (e.g. Let's Encrypt).
-    # This CA validates daemon HTTPS. The daemon itself verifies JWT signatures.
-    tls:
-      ca_file: /etc/opensvc-mcp/trust/cluster-a-tls-ca.pem
-      # DEMOS ONLY: true disables peer verification. Never use in production.
-      # Remove ca_file when setting insecure to true.
-      insecure: false
-
+    name: cluster-a
+    cluster_id: 00000000-0000-4000-8000-000000000001
+    endpoint: https://cluster-a-vip.example.com:1215
+    auth:
+      profile: customer-sso
+      audience: opensvc-cluster-a
     request_timeout: 20s
+    # Omit tls for system roots. For a private CA:
+    # tls:
+    #   ca_file: /etc/opensvc-mcp/ca/customer.pem
+    # Alternatively tls.insecure: true, mutually exclusive with ca_file.

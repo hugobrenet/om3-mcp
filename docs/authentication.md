@@ -14,7 +14,7 @@ With a version 3 catalogue and SSO exchange profiles, `list_clusters` discovers
 configured cluster identities and each daemon tool requires `cluster_id`.
 Before the tool executes, the MCP exchanges the incoming token for a daemon
 access token and binds it to the configured VIP for the call lifetime.
-See [token exchange](token-exchange.md) for configuration and validation status.
+See [token exchange](token-exchange.md) for configuration.
 Without exchange configuration, daemon calls return an explicit tool error.
 `GET /mcp/auth/whoami` still returns HTTP 501 after OAuth authentication: the
 legacy identity bridge remains disconnected.
@@ -28,10 +28,10 @@ See [legacy contracts](authentication-legacy.md) for those components.
 ## Resource discovery and login
 
 Configure the public resource URL explicitly; it is not inferred from Host or
-forwarding headers. For the lab it is:
+forwarding headers, for example:
 
 ```text
-https://dev5-vip.opensvc.com:8443/mcp
+https://mcp.example.com:8443/mcp
 ```
 
 Both `GET /.well-known/oauth-protected-resource/mcp` and
@@ -39,9 +39,9 @@ Both `GET /.well-known/oauth-protected-resource/mcp` and
 
 ```json
 {
-  "resource": "https://dev5-vip.opensvc.com:8443/mcp",
+  "resource": "https://mcp.example.com:8443/mcp",
   "resource_name": "OpenSVC Daemon MCP",
-  "authorization_servers": ["https://auth.example.test/application/o/opensvc-mcp/"],
+  "authorization_servers": ["https://sso.example.com/oauth/opensvc-mcp/"],
   "bearer_methods_supported": ["header"]
 }
 ```
@@ -57,7 +57,7 @@ credentials and perform no SSO or daemon requests.
 An unauthenticated `/mcp` request receives HTTP 401 and:
 
 ```http
-WWW-Authenticate: Bearer resource_metadata="https://dev5-vip.opensvc.com:8443/.well-known/oauth-protected-resource/mcp"
+WWW-Authenticate: Bearer resource_metadata="https://mcp.example.com:8443/.well-known/oauth-protected-resource/mcp"
 ```
 
 Invalid credentials also add `error="invalid_token"`. Error bodies are generic
@@ -71,7 +71,8 @@ endpoints. It does not need an OAuth client secret for this stage.
 
 The SSO must issue an **access token**, whose `aud` contains the exact configured
 MCP resource URL. An audience array may additionally contain client IDs needed by the login or
-token-exchange configuration, including the confidential requester for Keycloak. An ID token intended
+token-exchange configuration; some SSO products require the confidential
+exchange client in the subject token audience. An ID token intended
 for the external OAuth client is not the credential to send to MCP.
 
 ## Incoming-token validation
@@ -127,32 +128,24 @@ before reaching the MCP protocol handler. Sessions and shared clients do not
 store user credentials. Request bodies remain bounded to 1 MiB and cross-origin
 browser requests remain refused by the MCP SDK.
 
-## Validation before deployment
+## Client setup
 
-Local tests exercise a real HTTPS fake issuer, signed JWTs, rotation, rejection,
-resource metadata, the MCP SDK and the compiled server. They do not prove that
-the customer's SSO is configured correctly. Validate the real issuer, client
-registration, callbacks and resource audience, then connect the external client.
+MCP does not host a registration endpoint. Register a public client with PKCE
+in the SSO, allow the loopback callbacks used by the external agents, and
+configure the incoming audience mapping. Give users the MCP URL and that
+`client_id`. An agent without a configured `client_id` falls back to the
+registration mechanisms advertised by the SSO, if any.
 
-On 2026-10-07, Codex CLI 0.160.1 successfully logged in through the lab authentik
-provider and discovered the MCP tools. The initial login requested `openid`;
-the operator subsequently aligned Codex and the audience mapping on the custom
-scope name `om3-mcp`. The mapping must be selected on the incoming provider
-and its scope must match what the client requests.
-A provider preview and a successful login alone did not establish that the
-access token had the MCP audience; this was confirmed by successful tool
-discovery after correcting the mapping's scope name.
-See the [integration plan](CHANTIER_MCP_AGENTS_EXTERNES.md) for the lab setup.
+No scope is advertised by MCP. Clients then request the scopes they default to,
+or none; the SSO must still add the MCP resource URL to the access-token
+audience. If the audience mapping depends on a technical scope, configure that
+scope in the client. Request `offline_access` or the SSO equivalent when the
+client should renew access without a new interactive login.
 
-Token exchange and concurrent multi-cluster calls are covered by local HTTPS
-integration tests. The operator also confirmed a real Codex prompt retrieving
-dev5n1/dev5 and dev3n1/dev3 through authentik token exchange. Negative grant and
-cross-cluster permission tests remain pending.
-
-On 2026-10-08, the operator confirmed a five-minute access-token validity on
-the incoming provider. Authentik's provider preview is a synthetic token and
-does not establish the lifetime of the actual login access token. Renewal and
-revocation behavior remain to be tested; no refresh token is stored by MCP.
+Validate the real issuer, client registration, callbacks and resource audience
+by connecting an external client and listing the tools. A successful login alone
+does not prove the access token carries the MCP audience; an audience mismatch
+is reported as an invalid token by MCP.
 
 References: [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization),
 [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728.html).

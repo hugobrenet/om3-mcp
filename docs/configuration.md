@@ -31,15 +31,18 @@ JWT verification uses the SSO public JWKS; no JWT signing private key is needed:
 OPENSVC_MCP_LISTEN_ADDR=0.0.0.0:8443 \
 OPENSVC_MCP_TLS_CERT_FILE=/etc/opensvc-mcp/tls/server.crt \
 OPENSVC_MCP_TLS_KEY_FILE=/etc/opensvc-mcp/tls/server.key \
-OPENSVC_MCP_OAUTH_RESOURCE_URL=https://dev5-vip.opensvc.com:8443/mcp \
-OPENSVC_MCP_OAUTH_ISSUER=https://auth.example.test/application/o/opensvc-mcp/ \
+OPENSVC_MCP_OAUTH_RESOURCE_URL=https://mcp.example.com:8443/mcp \
+OPENSVC_MCP_OAUTH_ISSUER=https://sso.example.com/oauth/opensvc-mcp/ \
+OPENSVC_MCP_CLUSTER_CONFIG_FILE=/etc/opensvc-mcp/clusters.yaml \
+OPENSVC_MCP_AUTH_CONFIG_FILE=/etc/opensvc-mcp/auth.yaml \
   ./bin/om3-mcp
 ```
 
-The issuer above is illustrative and must be replaced with the actual issuer
-of MCP access tokens. It does not select a daemon. No client secret is required
-for discovery-only operation. A ready-to-adapt environment template is in
-[deploy/examples/oauth.env](../deploy/examples/oauth.env).
+Values are illustrative: use the actual issuer of MCP access tokens, which does
+not select a daemon. The process reads its environment only and loads no
+environment file itself. Omit both `OPENSVC_MCP_CLUSTER_CONFIG_FILE` and
+`OPENSVC_MCP_AUTH_CONFIG_FILE` for discovery-only operation, which needs no
+client secret. Optional variables are listed in the table above.
 
 The agent connects to `https://<mcp-host>:8443/mcp`. The bind address must
 contain an explicit IP and a numeric port from 1 to 65535. Use `0.0.0.0` or
@@ -66,14 +69,14 @@ For a service check, use the hostname covered by the listener certificate:
 
 ```bash
 curl --silent --show-error --fail --max-time 3 \
-  https://mcp.example.test:8443/health >/dev/null
+  https://mcp.example.com:8443/health >/dev/null
 ```
 
 Use `--cacert /path/to/public-ca.pem` when the MCP listener uses a private CA.
 
 ## Cluster catalogue and exchange profiles
 
-Use [clusters-v3.yaml](../deploy/examples/clusters-v3.yaml) and
+Use [clusters.yaml](../deploy/examples/clusters.yaml) and
 [auth.yaml](../deploy/examples/auth.yaml) for external-agent daemon calls.
 The catalogue maps `cluster_id` to a single HTTPS VIP, TLS trust, request timeout,
 auth profile and target audience. No node inventory is required. The auth file
@@ -96,17 +99,17 @@ cannot be disabled. Secret files must be regular, at most 16 KiB, mode 0600 or
 0400, and contain one nonempty line. All files are loaded at startup; restart to
 apply changes. Public discovery is lazy and cached for five minutes.
 
-See [the deployment guide](token-exchange.md) for lab values, SSO setup, daemon
-configuration and test boundaries.
+See [the deployment guide](token-exchange.md) for SSO setup and daemon
+configuration.
 
 ## Legacy version 2 catalogue (not used for external OAuth routing)
 
 The following format remains supported for validation of existing deployments.
-It does not enable daemon calls in the OAuth entrypoint. The planned version 3
-VIP catalogue will be implemented with multi-cluster routing.
+It does not enable daemon calls in the OAuth entrypoint; use the version 3
+catalogue above.
 
-See [the template](../deploy/examples/clusters.yaml). Install real configuration
-outside the repository, for example at `/etc/opensvc-mcp/clusters.yaml`.
+Install real configuration outside the repository, for example at
+`/etc/opensvc-mcp/clusters.yaml`.
 
 ```yaml
 version: 2

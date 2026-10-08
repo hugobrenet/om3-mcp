@@ -74,7 +74,7 @@ func (k *oauthKeys) get(ctx context.Context, kid string) (oauthKey, error) {
 }
 
 func (k *oauthKeys) load(ctx context.Context) (map[string]oauthKey, error) {
-	// OIDC discovery covers authentik and Keycloak. RFC 8414 is a fallback for
+	// OIDC discovery is tried first. RFC 8414 is a fallback for
 	// OAuth-only issuers. Only administrator-configured issuer URLs are used.
 	u, _ := url.Parse(k.issuer)
 	u.Path = "/.well-known/oauth-authorization-server" + strings.TrimRight(u.Path, "/")

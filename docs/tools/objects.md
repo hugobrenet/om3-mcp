@@ -5,6 +5,7 @@ tools:
   - get_object_status
   - get_object_config
   - list_object_config_keywords
+  - list_object_data_keys
 stability: experimental
 ---
 
@@ -16,8 +17,8 @@ aggregate status.
 Implementation:
 
 - business logic: `internal/core/object.go`, `internal/core/object_status.go`,
-  `internal/core/config_object.go`, and
-  `internal/core/config_object_keyword.go`;
+  `internal/core/config_object.go`, `internal/core/config_object_keyword.go`,
+  and `internal/core/object_data_key.go`;
 - MCP definitions: `internal/tools/object.go`.
 
 ## Tool selection
@@ -30,6 +31,8 @@ resource, placement, or orchestration settings.
 Use `list_object_config_keywords` to discover which options an object kind or
 configured driver supports, their defaults, constraints, and documentation.
 It returns definitions, not the object's configured values.
+Use `list_object_data_keys` to check which keys a cfg, sec or usr object
+stores, without reading their values.
 
 ## Tools
 
@@ -426,3 +429,40 @@ unbounded response.
 | Malformed daemon path, keyword definition, or required array | Tool error with parsing context |
 
 Errors preserve bounded OpenSVC RFC 7807 details and never include the JWT.
+
+### `list_object_data_keys`
+
+Lists the names of the keys a cfg, sec or usr object stores in its `data`
+section, never their values. Use it when a service fails on a missing
+configuration or secret key: it tells whether the key exists, without
+exposing what it holds.
+
+#### OpenSVC API and authorization
+
+```text
+GET /api/object/path/<namespace>/<kind>/<name>/data/keys
+```
+
+The daemon requires `guest` access on the object namespace. It reads the copy
+of the object on itself when it holds one, else on one node holding it; `node`
+reports which copy was read. The daemon `filter` parameter is not used: the
+optional `name` is matched exactly by the MCP.
+
+The keys are the `data` section only. Configuration keywords of the object,
+such as the `grant` of a usr object, are not keys; `get_object_config` reads
+them.
+
+#### Input and output
+
+| Input | Meaning |
+|---|---|
+| `path` | Required exact path of a cfg, sec or usr object; other kinds are refused before the daemon call |
+| `name` | Optional exact key name |
+
+The output holds `provenance`, `object`, `node`, `name_filter`, `total`, and
+`keys`, sorted by name. Each key holds `name` and `stored_size_bytes`, the
+length of the value as stored: a sec or usr value is stored encrypted and
+encoded, so its stored size is not the length of the secret, only a hint of an
+empty or unusual value. An object without keys returns an empty list. For an
+object no node holds, the daemon answers an empty body, which the tool reports
+as an error naming the object.

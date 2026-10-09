@@ -87,7 +87,8 @@ strategy (`jwt` or `jwt-openid`) and username. The response is:
 
 A daemon refusal returns 401 or 403; an unavailable daemon or an unexpected
 response returns 502. Query strings and request bodies are refused. Grants are
-never returned.
+never returned by this route; the `get_caller_identity` tool reports the
+grants of the caller's own token.
 
 ### `/mcp`
 

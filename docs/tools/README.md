@@ -25,6 +25,7 @@ documents describe the implemented tool contracts.
 | Instances | `list_object_instances`, `get_instance_status`, `get_instance_logs`, `refresh_instance_status` | [Instance tools](instances.md) |
 | Resources | `list_cluster_ip_resources`, `list_object_resources`, `list_resource_info`, `get_container_logs` | [Resource tools](resources.md) |
 | Scheduler | `list_schedules` | [Scheduler tools](schedules.md) |
+| Pools | `list_storage_pools`, `list_pool_volumes` | [Pool tools](pools.md) |
 
 ## Authentication and visibility
 

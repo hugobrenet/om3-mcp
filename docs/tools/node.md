@@ -135,6 +135,14 @@ accepts a global `guest` or higher grant; the OpenSVC JWT and the daemon's
 authorization remain authoritative. The result excludes other nodes, objects,
 hooks, keys, and other node configuration fields.
 
+`provenance.served_by` is the node whose daemon answered the request: the
+daemon receiving it, usually the node carrying the cluster VIP, named by the
+daemon itself in its response. It is not a node the result describes, and it
+may change on failover. `node` and
+`served_by` therefore differ when the selected node is not the one answering:
+the selected node is then described by what it last published to the answering
+daemon, not by a reading on the node itself.
+
 `provenance.observed_at` dates the MCP collection, while `monitor.updated_at`
 dates the monitor state and `heartbeat.updated_at` preserves the published
 heartbeat timestamp. The MCP does not compare those values or apply an age
@@ -150,7 +158,7 @@ default node, selector, or pagination is used.
 
 | Output field | Meaning |
 |---|---|
-| `provenance` | Daemon API source and MCP collection time |
+| `provenance` | Daemon API source, MCP collection time, and `served_by`, the node whose daemon answered |
 | `node` | Selected OpenSVC node name |
 | `membership` | Whether the node is configured and a bounded list of distinct configured peer names |
 | `status` | Agent/API/compatibility versions, leader and overload flags, boot and freeze times |

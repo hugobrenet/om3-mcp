@@ -46,7 +46,8 @@ func RegisterClusterTools(registrar *Registrar, service *core.Service) error {
 			Title: "Get cluster status snapshot",
 			Description: "Read a factual, bounded snapshot of the last-known OpenSVC cluster, node, heartbeat, and visible actor object status. " +
 				"Exact daemon values, source timestamps, counts, and truncation metadata are preserved without MCP health verdicts, issue classification, or remediation advice. " +
-				"Use cursors to continue node or actor object pages; this read-only call does not refresh instance drivers.",
+				"Use cursors to continue node or actor object pages; this read-only call does not refresh instance drivers. " +
+				"provenance.served_by names the node whose daemon answered, usually the node carrying the cluster VIP.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input GetClusterStatusInput) (*mcp.CallToolResult, GetClusterStatusOutput, error) {

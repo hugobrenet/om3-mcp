@@ -9,6 +9,7 @@ const provenanceSourceOpenSVCDaemon = "opensvc_daemon"
 type Provenance struct {
 	Source     string `json:"source" jsonschema:"the API source of this result; opensvc_daemon identifies the OpenSVC daemon API, not necessarily the original data store"`
 	ObservedAt string `json:"observed_at" jsonschema:"UTC time when the MCP finished collecting this result; this is not the OpenSVC status update time"`
+	ServedBy   string `json:"served_by,omitempty" jsonschema:"the node whose daemon answered the request, usually the node carrying the cluster VIP; not the node a result describes. Reported by get_cluster_status and get_node_status only, omitted elsewhere"`
 }
 
 func (s *Service) newProvenance() Provenance {

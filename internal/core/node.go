@@ -179,6 +179,7 @@ func (s *Service) GetNodeStatus(ctx context.Context, nodeName string) (NodeStatu
 		}
 	}
 	result.Provenance = s.newProvenance()
+	result.Provenance.ServedBy = servedBy(clusterStatus)
 	return result, nil
 }
 

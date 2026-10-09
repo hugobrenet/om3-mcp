@@ -128,6 +128,12 @@ reported node. `provenance.observed_at` dates MCP collection, not the underlying
 status. Node monitor, heartbeat, stream, object, boot, leave, and rejoin
 timestamps remain separate source facts.
 
+`provenance.served_by` is the node whose daemon answered the request: the
+daemon receiving it, usually the node carrying the cluster VIP, named by the
+daemon itself in its response. It is not a node the result describes, and it
+may change on failover. The cluster view is that daemon's: the facts of the other
+nodes are what they last published to it.
+
 The endpoint accepts a global `guest` or higher grant. OpenSVC applies the
 OpenSVC JWT and filters objects according to namespace grants. Object totals,
 state counts, and pages therefore describe only the caller-visible view.

@@ -325,6 +325,19 @@ type clusterStatusResponse struct {
 			UpdatedAt        string   `json:"updated_at"`
 		} `json:"object"`
 	} `json:"cluster"`
+	// Daemon describes the daemon answering the request.
+	Daemon struct {
+		NodeName string `json:"nodename"`
+	} `json:"daemon"`
+}
+
+// servedBy returns the node whose daemon answered a cluster status request,
+// or an empty string when the daemon names none or an invalid one.
+func servedBy(status clusterStatusResponse) string {
+	if !validExactNodeName(status.Daemon.NodeName) {
+		return ""
+	}
+	return status.Daemon.NodeName
 }
 
 func (s *Service) getClusterStatus(ctx context.Context) (clusterStatusResponse, error) {

@@ -58,6 +58,9 @@ func TestGetNodeStatusReportsTheDaemonSubsystems(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get node status: %v", err)
 	}
+	if result.Provenance.ServedBy != "node-b" {
+		t.Errorf("got served_by %q, want the answering daemon node-b", result.Provenance.ServedBy)
+	}
 	status := result.Daemon
 	if result.Node != "node-a" || status.PID != 2610 || status.StartedAt != "2026-07-10T17:23:35+09:00" {
 		t.Errorf("got daemon %#v, want the process facts of node-a", status)
@@ -111,5 +114,21 @@ func TestDaemonCollectorEndpointRejectsMalformedAndBoundsComponents(t *testing.T
 	bounded := daemonCollectorEndpoint("https://" + strings.Repeat("a", maxDaemonEndpointComponentRunes+1) + ".example")
 	if !bounded.Valid || !bounded.ComponentsTruncated || len([]rune(bounded.Host)) != maxDaemonEndpointComponentRunes {
 		t.Errorf("got unbounded endpoint %#v", bounded)
+	}
+}
+
+func TestServedByIsOmittedWithoutAValidDaemonNodeName(t *testing.T) {
+	for _, payload := range []string{
+		`{"cluster":{"config":{"nodes":["node-a"]},"node":{"node-a":{"status":{"agent":"v3"}}}}}`,
+		`{"cluster":{"config":{"nodes":["node-a"]},"node":{"node-a":{"status":{"agent":"v3"}}}},"daemon":{"nodename":"node a"}}`,
+	} {
+		result, err := New(&fakeJSONGetter{t: t, payload: payload}).GetNodeStatus(context.Background(), "node-a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, _ := json.Marshal(result.Provenance)
+		if result.Provenance.ServedBy != "" || strings.Contains(string(encoded), "served_by") {
+			t.Fatalf("payload %s gave provenance %s", payload, encoded)
+		}
 	}
 }

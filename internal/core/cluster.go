@@ -189,6 +189,7 @@ func (s *Service) GetClusterStatus(ctx context.Context, options GetClusterStatus
 	}
 	result := clusterStatusSnapshot(status, options.NodeCursor, nodeLimit, options.ObjectCursor, objectLimit)
 	result.Provenance = s.newProvenance()
+	result.Provenance.ServedBy = servedBy(status)
 	return result, nil
 }
 

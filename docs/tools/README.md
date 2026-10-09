@@ -26,6 +26,7 @@ documents describe the implemented tool contracts.
 | Resources | `list_cluster_ip_resources`, `list_object_resources`, `list_resource_info`, `get_container_logs` | [Resource tools](resources.md) |
 | Scheduler | `list_schedules` | [Scheduler tools](schedules.md) |
 | Pools | `list_storage_pools`, `list_pool_volumes` | [Pool tools](pools.md) |
+| Networks | `list_networks`, `list_network_ips` | [Network tools](networks.md) |
 
 ## Authentication and visibility
 
@@ -54,8 +55,8 @@ at most 255 characters, using letters, digits, `.`, `_` or `-`. Empty values,
 `_` are rejected before any daemon request. The alias names the daemon
 receiving the request, which is the node carrying the cluster VIP and may
 change on failover. Optional node filters, such as those of
-`list_storage_pools` or `list_cluster_ip_resources`, follow the same rule when
-set.
+`list_storage_pools`, `list_cluster_ip_resources` or `list_network_ips`, follow
+the same rule when set.
 
 ## Freshness model
 

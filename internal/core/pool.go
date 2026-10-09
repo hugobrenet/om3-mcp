@@ -174,13 +174,24 @@ func boundedPoolText(value string) string {
 // validatePoolName accepts an empty name or one exact pool name: the daemon
 // matches the name as given, so wildcards and separators are refused.
 func validatePoolName(value string) (string, error) {
-	pool := strings.TrimSpace(value)
-	if pool == "" {
-		return "", nil
-	}
-	if pool != value || len(pool) > maxStoragePoolNameCharacters || strings.ContainsAny(pool, "*?[],=/\\") ||
-		strings.ContainsFunc(pool, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+	pool, err := validateExactName(value, maxStoragePoolNameCharacters)
+	if err != nil {
 		return "", fmt.Errorf("pool must be one exact OpenSVC pool name of at most %d characters", maxStoragePoolNameCharacters)
 	}
 	return pool, nil
+}
+
+// validateExactName accepts an empty value or one exact name the daemon
+// matches as given: wildcards, separators, whitespace and control
+// characters are refused.
+func validateExactName(value string, maxLength int) (string, error) {
+	name := strings.TrimSpace(value)
+	if name == "" {
+		return "", nil
+	}
+	if name != value || len(name) > maxLength || strings.ContainsAny(name, "*?[],=/\\") ||
+		strings.ContainsFunc(name, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+		return "", fmt.Errorf("invalid exact name")
+	}
+	return name, nil
 }

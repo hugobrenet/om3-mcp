@@ -42,6 +42,7 @@ type InstanceLogEntry struct {
 	Component        string `json:"component,omitempty" jsonschema:"the OpenSVC package or component that emitted the log entry"`
 	ResourceID       string `json:"resource_id,omitempty" jsonschema:"the related OpenSVC resource id when present"`
 	SessionID        string `json:"session_id,omitempty" jsonschema:"the related OpenSVC session id when present"`
+	ExecID           string `json:"exec_id,omitempty" jsonschema:"the related OpenSVC daemon execution id when present"`
 	EventID          string `json:"event_id,omitempty" jsonschema:"the related OpenSVC event id when present"`
 	RequestID        string `json:"request_id,omitempty" jsonschema:"the related daemon API request id when present"`
 	OrchestrationID  string `json:"orchestration_id,omitempty" jsonschema:"the related OpenSVC orchestration id when present"`
@@ -56,7 +57,9 @@ type daemonInstanceLogEnvelope struct {
 	Object          string `json:"OBJ_PATH"`
 	Component       string `json:"PKG"`
 	ResourceID      string `json:"RID"`
-	SessionID       string `json:"SID"`
+	SessionID       string `json:"SESSION_ID"`
+	LegacySessionID string `json:"SID"`
+	ExecID          string `json:"EXEC_ID"`
 	EventID         string `json:"EID"`
 	RequestID       string `json:"REQUEST_UUID"`
 	OrchestrationID string `json:"ORCHESTRATION_ID"`
@@ -70,7 +73,9 @@ type daemonInstanceLogPayload struct {
 	Object          string `json:"obj_path"`
 	Component       string `json:"pkg"`
 	ResourceID      string `json:"rid"`
-	SessionID       string `json:"sid"`
+	SessionID       string `json:"session_id"`
+	LegacySessionID string `json:"sid"`
+	ExecID          string `json:"exec_id"`
 	EventID         string `json:"eid"`
 	RequestID       string `json:"request_uuid"`
 	OrchestrationID string `json:"orchestration_id"`
@@ -151,18 +156,9 @@ func parseInstanceLogEntry(data []byte, expectedObject string, expectedNode stri
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		return InstanceLogEntry{}, fmt.Errorf("decode instance log envelope: %w", err)
 	}
-	payload := daemonInstanceLogPayload{
-		Timestamp: envelope.Timestamp, Level: envelope.Level, Message: envelope.Message,
-		Node: envelope.Node, Object: envelope.Object, Component: envelope.Component,
-		ResourceID: envelope.ResourceID, SessionID: envelope.SessionID, EventID: envelope.EventID,
-		RequestID: envelope.RequestID, OrchestrationID: envelope.OrchestrationID,
-	}
-	if envelope.JSON != "" {
-		var nested daemonInstanceLogPayload
-		if err := json.Unmarshal([]byte(envelope.JSON), &nested); err != nil {
-			return InstanceLogEntry{}, fmt.Errorf("decode nested OpenSVC instance log payload: %w", err)
-		}
-		mergeInstanceLogPayload(&payload, nested)
+	payload, err := envelope.payload()
+	if err != nil {
+		return InstanceLogEntry{}, fmt.Errorf("decode nested OpenSVC instance log payload: %w", err)
 	}
 	if payload.Object != "" && payload.Object != expectedObject {
 		return InstanceLogEntry{}, fmt.Errorf("instance log returned unexpected object %q", payload.Object)
@@ -181,10 +177,35 @@ func parseInstanceLogEntry(data []byte, expectedObject string, expectedNode stri
 		Component:       boundInstanceLogField(payload.Component),
 		ResourceID:      boundInstanceLogField(payload.ResourceID),
 		SessionID:       boundInstanceLogField(payload.SessionID),
+		ExecID:          boundInstanceLogField(payload.ExecID),
 		EventID:         boundInstanceLogField(payload.EventID),
 		RequestID:       boundInstanceLogField(payload.RequestID),
 		OrchestrationID: boundInstanceLogField(payload.OrchestrationID),
 	}, nil
+}
+
+// payload merges the journald fields of the envelope with the nested OpenSVC
+// JSON payload, which wins. The session id was logged as SID/sid by earlier
+// agents and as SESSION_ID/session_id now.
+func (envelope daemonInstanceLogEnvelope) payload() (daemonInstanceLogPayload, error) {
+	payload := daemonInstanceLogPayload{
+		Timestamp: envelope.Timestamp, Level: envelope.Level, Message: envelope.Message,
+		Node: envelope.Node, Object: envelope.Object, Component: envelope.Component,
+		ResourceID: envelope.ResourceID, SessionID: envelope.SessionID, LegacySessionID: envelope.LegacySessionID,
+		ExecID: envelope.ExecID, EventID: envelope.EventID,
+		RequestID: envelope.RequestID, OrchestrationID: envelope.OrchestrationID,
+	}
+	if envelope.JSON != "" {
+		var nested daemonInstanceLogPayload
+		if err := json.Unmarshal([]byte(envelope.JSON), &nested); err != nil {
+			return daemonInstanceLogPayload{}, err
+		}
+		mergeInstanceLogPayload(&payload, nested)
+	}
+	if payload.SessionID == "" {
+		payload.SessionID = payload.LegacySessionID
+	}
+	return payload, nil
 }
 
 func mergeInstanceLogPayload(target *daemonInstanceLogPayload, source daemonInstanceLogPayload) {
@@ -211,6 +232,12 @@ func mergeInstanceLogPayload(target *daemonInstanceLogPayload, source daemonInst
 	}
 	if source.SessionID != "" {
 		target.SessionID = source.SessionID
+	}
+	if source.LegacySessionID != "" {
+		target.LegacySessionID = source.LegacySessionID
+	}
+	if source.ExecID != "" {
+		target.ExecID = source.ExecID
 	}
 	if source.EventID != "" {
 		target.EventID = source.EventID

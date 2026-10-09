@@ -71,15 +71,19 @@ type NodeCapacityPolicy struct {
 }
 
 type GetNodeLogsOptions struct {
-	Node      string
-	Lines     int
-	Component string
+	Node            string
+	Lines           int
+	Component       string
+	ExecID          string
+	SessionID       string
+	OrchestrationID string
 }
 
 type NodeLogList struct {
 	Provenance Provenance     `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
 	Node       string         `json:"node" jsonschema:"the exact OpenSVC node whose journal was queried"`
 	Component  string         `json:"component,omitempty" jsonschema:"the exact OpenSVC component filter when requested"`
+	IDs        NodeLogIDs     `json:"ids" jsonschema:"the daemon execution, session and orchestration id filters applied"`
 	Lines      int            `json:"lines" jsonschema:"the requested maximum number of recent log entries"`
 	Count      int            `json:"count" jsonschema:"the number of bounded log entries returned"`
 	Entries    []NodeLogEntry `json:"entries" jsonschema:"recent OpenSVC node log entries in chronological order"`
@@ -97,9 +101,18 @@ type NodeLogEntry struct {
 	ObjectPath       string `json:"object_path,omitempty" jsonschema:"the related OpenSVC object path when present"`
 	ResourceID       string `json:"resource_id,omitempty" jsonschema:"the related OpenSVC resource id when present"`
 	SessionID        string `json:"session_id,omitempty" jsonschema:"the related OpenSVC session id when present"`
+	ExecID           string `json:"exec_id,omitempty" jsonschema:"the related OpenSVC daemon execution id when present"`
 	EventID          string `json:"event_id,omitempty" jsonschema:"the related OpenSVC event id when present"`
 	RequestID        string `json:"request_id,omitempty" jsonschema:"the related daemon API request id when present"`
 	OrchestrationID  string `json:"orchestration_id,omitempty" jsonschema:"the related OpenSVC orchestration id when present"`
+}
+
+// NodeLogIDs are the ids the daemon stamps on what it runs: the execution, the
+// session it belongs to, and the orchestration the session is a step of.
+type NodeLogIDs struct {
+	ExecID          string `json:"exec_id,omitempty" jsonschema:"the daemon execution id filter, in lower case"`
+	SessionID       string `json:"session_id,omitempty" jsonschema:"the session id filter, in lower case"`
+	OrchestrationID string `json:"orchestration_id,omitempty" jsonschema:"the orchestration id filter, in lower case"`
 }
 
 type daemonNodeLogEnvelope struct {
@@ -222,6 +235,10 @@ func (s *Service) GetNodeLogs(ctx context.Context, options GetNodeLogsOptions) (
 	}) >= 0 {
 		return NodeLogList{}, fmt.Errorf("component must be one exact OpenSVC component of at most 255 characters")
 	}
+	ids, err := validateNodeLogIDs(options)
+	if err != nil {
+		return NodeLogList{}, err
+	}
 	getter, ok := s.client.(SSEGetter)
 	if !ok {
 		return NodeLogList{}, fmt.Errorf("OpenSVC daemon client does not support SSE requests")
@@ -229,15 +246,21 @@ func (s *Service) GetNodeLogs(ctx context.Context, options GetNodeLogsOptions) (
 
 	endpoint := fmt.Sprintf("/api/node/name/%s/log", node)
 	query := url.Values{"follow": {"false"}, "lines": {strconv.Itoa(lines + 1)}}
-	if component != "" {
-		query.Set("filter", "PKG="+component)
+	// The daemon reads each filter as a journal match: matches on distinct
+	// fields must all hold.
+	for _, match := range [][2]string{
+		{"PKG", component}, {"EXEC_ID", ids.ExecID}, {"SESSION_ID", ids.SessionID}, {"ORCHESTRATION_ID", ids.OrchestrationID},
+	} {
+		if match[1] != "" {
+			query.Add("filter", match[0]+"="+match[1])
+		}
 	}
 	entries := make([]NodeLogEntry, 0, lines+1)
-	err := getter.GetSSE(ctx, endpoint, query, func(event string, _ string, data []byte) error {
+	err = getter.GetSSE(ctx, endpoint, query, func(event string, _ string, data []byte) error {
 		if event != "" && event != "log" {
 			return fmt.Errorf("unexpected node log SSE event %q", event)
 		}
-		entry, err := parseNodeLogEntry(data, node, component)
+		entry, err := parseNodeLogEntry(data, node, component, ids)
 		if err != nil {
 			return err
 		}
@@ -261,34 +284,58 @@ func (s *Service) GetNodeLogs(ctx context.Context, options GetNodeLogsOptions) (
 		entries = []NodeLogEntry{}
 	}
 	return NodeLogList{
-		Provenance: s.newProvenance(), Node: node, Component: component,
+		Provenance: s.newProvenance(), Node: node, Component: component, IDs: ids,
 		Lines: lines, Count: len(entries), Entries: entries, Truncated: truncated,
 	}, nil
 }
 
-func parseNodeLogEntry(data []byte, expectedNode string, expectedComponent string) (NodeLogEntry, error) {
+// validateNodeLogIDs accepts empty ids or canonical UUIDs, lowered as the
+// daemon logs them: a journal match is case sensitive.
+func validateNodeLogIDs(options GetNodeLogsOptions) (NodeLogIDs, error) {
+	var ids NodeLogIDs
+	for _, field := range []struct {
+		name   string
+		value  string
+		target *string
+	}{
+		{"exec_id", options.ExecID, &ids.ExecID},
+		{"session_id", options.SessionID, &ids.SessionID},
+		{"orchestration_id", options.OrchestrationID, &ids.OrchestrationID},
+	} {
+		if field.value == "" {
+			continue
+		}
+		if !daemonExecutionUUIDPattern.MatchString(field.value) {
+			return NodeLogIDs{}, fmt.Errorf("node log %s must be a canonical UUID", field.name)
+		}
+		*field.target = strings.ToLower(field.value)
+	}
+	return ids, nil
+}
+
+func parseNodeLogEntry(data []byte, expectedNode string, expectedComponent string, expectedIDs NodeLogIDs) (NodeLogEntry, error) {
 	var envelope daemonNodeLogEnvelope
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		return NodeLogEntry{}, fmt.Errorf("decode node log envelope: %w", err)
 	}
-	payload := daemonInstanceLogPayload{
-		Timestamp: envelope.Timestamp, Level: envelope.Level, Message: envelope.Message,
-		Node: envelope.Node, Object: envelope.Object, Component: envelope.Component,
-		ResourceID: envelope.ResourceID, SessionID: envelope.SessionID, EventID: envelope.EventID,
-		RequestID: envelope.RequestID, OrchestrationID: envelope.OrchestrationID,
-	}
-	if envelope.JSON != "" {
-		var nested daemonInstanceLogPayload
-		if err := json.Unmarshal([]byte(envelope.JSON), &nested); err != nil {
-			return NodeLogEntry{}, fmt.Errorf("decode nested OpenSVC node log payload: %w", err)
-		}
-		mergeInstanceLogPayload(&payload, nested)
+	payload, err := envelope.daemonInstanceLogEnvelope.payload()
+	if err != nil {
+		return NodeLogEntry{}, fmt.Errorf("decode nested OpenSVC node log payload: %w", err)
 	}
 	if payload.Node != "" && payload.Node != expectedNode {
 		return NodeLogEntry{}, fmt.Errorf("node log returned unexpected node %q", payload.Node)
 	}
 	if expectedComponent != "" && payload.Component != expectedComponent {
 		return NodeLogEntry{}, fmt.Errorf("node log returned unexpected component %q", payload.Component)
+	}
+	for name, ids := range map[string][2]string{
+		"execution":     {expectedIDs.ExecID, payload.ExecID},
+		"session":       {expectedIDs.SessionID, payload.SessionID},
+		"orchestration": {expectedIDs.OrchestrationID, payload.OrchestrationID},
+	} {
+		if ids[0] != "" && ids[1] != ids[0] {
+			return NodeLogEntry{}, fmt.Errorf("node log returned unexpected %s id %q", name, boundInstanceLogField(ids[1]))
+		}
 	}
 	message := normalizeInstanceLogText(payload.Message)
 	if message == "" {
@@ -310,6 +357,7 @@ func parseNodeLogEntry(data []byte, expectedNode string, expectedComponent strin
 		ObjectPath:      boundInstanceLogField(payload.Object),
 		ResourceID:      boundInstanceLogField(payload.ResourceID),
 		SessionID:       boundInstanceLogField(payload.SessionID),
+		ExecID:          boundInstanceLogField(payload.ExecID),
 		EventID:         boundInstanceLogField(payload.EventID),
 		RequestID:       boundInstanceLogField(payload.RequestID),
 		OrchestrationID: boundInstanceLogField(payload.OrchestrationID),

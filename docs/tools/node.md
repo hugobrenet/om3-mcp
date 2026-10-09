@@ -1088,10 +1088,19 @@ reported node, heartbeat, listener, scheduler, or orchestration issue. The
 optional `component` selects one exact OpenSVC `PKG` value such as
 `daemon/hbctrl`.
 
+The daemon stamps what it runs with three ids: the execution, the session it
+belongs to, and the orchestration the session is a step of. `exec_id`,
+`session_id` and `orchestration_id` keep the entries logged under one of them.
+To read why an execution failed, take its `exec_id` and `node` from
+`list_daemon_executions`: an execution runs on one node. A session or an
+orchestration may span several nodes, whose journals are read one at a time.
+
 ```text
-GET /api/node/name/<node>/log?follow=false&lines=<lines+1>[&filter=PKG=<component>]
+GET /api/node/name/<node>/log?follow=false&lines=<lines+1>[&filter=PKG=<component>][&filter=EXEC_ID=<id>][&filter=SESSION_ID=<id>][&filter=ORCHESTRATION_ID=<id>]
 Accept: text/event-stream
 ```
+
+Each filter is a journal match; matches on distinct fields must all hold.
 
 The endpoint reads journald entries selected by `_COMM=om`. It does not filter
 by systemd unit: an entry may have `systemd_unit=opensvc-server.service`, or it
@@ -1104,16 +1113,23 @@ requires the global `root` grant for this endpoint.
 | `node` | Yes | — | Exact hostname using letters, digits, `.`, `_`, or `-`; at most 255 characters | Node whose journal is read |
 | `lines` | No | 50 | 1..100 | Maximum entries returned |
 | `component` | No | — | Exact value, at most 255 characters | `PKG` filter |
+| `exec_id` | No | — | Canonical UUID | `EXEC_ID` filter |
+| `session_id` | No | — | Canonical UUID | `SESSION_ID` filter |
+| `orchestration_id` | No | — | Canonical UUID | `ORCHESTRATION_ID` filter |
+
+The ids are sent in lower case, as the daemon logs them.
 
 The MCP requests one extra entry to detect omission of older entries. It
 consumes the SSE stream to EOF, retains at most `lines` entries in chronological
 order, and returns ordinary JSON. `follow` is always `false`.
 
 The output contains `provenance`, `node`, the effective `lines`, `count`,
-`entries`, and `truncated`; `component` appears when requested. Each entry
-contains `timestamp`, `message`, `message_truncated`, and optional `level`,
-`priority`, `component`, `systemd_unit`, `object_path`, `resource_id`,
-`session_id`, `event_id`, `request_id`, and `orchestration_id`. OpenSVC may omit
+`entries`, `truncated`, and `ids` (the id filters applied); `component`
+appears when requested. Each entry contains `timestamp`, `message`,
+`message_truncated`, and optional `level`, `priority`, `component`,
+`systemd_unit`, `object_path`, `resource_id`, `session_id`, `exec_id`,
+`event_id`, `request_id`, and `orchestration_id`. `session_id` is read from
+the `SESSION_ID` field, or `SID` as logged by earlier agents. OpenSVC may omit
 `level`; the journald `priority` is preserved separately when present. A raw
 journald microsecond timestamp is converted to RFC 3339 when the OpenSVC
 payload has no timestamp.
@@ -1123,8 +1139,9 @@ across the response. Other fields are limited to 255 code points. Control and
 formatting characters are normalized. Raw journald metadata such as machine
 identifiers, command lines, and user IDs is omitted. `truncated` reports older
 entries omitted by the requested line limit or message content shortened by
-these bounds. Invalid inputs, malformed SSE or JSON, unexpected node or
-component values, oversized streams, and daemon errors become MCP tool errors.
+these bounds. Invalid inputs, malformed SSE or JSON, unexpected node,
+component or id values, oversized streams, and daemon errors become MCP tool
+errors.
 
 ### `list_node_disks`
 

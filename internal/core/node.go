@@ -23,6 +23,7 @@ type NodeStatus struct {
 	Stats      *NodeCapacityStats  `json:"stats" jsonschema:"published node capacity statistics, or null when unavailable"`
 	Policy     *NodeCapacityPolicy `json:"policy" jsonschema:"configured memory and swap availability thresholds, or null when unavailable"`
 	Heartbeat  *HeartbeatFacts     `json:"heartbeat" jsonschema:"bounded heartbeat facts reported by OpenSVC, or null when unavailable"`
+	Daemon     NodeDaemon          `json:"daemon" jsonschema:"the daemon process and subsystem facts the node last published"`
 }
 
 type NodeMembershipFacts struct {
@@ -159,6 +160,7 @@ func (s *Service) GetNodeStatus(ctx context.Context, nodeName string) (NodeStatu
 			UpdatedAt:           node.Monitor.UpdatedAt,
 		},
 		Heartbeat: heartbeatFacts(node.Daemon.Heartbeat),
+		Daemon:    NodeDaemon{PID: node.Daemon.PID, StartedAt: node.Daemon.StartedAt, Subsystems: daemonSubsystems(node.Daemon)},
 	}
 	if node.Stats != nil {
 		result.Stats = &NodeCapacityStats{

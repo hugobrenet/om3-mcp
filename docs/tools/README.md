@@ -18,7 +18,7 @@ documents describe the implemented tool contracts.
 | Domain | Tools | Documentation |
 |---|---|---|
 | Catalogue | `list_clusters` | [Multi-cluster tools](../token-exchange.md#tool-contracts) |
-| Daemon | `get_daemon_status`, `list_daemon_executions`, `list_daemon_orchestrations`, `list_dns_records` | [Daemon tools](daemon.md) |
+| Daemon | `list_daemon_executions`, `list_daemon_orchestrations`, `list_dns_records` | [Daemon tools](daemon.md) |
 | Cluster | `get_cluster_config`, `get_cluster_status` | [Cluster tools](cluster.md) |
 | Node | `get_node_config`, `get_node_status`, `get_node_logs`, `list_node_properties`, `list_node_hardware`, `list_node_packages`, `get_node_daemon_metrics`, `probe_node_reachability`, `list_node_capabilities`, `list_node_drivers`, `list_node_disks`, `get_node_san_topology`, `list_node_ip_addresses` | [Node tools](node.md) |
 | Objects | `list_cluster_objects`, `get_object_status`, `get_object_config`, `list_object_config_keywords` | [Object tools](objects.md) |
@@ -102,14 +102,13 @@ response shape. Timestamps and provenance values are illustrative:
 
 Domain examples show the business arguments; add the required `cluster_id`
 for external OAuth calls. They show the `arguments` object passed to `tools/call`, not the complete
-JSON-RPC envelope. Timestamps, process identifiers, UUIDs, and routine counts
+JSON-RPC envelope. Timestamps, process identifiers, and UUIDs
 are representative and will differ between calls.
 
 ## Safety summary
 
 | Tool | Read-only | Destructive | Required OpenSVC access |
 |---|---:|---:|---|
-| `get_daemon_status` | Yes | No | `guest` or higher |
 | `list_daemon_executions` | Yes | No | `root` |
 | `list_daemon_orchestrations` | Yes | No | `root` |
 | `get_cluster_config` | Yes | No | `root` |

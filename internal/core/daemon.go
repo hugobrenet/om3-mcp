@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"sort"
 	"time"
 )
 
 const (
-	maxDaemonClusterNodes           = 200
 	maxDaemonDNSNameservers         = 32
 	maxDaemonEndpointComponentRunes = 512
 )
@@ -51,43 +49,12 @@ func New(client JSONGetter) *Service {
 	return &Service{client: client, now: time.Now}
 }
 
-type DaemonStatus struct {
-	Provenance     Provenance           `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
-	Daemon         DaemonProcessStatus  `json:"daemon" jsonschema:"identity and process facts for the local OpenSVC daemon"`
-	Cluster        DaemonClusterContext `json:"cluster" jsonschema:"bounded identity and configuration context for the OpenSVC cluster"`
-	Node           DaemonNodeContext    `json:"node" jsonschema:"identity compatibility and role facts for the local OpenSVC node"`
-	ListenerConfig DaemonListenerConfig `json:"listener_config" jsonschema:"configured OpenSVC daemon listener address and port"`
-	Subsystems     DaemonSubsystems     `json:"subsystems" jsonschema:"exact states timestamps and selected operating facts reported for local daemon subsystems"`
-}
-
-type DaemonProcessStatus struct {
-	NodeName  string `json:"nodename" jsonschema:"the OpenSVC daemon node name"`
-	PID       int    `json:"pid" jsonschema:"the OpenSVC daemon process identifier"`
-	StartedAt string `json:"started_at" jsonschema:"the OpenSVC daemon start timestamp"`
-	Routines  int    `json:"routines" jsonschema:"the number of daemon goroutines"`
-}
-
-type DaemonClusterContext struct {
-	ID             string   `json:"id" jsonschema:"the OpenSVC cluster identifier"`
-	Name           string   `json:"name" jsonschema:"the OpenSVC cluster name"`
-	NodesTotal     int      `json:"nodes_total" jsonschema:"the number of configured OpenSVC cluster node names before limiting"`
-	Nodes          []string `json:"nodes" jsonschema:"configured OpenSVC cluster node names sorted and limited to 200"`
-	NodesTruncated bool     `json:"nodes_truncated" jsonschema:"whether configured node names were omitted after the 200-entry limit"`
-	QuorumEnabled  bool     `json:"quorum_enabled" jsonschema:"whether the OpenSVC cluster quorum feature is enabled; this does not report whether quorum is currently attained"`
-}
-
-type DaemonNodeContext struct {
-	AgentVersion string `json:"agent_version" jsonschema:"the OpenSVC agent version reported by the local node"`
-	APIVersion   int    `json:"api_version" jsonschema:"the OpenSVC daemon API compatibility version"`
-	Compat       int    `json:"compat_version" jsonschema:"the OpenSVC daemon compatibility version"`
-	IsLeader     bool   `json:"is_leader" jsonschema:"whether the local node is cluster leader"`
-	IsOverloaded bool   `json:"is_overloaded" jsonschema:"whether the local node is overloaded"`
-	BootedAt     string `json:"booted_at" jsonschema:"the local node boot timestamp"`
-}
-
-type DaemonListenerConfig struct {
-	Address string `json:"address" jsonschema:"the configured OpenSVC daemon listener address"`
-	Port    int    `json:"port" jsonschema:"the configured OpenSVC daemon listener port"`
+// NodeDaemon is the process and subsystem facts a node daemon publishes in
+// the cluster status.
+type NodeDaemon struct {
+	PID        int              `json:"pid" jsonschema:"the OpenSVC daemon process identifier"`
+	StartedAt  string           `json:"started_at" jsonschema:"the OpenSVC daemon start timestamp"`
+	Subsystems DaemonSubsystems `json:"subsystems" jsonschema:"exact states, timestamps and selected operating facts reported for the daemon subsystems"`
 }
 
 type DaemonSubsystems struct {
@@ -358,10 +325,6 @@ type clusterStatusResponse struct {
 			UpdatedAt        string   `json:"updated_at"`
 		} `json:"object"`
 	} `json:"cluster"`
-	Daemon struct {
-		NodeName string `json:"nodename"`
-		Routines int    `json:"routines"`
-	} `json:"daemon"`
 }
 
 func (s *Service) getClusterStatus(ctx context.Context) (clusterStatusResponse, error) {
@@ -371,45 +334,6 @@ func (s *Service) getClusterStatus(ctx context.Context) (clusterStatusResponse, 
 		return clusterStatusResponse{}, fmt.Errorf("get cluster status: %w", err)
 	}
 	return status, nil
-}
-
-func (s *Service) GetDaemonStatus(ctx context.Context) (DaemonStatus, error) {
-	status, err := s.getClusterStatus(ctx)
-	if err != nil {
-		return DaemonStatus{}, fmt.Errorf("get daemon status: %w", err)
-	}
-
-	nodeName := status.Daemon.NodeName
-	if nodeName == "" {
-		return DaemonStatus{}, fmt.Errorf("cluster status has no daemon nodename")
-	}
-	node, ok := status.Cluster.Node[nodeName]
-	if !ok {
-		return DaemonStatus{}, fmt.Errorf("cluster status has no data for local node %q", nodeName)
-	}
-	if node.Status.Agent == "" {
-		return DaemonStatus{}, fmt.Errorf("cluster status has no agent version for local node %q", nodeName)
-	}
-
-	nodes := append([]string{}, status.Cluster.Config.Nodes...)
-	sort.Strings(nodes)
-	nodes, nodesTruncated := boundedStrings(nodes, maxDaemonClusterNodes)
-
-	return DaemonStatus{
-		Provenance: s.newProvenance(),
-		Daemon:     DaemonProcessStatus{NodeName: nodeName, PID: node.Daemon.PID, StartedAt: node.Daemon.StartedAt, Routines: status.Daemon.Routines},
-		Cluster: DaemonClusterContext{
-			ID: status.Cluster.Config.ID, Name: status.Cluster.Config.Name,
-			NodesTotal: len(status.Cluster.Config.Nodes), Nodes: nodes, NodesTruncated: nodesTruncated,
-			QuorumEnabled: status.Cluster.Config.Quorum,
-		},
-		Node: DaemonNodeContext{
-			AgentVersion: node.Status.Agent, APIVersion: node.Status.API, Compat: node.Status.Compat,
-			IsLeader: node.Status.IsLeader, IsOverloaded: node.Status.IsOverloaded, BootedAt: node.Status.BootedAt,
-		},
-		ListenerConfig: DaemonListenerConfig{Address: status.Cluster.Config.Listener.Address, Port: status.Cluster.Config.Listener.Port},
-		Subsystems:     daemonSubsystems(node.Daemon),
-	}, nil
 }
 
 func daemonSubsystems(raw clusterNodeDaemon) DaemonSubsystems {

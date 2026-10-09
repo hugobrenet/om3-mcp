@@ -7,10 +7,6 @@ import (
 	"github.com/opensvc/om3-mcp/internal/core"
 )
 
-type GetDaemonStatusInput struct{}
-
-type GetDaemonStatusOutput = core.DaemonStatus
-
 type ListDaemonExecutionsInput struct {
 	Node            string   `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
 	States          []string `json:"states,omitempty" jsonschema:"optional exact daemon execution states; at most 16 values; unknown states are accepted"`
@@ -49,26 +45,6 @@ type ListDNSRecordsOutput = core.DNSRecordList
 type ListDaemonOrchestrationsOutput = core.DaemonOrchestrationList
 
 func RegisterDaemonTools(registrar *Registrar, service *core.Service) error {
-	if err := addTool(
-		registrar,
-		&mcp.Tool{
-			Name:  "get_daemon_status",
-			Title: "Get daemon status",
-			Description: "Inspect the local OpenSVC daemon process, target identity, compatibility metadata, and exact subsystem states. " +
-				"Use this first to confirm the target and inspect daemon services; it returns no health verdict and makes no changes.",
-			Annotations: readOnlyClosedWorldAnnotations(),
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, _ GetDaemonStatusInput) (*mcp.CallToolResult, GetDaemonStatusOutput, error) {
-			status, err := service.GetDaemonStatus(ctx)
-			if err != nil {
-				return nil, GetDaemonStatusOutput{}, err
-			}
-			return nil, status, nil
-		},
-	); err != nil {
-		return err
-	}
-
 	if err := addTool(
 		registrar,
 		&mcp.Tool{

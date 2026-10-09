@@ -117,7 +117,8 @@ Returns the last-known status of one exact node after `get_cluster_status`
 provides the cluster-wide facts. It exposes the reported agent
 and compatibility versions, leader and overload flags, freeze and boot times,
 monitor state and targets, capacity statistics, memory and swap policy
-thresholds, factual membership context, and bounded heartbeat data. Use
+thresholds, factual membership context, bounded heartbeat data, and the
+process and subsystem states of the node daemon. Use
 `get_cluster_status` for a factual cluster-wide snapshot. This node-focused
 tool does not classify heartbeat health or freshness.
 
@@ -157,12 +158,24 @@ default node, selector, or pagination is used.
 | `stats` | Fifteen-minute load, available and total memory/swap, and OpenSVC capacity score; `null` if absent |
 | `policy` | Minimum available memory and swap percentages; `null` if absent; zero disables the corresponding check |
 | `heartbeat` | Publication time, messages, secret version numbers, streams, alerts, peers, and their exact values; `null` if absent |
+| `daemon` | Daemon `pid`, `started_at`, and `subsystems`: `daemon_data`, `listener`, `dns`, `collector`, `scheduler`, `runner_imon`, each with its exact state and timestamps, or `null` if absent |
 
 `membership.configured_peers` contains distinct configured node names other
 than the selected node, sorted by exact name and limited to 200. It returns
 `total`, `count`, `items`, and `truncated`. This context lets the agent compare
 configured peers with reported heartbeat links without the MCP declaring a
 peer missing or stale.
+
+`daemon` is what the node daemon last published in the cluster status, as the
+rest of the result: for a node other than the one receiving the request, it
+is not a live reading. Each subsystem keeps its exact `state` and
+`configured_at`, `created_at` and `updated_at` timestamps, plus its own facts:
+the daemon data queue size, the runtime listener address, port and rate
+limiter, the DNS nameservers (at most 32), the scheduler running jobs and
+concurrency limit, and the instance-monitor runner concurrency limit. The
+collector URL is not returned verbatim: its scheme and host are exposed, while
+user information, non-root paths, queries, and fragments are omitted and
+reported through redaction flags.
 
 The heartbeat projection is shared with `get_cluster_status`:
 

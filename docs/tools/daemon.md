@@ -139,7 +139,7 @@ cluster health.
 GET /api/node/name/{node}/daemon/exec
 ```
 
-When `node` is omitted, the tool uses the daemon's local-node alias `_`. The
+`node` is required, as for every [node target](README.md#node-targets). The
 endpoint requires the OpenSVC `root` grant. The MCP forwards only the daemon's
 native filters: repeated `state` and `origin` values, `session_id`,
 `orchestration_id`, `exec_id`, `selector` for one exact object path, and `rid`.
@@ -176,8 +176,8 @@ aggregate page text to 128 Ki runes. Each shortened field has a corresponding
 }
 ```
 
-All filters are optional. `node` and `object_path` must be exact values, not
-selectors. `session_id`, `orchestration_id`, and `exec_id`, when present, must
+`node` is required; the filters are optional. `node` and `object_path` must
+be exact values, not selectors. `session_id`, `orchestration_id`, and `exec_id`, when present, must
 be canonical UUIDs. At most 16 exact state values and 16 exact origin values
 are accepted. Unknown state and origin strings are forwarded and preserved.
 
@@ -186,6 +186,7 @@ are accepted. Unknown state and origin strings are forwarded and preserved.
 ```json
 {
   "provenance": {"source": "opensvc_daemon", "observed_at": "2026-09-24T10:02:00Z"},
+  "node": "node-a",
   "total": 1,
   "count": 1,
   "executions": [
@@ -214,11 +215,12 @@ are accepted. Unknown state and origin strings are forwarded and preserved.
 }
 ```
 
-Optional facts remain `null` when absent. In particular, a running execution
-can have no `exit_code` or `ended_at`; the MCP does not synthesize them. Command
-and error text can expose sensitive operational arguments, which is why this
-tool is root-only and should be requested only when execution history is
-needed.
+The top-level `node` is the requested node; every execution must report it, or
+the MCP returns an error. Optional facts remain `null` when absent. In
+particular, a running execution can have no `exit_code` or `ended_at`; the MCP
+does not synthesize them. Command and error text can expose sensitive
+operational arguments, which is why this tool is root-only and should be
+requested only when execution history is needed.
 
 #### Errors
 
@@ -244,9 +246,8 @@ returned by `list_daemon_executions` when filtered with the same
 GET /api/node/name/{node}/daemon/orchestration
 ```
 
-When `node` is omitted, the request uses the local-node alias `_`, producing
-`GET /api/node/name/_/daemon/orchestration`. An exact node name addresses that
-node instead. The endpoint requires the OpenSVC `root` grant.
+`node` is required, as for every [node target](README.md#node-targets). The
+endpoint requires the OpenSVC `root` grant.
 
 The MCP forwards repeated `state` filters and an optional `selector` query.
 Although the API parameter is named `selector`, the daemon implementation
@@ -276,6 +277,7 @@ page text to 128 Ki runes. Truncated fields carry explicit flags.
 
 ```json
 {
+  "node": "node-a",
   "states": ["failed", "running"],
   "object_path": "prod/svc/redis",
   "limit": 20
@@ -292,6 +294,7 @@ though the current OpenAPI description lists only `running`, `succeeded`,
 ```json
 {
   "provenance": {"source": "opensvc_daemon", "observed_at": "2026-09-24T11:00:00Z"},
+  "node": "node-a",
   "total": 1,
   "count": 1,
   "orchestrations": [
@@ -312,13 +315,15 @@ though the current OpenAPI description lists only `running`, `succeeded`,
 }
 ```
 
-`path` is `null` for a node orchestration. `node` can be an empty string when
-the queried daemon learned about the orchestration through participating
-monitors but did not observe which node accepted it. `expect`, `error`, and
-`ended_at` also remain `null` when the daemon omits them; an absent `ended_at`
-commonly means that the orchestration is still running. The MCP neither infers
-an outcome nor checks whether the requested target state was operationally
-appropriate.
+The top-level `node` is the requested node, whose daemon reported the list,
+even when it is empty. The `node` of an orchestration is the node that accepted
+it and may differ. `path` is `null` for a node orchestration. That `node` can
+be an empty string when the queried daemon learned about the orchestration
+through participating monitors but did not observe which node accepted it.
+`expect`, `error`, and `ended_at` also remain `null` when the daemon omits
+them; an absent `ended_at` commonly means that the orchestration is still
+running. The MCP neither infers an outcome nor checks whether the requested
+target state was operationally appropriate.
 
 #### Errors
 

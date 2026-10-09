@@ -90,8 +90,10 @@ func (s *Service) ListStoragePools(ctx context.Context, options ListStoragePools
 	if node != "" && options.PerNode {
 		return StoragePoolList{}, fmt.Errorf("node and per_node are mutually exclusive")
 	}
-	if node != "" && !validExactNodeName(node) {
-		return StoragePoolList{}, fmt.Errorf("node must be one exact OpenSVC node name of at most 255 characters")
+	if node != "" {
+		if err := validateNodeTarget(node); err != nil {
+			return StoragePoolList{}, err
+		}
 	}
 
 	query := url.Values{}

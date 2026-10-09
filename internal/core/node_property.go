@@ -38,7 +38,7 @@ type ListNodePropertiesOptions struct {
 
 type NodePropertyList struct {
 	Provenance    Provenance     `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
-	Node          string         `json:"node" jsonschema:"the OpenSVC node reported by property entries, or the local-node alias underscore when an empty local result cannot resolve it"`
+	Node          string         `json:"node" jsonschema:"the exact requested OpenSVC node name, reported by every entry"`
 	ReportedTotal int            `json:"reported_total" jsonschema:"number of property entries returned by OpenSVC before MCP filtering"`
 	Total         int            `json:"total" jsonschema:"number of properties matching the exact name and source filters before pagination"`
 	Count         int            `json:"count" jsonschema:"number of properties returned in this page"`
@@ -101,7 +101,6 @@ func (s *Service) ListNodeProperties(ctx context.Context, options ListNodeProper
 		return NodePropertyList{}, fmt.Errorf("list node properties: response contains %d items, limit is %d", len(response.Items), maxNodePropertyItems)
 	}
 
-	resolvedNode := node
 	seenNames := make(map[string]struct{}, len(response.Items))
 	properties := make([]NodeProperty, 0, len(response.Items))
 	for index, raw := range response.Items {
@@ -111,15 +110,8 @@ func (s *Service) ListNodeProperties(ctx context.Context, options ListNodeProper
 		if !validExactNodeName(raw.Meta.Node) {
 			return NodePropertyList{}, fmt.Errorf("list node properties: item %d reports invalid node %q", index, raw.Meta.Node)
 		}
-		if node != localDaemonNodeAlias && raw.Meta.Node != node {
+		if raw.Meta.Node != node {
 			return NodePropertyList{}, fmt.Errorf("list node properties: item %d reports unexpected node %q", index, raw.Meta.Node)
-		}
-		if node == localDaemonNodeAlias {
-			if resolvedNode == localDaemonNodeAlias {
-				resolvedNode = raw.Meta.Node
-			} else if raw.Meta.Node != resolvedNode {
-				return NodePropertyList{}, fmt.Errorf("list node properties: item %d reports inconsistent node %q", index, raw.Meta.Node)
-			}
 		}
 
 		property, err := projectNodeProperty(raw)
@@ -162,7 +154,7 @@ func (s *Service) ListNodeProperties(ctx context.Context, options ListNodeProper
 	}
 	result := NodePropertyList{
 		Provenance:    s.newProvenance(),
-		Node:          resolvedNode,
+		Node:          node,
 		ReportedTotal: len(response.Items),
 		Total:         len(properties),
 		Count:         len(items),
@@ -177,10 +169,8 @@ func (s *Service) ListNodeProperties(ctx context.Context, options ListNodeProper
 
 func validateNodePropertyOptions(options ListNodePropertiesOptions) (string, []string, []string, int, string, error) {
 	node := options.Node
-	if node == "" {
-		node = localDaemonNodeAlias
-	} else if node != localDaemonNodeAlias && !validExactNodeName(node) {
-		return "", nil, nil, 0, "", fmt.Errorf("node must be one exact OpenSVC node name of at most 255 characters")
+	if err := validateNodeTarget(node); err != nil {
+		return "", nil, nil, 0, "", err
 	}
 	names, err := normalizeNodePropertyFilters("name", options.Names, maxNodePropertyNameRunes)
 	if err != nil {

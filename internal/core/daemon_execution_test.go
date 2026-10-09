@@ -54,15 +54,15 @@ const daemonExecutionPayload = `{
 
 func TestListDaemonExecutionsSortsAndPaginates(t *testing.T) {
 	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/daemon/exec", query: url.Values{}, payload: daemonExecutionPayload,
+		t: t, path: "/api/node/name/node-a/daemon/exec", query: url.Values{}, payload: daemonExecutionPayload,
 	}
 	service := New(client)
 
-	first, err := service.ListDaemonExecutions(context.Background(), ListDaemonExecutionsOptions{Limit: 1})
+	first, err := service.ListDaemonExecutions(context.Background(), ListDaemonExecutionsOptions{Node: "node-a", Limit: 1})
 	if err != nil {
 		t.Fatalf("list first daemon execution page: %v", err)
 	}
-	if first.Total != 3 || first.Count != 1 || !first.Truncated || first.NextCursor == "" {
+	if first.Node != "node-a" || first.Total != 3 || first.Count != 1 || !first.Truncated || first.NextCursor == "" {
 		t.Fatalf("unexpected first page metadata: %#v", first)
 	}
 	got := first.Executions[0]
@@ -77,7 +77,7 @@ func TestListDaemonExecutionsSortsAndPaginates(t *testing.T) {
 		t.Fatalf("unexpected opaque cursor %q: decoded=%q err=%v", first.NextCursor, decoded, err)
 	}
 
-	second, err := service.ListDaemonExecutions(context.Background(), ListDaemonExecutionsOptions{Limit: 1, Cursor: first.NextCursor})
+	second, err := service.ListDaemonExecutions(context.Background(), ListDaemonExecutionsOptions{Node: "node-a", Limit: 1, Cursor: first.NextCursor})
 	if err != nil {
 		t.Fatalf("list second daemon execution page: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestListDaemonExecutionsForwardsValidatedNativeFilters(t *testing.T) {
 		payload: daemonExecutionPayload,
 	}
 	result, err := New(client).ListDaemonExecutions(context.Background(), ListDaemonExecutionsOptions{
-		Node:            " node-a ",
+		Node:            "node-a",
 		States:          []string{" failed ", "running", "failed"},
 		Origins:         []string{"api", " scheduler "},
 		SessionID:       " 10000000-0000-0000-0000-000000000001 ",
@@ -135,9 +135,9 @@ func TestListDaemonExecutionsBoundsTextFields(t *testing.T) {
 		`"command":"` + strings.Repeat("c", maxDaemonExecutionCommandRunes+1) + `",` +
 		`"error":"` + strings.Repeat("e", maxDaemonExecutionErrorRunes+1) + `"}]}`
 	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/daemon/exec", query: url.Values{}, payload: payload,
+		t: t, path: "/api/node/name/node-a/daemon/exec", query: url.Values{}, payload: payload,
 	}
-	result, err := New(client).ListDaemonExecutions(context.Background(), ListDaemonExecutionsOptions{})
+	result, err := New(client).ListDaemonExecutions(context.Background(), ListDaemonExecutionsOptions{Node: "node-a"})
 	if err != nil {
 		t.Fatalf("list daemon executions: %v", err)
 	}
@@ -159,12 +159,14 @@ func TestListDaemonExecutionsRejectsInvalidInputsBeforeCallingDaemon(t *testing.
 		tooManyStates[index] = "state"
 	}
 	tests := map[string]ListDaemonExecutionsOptions{
+		"missing node":    {},
+		"local alias":     {Node: "_"},
 		"node selector":   {Node: "node*"},
-		"too many states": {States: tooManyStates},
-		"invalid UUID":    {ExecID: "not-a-uuid"},
-		"object selector": {ObjectPath: "prod/svc/*"},
-		"invalid limit":   {Limit: maxDaemonExecutionLimit + 1},
-		"invalid cursor":  {Cursor: base64.RawURLEncoding.EncodeToString([]byte("not-a-uuid"))},
+		"too many states": {Node: "node-a", States: tooManyStates},
+		"invalid UUID":    {Node: "node-a", ExecID: "not-a-uuid"},
+		"object selector": {Node: "node-a", ObjectPath: "prod/svc/*"},
+		"invalid limit":   {Node: "node-a", Limit: maxDaemonExecutionLimit + 1},
+		"invalid cursor":  {Node: "node-a", Cursor: base64.RawURLEncoding.EncodeToString([]byte("not-a-uuid"))},
 	}
 	for name, options := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -182,6 +184,11 @@ func TestListDaemonExecutionsRejectsInvalidInputsBeforeCallingDaemon(t *testing.
 func TestListDaemonExecutionsRejectsMalformedDaemonData(t *testing.T) {
 	tests := map[string]string{
 		"unexpected kind": `{"kind":"OtherList","items":[]}`,
+		"unexpected node": `{"kind":"ExecList","items":[{` +
+			`"session_id":"10000000-0000-0000-0000-000000000001",` +
+			`"exec_id":"20000000-0000-0000-0000-000000000001",` +
+			`"node":"node-b","origin":"api","command":"om status","state":"running",` +
+			`"started_at":"2026-09-24T10:00:00Z"}]}`,
 		"invalid id": `{"kind":"ExecList","items":[{` +
 			`"session_id":"bad","exec_id":"20000000-0000-0000-0000-000000000001",` +
 			`"node":"node-a","origin":"api","command":"om status","state":"running",` +
@@ -195,9 +202,9 @@ func TestListDaemonExecutionsRejectsMalformedDaemonData(t *testing.T) {
 	for name, payload := range tests {
 		t.Run(name, func(t *testing.T) {
 			client := &recordingJSONGetter{
-				t: t, path: "/api/node/name/_/daemon/exec", query: url.Values{}, payload: payload,
+				t: t, path: "/api/node/name/node-a/daemon/exec", query: url.Values{}, payload: payload,
 			}
-			if _, err := New(client).ListDaemonExecutions(context.Background(), ListDaemonExecutionsOptions{}); err == nil {
+			if _, err := New(client).ListDaemonExecutions(context.Background(), ListDaemonExecutionsOptions{Node: "node-a"}); err == nil {
 				t.Fatal("expected malformed daemon response error")
 			}
 		})

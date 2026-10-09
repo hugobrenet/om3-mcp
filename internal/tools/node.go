@@ -14,7 +14,7 @@ type GetNodeStatusInput struct {
 type GetNodeStatusOutput = core.NodeStatus
 
 type GetNodeConfigInput struct {
-	Node string `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Node string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
 }
 
 type GetNodeConfigOutput = core.NodeConfig
@@ -28,7 +28,7 @@ type GetNodeLogsInput struct {
 type GetNodeLogsOutput = core.NodeLogList
 
 type ListNodeCapabilitiesInput struct {
-	Node   string `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Node   string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
 	Cursor string `json:"cursor,omitempty" jsonschema:"optional next_cursor returned by a previous call for the same node"`
 }
@@ -36,7 +36,7 @@ type ListNodeCapabilitiesInput struct {
 type ListNodeCapabilitiesOutput = core.NodeCapabilityList
 
 type ListNodeDriversInput struct {
-	Node   string `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Node   string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
 	Cursor string `json:"cursor,omitempty" jsonschema:"optional next_cursor returned by a previous call for the same node"`
 }
@@ -44,7 +44,7 @@ type ListNodeDriversInput struct {
 type ListNodeDriversOutput = core.NodeDriverList
 
 type ListNodePropertiesInput struct {
-	Node    string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Node    string   `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
 	Names   []string `json:"names,omitempty" jsonschema:"optional exact property names; combined with sources using AND; at most 32 entries"`
 	Sources []string `json:"sources,omitempty" jsonschema:"optional exact collection sources such as probe config or default; combined with names using AND; at most 32 entries"`
 	Limit   int      `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
@@ -54,7 +54,7 @@ type ListNodePropertiesInput struct {
 type ListNodePropertiesOutput = core.NodePropertyList
 
 type ListNodeHardwareInput struct {
-	Node    string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Node    string   `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
 	Types   []string `json:"types,omitempty" jsonschema:"optional exact hardware types such as pci or mem; combined with classes and drivers using AND; at most 32 entries"`
 	Classes []string `json:"classes,omitempty" jsonschema:"optional exact hardware classes reported by OpenSVC; combined with types and drivers using AND; at most 32 entries"`
 	Drivers []string `json:"drivers,omitempty" jsonschema:"optional exact driver names; an empty string selects entries with no reported driver; combined with types and classes using AND; at most 32 entries"`
@@ -65,7 +65,7 @@ type ListNodeHardwareInput struct {
 type ListNodeHardwareOutput = core.NodeHardwareList
 
 type ListNodePackagesInput struct {
-	Node          string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Node          string   `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
 	Names         []string `json:"names,omitempty" jsonschema:"optional exact package names; combined with name_prefixes using OR and with types and architectures using AND; at most 32 entries"`
 	NamePrefixes  []string `json:"name_prefixes,omitempty" jsonschema:"optional exact case-sensitive package name prefixes; combined with names using OR and with types and architectures using AND; at most 32 entries"`
 	Types         []string `json:"types,omitempty" jsonschema:"optional exact package manager types such as deb rpm or snap; an empty string selects entries with no reported type; combined with name filters and architectures using AND; at most 32 entries"`
@@ -77,7 +77,7 @@ type ListNodePackagesInput struct {
 type ListNodePackagesOutput = core.NodePackageList
 
 type ListNodeDisksInput struct {
-	Node          string `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Node          string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
 	Type          string `json:"type,omitempty" jsonschema:"optional exact disk type such as mpath, disk or rom"`
 	ClaimedOnly   bool   `json:"claimed_only,omitempty" jsonschema:"optional; true lists only the disks an OpenSVC object claims; exclusive with unclaimed_only"`
 	UnclaimedOnly bool   `json:"unclaimed_only,omitempty" jsonschema:"optional; true lists only the disks no OpenSVC object claims; exclusive with claimed_only"`
@@ -88,13 +88,13 @@ type ListNodeDisksInput struct {
 type ListNodeDisksOutput = core.NodeDiskList
 
 type GetNodeSANTopologyInput struct {
-	Node string `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Node string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
 }
 
 type GetNodeSANTopologyOutput = core.NodeSANTopology
 
 type GetNodeDaemonMetricsInput struct {
-	Node     string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Node     string   `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
 	Names    []string `json:"names,omitempty" jsonschema:"optional exact Prometheus metric family names; combined with prefixes using OR; at most 32 entries"`
 	Prefixes []string `json:"prefixes,omitempty" jsonschema:"optional Prometheus metric family name prefixes; combined with names using OR; at most 32 entries"`
 	Limit    int      `json:"limit,omitempty" jsonschema:"optional page size in metric families between 1 and 200; defaults to 100"`
@@ -104,7 +104,7 @@ type GetNodeDaemonMetricsInput struct {
 type GetNodeDaemonMetricsOutput = core.NodeDaemonMetricList
 
 type ProbeNodeReachabilityInput struct {
-	Node string `json:"node" jsonschema:"required exact OpenSVC node name to probe through the daemon proxy path; the underscore local alias is accepted only when explicitly supplied"`
+	Node string `json:"node" jsonschema:"required exact OpenSVC node name to probe through the daemon proxy path; no wildcard, selector or underscore alias"`
 }
 
 type ProbeNodeReachabilityOutput = core.NodeReachabilityProbe
@@ -115,7 +115,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:        "get_node_config",
 			Title:       "Get node configuration",
-			Description: "Read the bounded raw OpenSVC node configuration file for one exact node, defaulting to the local daemon node through the underscore alias. The MCP always requests daemon-side secret redaction, returns at most 65536 bytes, and does not interpret the configuration. Requires root access to the daemon endpoint.",
+			Description: "Read the bounded raw OpenSVC node configuration file for one exact node. The MCP always requests daemon-side secret redaction, returns at most 65536 bytes, and does not interpret the configuration. Requires root access to the daemon endpoint.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input GetNodeConfigInput) (*mcp.CallToolResult, GetNodeConfigOutput, error) {
@@ -133,7 +133,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:  "list_node_packages",
 			Title: "List node packages",
-			Description: "List bounded package entries from one OpenSVC node package cache, defaulting to the local node, with exact-name, name-prefix, type, and architecture filters and stable pagination. " +
+			Description: "List bounded package entries from one OpenSVC node package cache, with exact-name, name-prefix, type, and architecture filters and stable pagination. " +
 				"Preserves versions, installation timestamps, signatures, empty source fields, and duplicate entries without comparing versions or interpreting freshness, vulnerability, compatibility, or trust. " +
 				"This root-only read does not inventory packages, execute push pkg, contact a collector, or refresh the cache; a missing cache remains an explicit daemon error.",
 			Annotations: readOnlyClosedWorldAnnotations(),
@@ -156,7 +156,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:  "list_node_hardware",
 			Title: "List node hardware",
-			Description: "List bounded hardware entries from one OpenSVC node system cache, defaulting to the local node, with exact type, class, and driver filters and stable pagination. " +
+			Description: "List bounded hardware entries from one OpenSVC node system cache, with exact type, class, and driver filters and stable pagination. " +
 				"Preserves paths, descriptions, empty drivers, and duplicate devices without interpreting availability or health. " +
 				"This root-only read does not refresh the cache; a missing cache remains an explicit daemon error until asset data has been pushed.",
 			Annotations: readOnlyClosedWorldAnnotations(),
@@ -178,7 +178,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:  "list_node_properties",
 			Title: "List node properties",
-			Description: "List bounded typed properties from one OpenSVC node system cache, defaulting to the local node, with exact name and source filters and stable pagination. " +
+			Description: "List bounded typed properties from one OpenSVC node system cache, with exact name and source filters and stable pagination. " +
 				"Preserves string, number, and boolean values plus per-property collection errors without interpreting health. " +
 				"This root-only read does not refresh the cache; a missing cache remains an explicit daemon error until asset data has been pushed.",
 			Annotations: readOnlyClosedWorldAnnotations(),
@@ -238,7 +238,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:  "list_node_capabilities",
 			Title: "List node capabilities",
-			Description: "List the exact capability markers cached by OpenSVC for one node, defaulting to the local daemon node, with bounded pagination. " +
+			Description: "List the exact capability markers cached by OpenSVC for one node, with bounded pagination. " +
 				"Capabilities can represent built-in support, environment detections, or driver sub-features; their presence does not prove configuration, use, reachability, or current health. " +
 				"This root-only read does not trigger a capability scan or make changes.",
 			Annotations: readOnlyClosedWorldAnnotations(),
@@ -260,7 +260,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:  "list_node_drivers",
 			Title: "List node drivers",
-			Description: "List the exact driver names registered in one running OpenSVC daemon, defaulting to the local node, with bounded pagination. " +
+			Description: "List the exact driver names registered in one running OpenSVC daemon, with bounded pagination. " +
 				"Registration means the daemon knows the driver; it does not prove that runtime dependencies are available, that the driver is configured or used, or that it is healthy. " +
 				"This root-only read does not scan capabilities, execute drivers, or make changes.",
 			Annotations: readOnlyClosedWorldAnnotations(),
@@ -282,7 +282,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:  "get_node_daemon_metrics",
 			Title: "Get node daemon metrics",
-			Description: "Read bounded Prometheus metric families exposed by one OpenSVC daemon, defaulting to the local node, with optional exact-name or prefix filters and family pagination. " +
+			Description: "Read bounded Prometheus metric families exposed by the OpenSVC daemon of one exact node, with optional exact-name or prefix filters and family pagination. " +
 				"Returns typed counters, gauges, summaries, histograms, labels, and values as source facts for advanced activity or performance diagnosis. " +
 				"It does not interpret health, calculate rates, expose workload metrics, or modify daemon state.",
 			Annotations: readOnlyClosedWorldAnnotations(),
@@ -324,7 +324,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:  "list_node_disks",
 			Title: "List node disks",
-			Description: "List the disks of one OpenSVC node from its disk inventory cache, defaulting to the local node: identifier, device path, size, vendor, model, type, and the OpenSVC objects claiming disk regions. " +
+			Description: "List the disks of one OpenSVC node from its disk inventory cache: identifier, device path, size, vendor, model, type, and the OpenSVC objects claiming disk regions. " +
 				"Filter by type or by claim, with stable pagination; compare nodes to find a LUN missing on one of them. " +
 				"The inventory holds presence and claims, not path or health states. " +
 				"This root-only read does not refresh the cache, written by the push disks schedule; a missing cache remains an explicit daemon error.",
@@ -348,7 +348,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:  "get_node_san_topology",
 			Title: "Get node SAN topology",
-			Description: "Read the SAN topology of one OpenSVC node from its system inventory cache, defaulting to the local node: the initiators, such as iSCSI initiators or HBA ports, the initiator to target pairs, and the number of targets each initiator reaches. " +
+			Description: "Read the SAN topology of one OpenSVC node from its system inventory cache: the initiators, such as iSCSI initiators or HBA ports, the initiator to target pairs, and the number of targets each initiator reaches. " +
 				"The inventory holds the topology, not the state of the paths: a degraded multipath is not reported, a lost target is. " +
 				"This root-only read does not refresh the cache, written by the push asset schedule; a missing cache remains an explicit daemon error.",
 			Annotations: readOnlyClosedWorldAnnotations(),

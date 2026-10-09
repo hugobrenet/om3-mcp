@@ -122,6 +122,7 @@ func TestListClusterIPResourcesRejectsInvalidInputBeforeDaemonCall(t *testing.T)
 	}{
 		{name: "object selector", options: ListClusterIPResourcesOptions{Path: "**"}},
 		{name: "node selector", options: ListClusterIPResourcesOptions{Node: "node-*"}},
+		{name: "local alias", options: ListClusterIPResourcesOptions{Node: "_"}},
 		{name: "limit", options: ListClusterIPResourcesOptions{Limit: 201}},
 		{name: "cursor", options: ListClusterIPResourcesOptions{Cursor: "not-base64!"}},
 	} {

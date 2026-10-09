@@ -40,7 +40,7 @@ type ListNodePackagesOptions struct {
 
 type NodePackageList struct {
 	Provenance    Provenance    `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
-	Node          string        `json:"node" jsonschema:"the OpenSVC node reported by package entries, or the local-node alias underscore when an empty local result cannot resolve it"`
+	Node          string        `json:"node" jsonschema:"the exact requested OpenSVC node name, reported by every entry"`
 	ReportedTotal int           `json:"reported_total" jsonschema:"number of package entries returned by OpenSVC before MCP filtering"`
 	Total         int           `json:"total" jsonschema:"number of package entries matching all requested filter families before pagination"`
 	Count         int           `json:"count" jsonschema:"number of package entries returned in this page"`
@@ -101,7 +101,6 @@ func (s *Service) ListNodePackages(ctx context.Context, options ListNodePackages
 		return NodePackageList{}, fmt.Errorf("list node packages: response contains %d items, limit is %d", len(response.Items), maxNodePackageItems)
 	}
 
-	resolvedNode := node
 	records := make([]nodePackageRecord, 0, len(response.Items))
 	for index, raw := range response.Items {
 		if raw.Kind != "PackageItem" {
@@ -110,15 +109,8 @@ func (s *Service) ListNodePackages(ctx context.Context, options ListNodePackages
 		if !validExactNodeName(raw.Meta.Node) {
 			return NodePackageList{}, fmt.Errorf("list node packages: item %d reports invalid node %q", index, raw.Meta.Node)
 		}
-		if node != localDaemonNodeAlias && raw.Meta.Node != node {
+		if raw.Meta.Node != node {
 			return NodePackageList{}, fmt.Errorf("list node packages: item %d reports unexpected node %q", index, raw.Meta.Node)
-		}
-		if node == localDaemonNodeAlias {
-			if resolvedNode == localDaemonNodeAlias {
-				resolvedNode = raw.Meta.Node
-			} else if raw.Meta.Node != resolvedNode {
-				return NodePackageList{}, fmt.Errorf("list node packages: item %d reports inconsistent node %q", index, raw.Meta.Node)
-			}
 		}
 
 		record, err := projectNodePackage(raw)
@@ -173,7 +165,7 @@ func (s *Service) ListNodePackages(ctx context.Context, options ListNodePackages
 		items = []NodePackage{}
 	}
 	result := NodePackageList{
-		Provenance: s.newProvenance(), Node: resolvedNode, ReportedTotal: len(response.Items),
+		Provenance: s.newProvenance(), Node: node, ReportedTotal: len(response.Items),
 		Total: len(records), Count: len(items), Packages: items, Truncated: end < len(records),
 	}
 	if result.Truncated {
@@ -184,10 +176,8 @@ func (s *Service) ListNodePackages(ctx context.Context, options ListNodePackages
 
 func validateNodePackageOptions(options ListNodePackagesOptions) (string, []string, []string, []string, []string, int, string, error) {
 	node := options.Node
-	if node == "" {
-		node = localDaemonNodeAlias
-	} else if node != localDaemonNodeAlias && !validExactNodeName(node) {
-		return "", nil, nil, nil, nil, 0, "", fmt.Errorf("node must be one exact OpenSVC node name of at most 255 characters")
+	if err := validateNodeTarget(node); err != nil {
+		return "", nil, nil, nil, nil, 0, "", err
 	}
 	names, err := normalizeNodePackageFilters("name", options.Names, maxNodePackageNameRunes, false)
 	if err != nil {

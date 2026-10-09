@@ -46,6 +46,17 @@ On the delegated Unix socket, tools take no `cluster_id` argument and
 `list_clusters` is not offered: the `X-OpenSVC-Cluster-ID` header binds every
 call to one cluster. See [token delegation](../delegation.md).
 
+## Node targets
+
+A tool that diagnoses one node requires `node`: one exact OpenSVC node name of
+at most 255 characters, using letters, digits, `.`, `_` or `-`. Empty values,
+`.`, `..`, surrounding whitespace, wildcards, selectors and the daemon alias
+`_` are rejected before any daemon request. The alias names the daemon
+receiving the request, which is the node carrying the cluster VIP and may
+change on failover. Optional node filters, such as those of
+`list_storage_pools` or `list_cluster_ip_resources`, follow the same rule when
+set.
+
 ## Freshness model
 
 Every successful tool result includes a `provenance` object:

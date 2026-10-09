@@ -213,8 +213,8 @@ func (s *Service) GetInstanceStatus(ctx context.Context, options GetInstanceStat
 	if err != nil {
 		return InstanceStatusSnapshot{}, err
 	}
-	if options.Node == localDaemonNodeAlias || !validExactNodeName(options.Node) {
-		return InstanceStatusSnapshot{}, fmt.Errorf("node must be one exact OpenSVC node name of at most 255 characters")
+	if err := validateNodeTarget(options.Node); err != nil {
+		return InstanceStatusSnapshot{}, err
 	}
 	endpoint := fmt.Sprintf("/api/node/name/%s/instance/path/%s/%s/%s",
 		url.PathEscape(options.Node), url.PathEscape(reference.Namespace), url.PathEscape(reference.Kind), url.PathEscape(reference.Name))

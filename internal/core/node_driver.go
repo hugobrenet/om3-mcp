@@ -24,7 +24,7 @@ type ListNodeDriversOptions struct {
 
 type NodeDriverList struct {
 	Provenance    Provenance `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
-	Node          string     `json:"node" jsonschema:"the OpenSVC node reported by driver entries, or the local-node alias underscore when an empty local result cannot resolve it"`
+	Node          string     `json:"node" jsonschema:"the exact requested OpenSVC node name, reported by every entry"`
 	ReportedTotal int        `json:"reported_total" jsonschema:"number of driver entries returned by OpenSVC before exact duplicate removal"`
 	Total         int        `json:"total" jsonschema:"number of distinct driver names returned by OpenSVC before MCP pagination"`
 	Count         int        `json:"count" jsonschema:"number of distinct driver names returned in this page"`
@@ -63,7 +63,6 @@ func (s *Service) ListNodeDrivers(ctx context.Context, options ListNodeDriversOp
 		return NodeDriverList{}, fmt.Errorf("list node drivers: unexpected response kind %q", response.Kind)
 	}
 
-	resolvedNode := node
 	unique := make(map[string]struct{}, len(response.Items))
 	for index, item := range response.Items {
 		if item.Kind != "DriverItem" {
@@ -72,15 +71,8 @@ func (s *Service) ListNodeDrivers(ctx context.Context, options ListNodeDriversOp
 		if !validExactNodeName(item.Meta.Node) {
 			return NodeDriverList{}, fmt.Errorf("list node drivers: item %d reports invalid node %q", index, item.Meta.Node)
 		}
-		if node != localDaemonNodeAlias && item.Meta.Node != node {
+		if item.Meta.Node != node {
 			return NodeDriverList{}, fmt.Errorf("list node drivers: item %d reports unexpected node %q", index, item.Meta.Node)
-		}
-		if node == localDaemonNodeAlias {
-			if resolvedNode == localDaemonNodeAlias {
-				resolvedNode = item.Meta.Node
-			} else if item.Meta.Node != resolvedNode {
-				return NodeDriverList{}, fmt.Errorf("list node drivers: item %d reports inconsistent node %q", index, item.Meta.Node)
-			}
 		}
 		name := item.Data.Name
 		if name == "" || len([]rune(name)) > maxNodeDriverNameRunes || strings.ContainsAny(name, "\r\n\x00") {
@@ -120,7 +112,7 @@ func (s *Service) ListNodeDrivers(ctx context.Context, options ListNodeDriversOp
 	}
 	result := NodeDriverList{
 		Provenance:    s.newProvenance(),
-		Node:          resolvedNode,
+		Node:          node,
 		ReportedTotal: len(response.Items),
 		Total:         len(names),
 		Count:         len(items),
@@ -135,10 +127,8 @@ func (s *Service) ListNodeDrivers(ctx context.Context, options ListNodeDriversOp
 
 func validateNodeDriverOptions(options ListNodeDriversOptions) (string, int, string, error) {
 	node := options.Node
-	if node == "" {
-		node = localDaemonNodeAlias
-	} else if node != localDaemonNodeAlias && !validExactNodeName(node) {
-		return "", 0, "", fmt.Errorf("node must be one exact OpenSVC node name of at most 255 characters")
+	if err := validateNodeTarget(node); err != nil {
+		return "", 0, "", err
 	}
 	limit := options.Limit
 	if limit == 0 {

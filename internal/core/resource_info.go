@@ -110,19 +110,11 @@ func (s *Service) ListResourceInfo(ctx context.Context, options ListResourceInfo
 		return ResourceInfoList{}, fmt.Errorf("list resource info: response contains %d items, limit is %d", len(response.Items), maxResourceInfoItems)
 	}
 
-	resolvedNode := target.node
 	records := make([]resourceInfoRecord, 0, len(response.Items))
 	for index, raw := range response.Items {
 		entry, err := projectResourceInfoEntry(raw, target)
 		if err != nil {
 			return ResourceInfoList{}, fmt.Errorf("list resource info: item %d: %w", index, err)
-		}
-		if target.scope == ResourceInfoScopeInstance && target.node == localDaemonNodeAlias {
-			if resolvedNode == localDaemonNodeAlias {
-				resolvedNode = entry.Node
-			} else if entry.Node != resolvedNode {
-				return ResourceInfoList{}, fmt.Errorf("list resource info: item %d reports inconsistent node %q", index, entry.Node)
-			}
 		}
 		if target.filters.RID != "" && entry.RID != target.filters.RID {
 			continue
@@ -182,7 +174,7 @@ func (s *Service) ListResourceInfo(ctx context.Context, options ListResourceInfo
 		Provenance:      s.newProvenance(),
 		Scope:           target.scope,
 		Object:          target.object,
-		Node:            resolvedNode,
+		Node:            target.node,
 		Filters:         target.filters,
 		ReportedTotal:   len(response.Items),
 		Total:           len(records),
@@ -220,8 +212,8 @@ func validateResourceInfoOptions(options ListResourceInfoOptions) (resourceInfoT
 			return resourceInfoTarget{}, 0, "", fmt.Errorf("resource info node must be empty for object scope")
 		}
 	case ResourceInfoScopeInstance:
-		if !validExactNodeName(target.node) {
-			return resourceInfoTarget{}, 0, "", fmt.Errorf("resource info node must be one exact OpenSVC node name of at most 255 characters")
+		if err := validateNodeTarget(target.node); err != nil {
+			return resourceInfoTarget{}, 0, "", err
 		}
 	default:
 		return resourceInfoTarget{}, 0, "", fmt.Errorf("resource info scope must be exactly object or instance")
@@ -255,7 +247,7 @@ func projectResourceInfoEntry(raw daemonResourceInfoItem, target resourceInfoTar
 	if !validExactNodeName(raw.Node) {
 		return ResourceInfoEntry{}, fmt.Errorf("invalid node %q", raw.Node)
 	}
-	if target.scope == ResourceInfoScopeInstance && target.node != localDaemonNodeAlias && raw.Node != target.node {
+	if target.scope == ResourceInfoScopeInstance && raw.Node != target.node {
 		return ResourceInfoEntry{}, fmt.Errorf("unexpected node %q", raw.Node)
 	}
 	reference, err := validateExactObjectPath(raw.Object)

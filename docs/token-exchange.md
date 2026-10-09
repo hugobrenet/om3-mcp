@@ -112,8 +112,8 @@ This target field is added centrally to each typed tool's schema and handled by
 the registrar; business inputs and core use cases remain unchanged. An omitted
 or unknown cluster fails before exchange. Target headers cannot override it.
 The tool's `node` retains its existing logical API semantics and never changes
-the configured network endpoint. Existing optional-node defaults still mean the
-daemon receiving the request, which may move with the VIP.
+the configured network endpoint. Node diagnostics require an exact node name:
+the daemon alias `_` would name the node carrying the VIP, which may move.
 
 ## Token lifetime and failures
 

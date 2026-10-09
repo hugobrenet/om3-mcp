@@ -12,7 +12,6 @@ import (
 )
 
 const (
-	localDaemonNodeAlias            = "_"
 	defaultDaemonExecutionLimit     = 50
 	maxDaemonExecutionLimit         = 100
 	maxDaemonExecutionCursorLength  = 1024
@@ -46,6 +45,7 @@ type ListDaemonExecutionsOptions struct {
 
 type DaemonExecutionList struct {
 	Provenance Provenance        `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
+	Node       string            `json:"node" jsonschema:"the exact requested OpenSVC node name, reported by every execution"`
 	Total      int               `json:"total" jsonschema:"number of daemon executions matching the requested filters before MCP pagination"`
 	Count      int               `json:"count" jsonschema:"number of daemon executions returned in this page"`
 	Executions []DaemonExecution `json:"executions" jsonschema:"daemon execution records sorted by start time descending and then execution id"`
@@ -123,6 +123,9 @@ func (s *Service) ListDaemonExecutions(ctx context.Context, options ListDaemonEx
 		if err != nil {
 			return DaemonExecutionList{}, fmt.Errorf("list daemon executions: item %d: %w", index, err)
 		}
+		if item.Node != targetNode {
+			return DaemonExecutionList{}, fmt.Errorf("list daemon executions: item %d reports unexpected node %q", index, item.Node)
+		}
 		parsed = append(parsed, value)
 	}
 	sort.Slice(parsed, func(i, j int) bool {
@@ -163,6 +166,7 @@ func (s *Service) ListDaemonExecutions(ctx context.Context, options ListDaemonEx
 	}
 	result := DaemonExecutionList{
 		Provenance: s.newProvenance(),
+		Node:       targetNode,
 		Total:      len(parsed),
 		Count:      len(items),
 		Executions: items,
@@ -176,11 +180,8 @@ func (s *Service) ListDaemonExecutions(ctx context.Context, options ListDaemonEx
 
 func validateDaemonExecutionOptions(options ListDaemonExecutionsOptions) (string, url.Values, string, int, error) {
 	validated := options
-	validated.Node = strings.TrimSpace(options.Node)
-	if validated.Node != "" {
-		if len(validated.Node) > maxDaemonExecutionNodeLength || validated.Node == "." || validated.Node == ".." || strings.ContainsAny(validated.Node, "*?[]/\\#") {
-			return "", nil, "", 0, fmt.Errorf("daemon execution node must be one exact node name of at most %d characters", maxDaemonExecutionNodeLength)
-		}
+	if err := validateNodeTarget(validated.Node); err != nil {
+		return "", nil, "", 0, err
 	}
 	var err error
 	if validated.States, err = normalizeDaemonExecutionFilter(options.States, "state"); err != nil {
@@ -225,9 +226,6 @@ func validateDaemonExecutionOptions(options ListDaemonExecutionsOptions) (string
 	}
 
 	targetNode := validated.Node
-	if targetNode == "" {
-		targetNode = localDaemonNodeAlias
-	}
 	query := make(url.Values)
 	for _, state := range validated.States {
 		query.Add("state", state)

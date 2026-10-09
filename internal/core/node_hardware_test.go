@@ -14,10 +14,10 @@ func TestListNodeHardwareFiltersSortsAndPaginatesDuplicates(t *testing.T) {
 		{"kind":"HardwareItem","meta":{"node":"node-a"},"data":{"type":"pci","class":"Mass storage controller","driver":"","path":"00:1f.2","description":"SATA controller"}},
 		{"kind":"HardwareItem","meta":{"node":"node-a"},"data":{"type":"pci","class":"Network controller","driver":"virtio-pci","path":"01:00.0","description":"Virtio network"}}
 	]}`
-	client := &recordingJSONGetter{t: t, path: "/api/node/name/_/system/hardware", query: url.Values{}, payload: payload}
+	client := &recordingJSONGetter{t: t, path: "/api/node/name/node-a/system/hardware", query: url.Values{}, payload: payload}
 	service := New(client)
 
-	first, err := service.ListNodeHardware(context.Background(), ListNodeHardwareOptions{Types: []string{"pci"}, Classes: []string{"Network controller"}, Limit: 1})
+	first, err := service.ListNodeHardware(context.Background(), ListNodeHardwareOptions{Node: "node-a", Types: []string{"pci"}, Classes: []string{"Network controller"}, Limit: 1})
 	if err != nil {
 		t.Fatalf("list first node hardware page: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestListNodeHardwareFiltersSortsAndPaginatesDuplicates(t *testing.T) {
 		t.Errorf("unexpected first hardware item: %#v", first.Hardware[0])
 	}
 
-	second, err := service.ListNodeHardware(context.Background(), ListNodeHardwareOptions{Types: []string{"pci"}, Classes: []string{"Network controller"}, Limit: 1, Cursor: first.NextCursor})
+	second, err := service.ListNodeHardware(context.Background(), ListNodeHardwareOptions{Node: "node-a", Types: []string{"pci"}, Classes: []string{"Network controller"}, Limit: 1, Cursor: first.NextCursor})
 	if err != nil {
 		t.Fatalf("list second node hardware page: %v", err)
 	}
@@ -58,22 +58,22 @@ func TestListNodeHardwareCanFilterEmptyDriver(t *testing.T) {
 }
 
 func TestListNodeHardwareReturnsEmptyNonNilList(t *testing.T) {
-	client := &recordingJSONGetter{t: t, path: "/api/node/name/_/system/hardware", query: url.Values{}, payload: `{"kind":"HardwareList","items":[]}`}
-	result, err := New(client).ListNodeHardware(context.Background(), ListNodeHardwareOptions{})
+	client := &recordingJSONGetter{t: t, path: "/api/node/name/node-a/system/hardware", query: url.Values{}, payload: `{"kind":"HardwareList","items":[]}`}
+	result, err := New(client).ListNodeHardware(context.Background(), ListNodeHardwareOptions{Node: "node-a"})
 	if err != nil {
 		t.Fatalf("list empty node hardware: %v", err)
 	}
-	if result.Node != localDaemonNodeAlias || result.ReportedTotal != 0 || result.Total != 0 || result.Count != 0 || result.Hardware == nil || result.Truncated {
+	if result.Node != "node-a" || result.ReportedTotal != 0 || result.Total != 0 || result.Count != 0 || result.Hardware == nil || result.Truncated {
 		t.Errorf("unexpected empty hardware list: %#v", result)
 	}
 }
 
 func TestListNodeHardwareBoundsDescription(t *testing.T) {
 	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/system/hardware", query: url.Values{},
+		t: t, path: "/api/node/name/node-a/system/hardware", query: url.Values{},
 		payload: `{"kind":"HardwareList","items":[{"kind":"HardwareItem","meta":{"node":"node-a"},"data":{"type":"pci","class":"Bridge","driver":"pcieport","path":"00:01.0","description":"` + strings.Repeat("d", maxNodeHardwareDescriptionRunes+1) + `"}}]}`,
 	}
-	result, err := New(client).ListNodeHardware(context.Background(), ListNodeHardwareOptions{})
+	result, err := New(client).ListNodeHardware(context.Background(), ListNodeHardwareOptions{Node: "node-a"})
 	if err != nil {
 		t.Fatalf("list bounded node hardware: %v", err)
 	}
@@ -84,13 +84,15 @@ func TestListNodeHardwareBoundsDescription(t *testing.T) {
 
 func TestListNodeHardwareRejectsInvalidInputsBeforeCallingDaemon(t *testing.T) {
 	tests := map[string]ListNodeHardwareOptions{
+		"missing node":     {},
+		"local alias":      {Node: "_"},
 		"node selector":    {Node: "node*"},
-		"empty type":       {Types: []string{""}},
-		"spaced class":     {Classes: []string{" Bridge"}},
-		"too many drivers": {Drivers: make([]string, maxNodeHardwareFilters+1)},
-		"invalid limit":    {Limit: maxNodeHardwareLimit + 1},
-		"invalid cursor":   {Cursor: "bad\ncursor"},
-		"long cursor":      {Cursor: strings.Repeat("x", maxNodeHardwareCursorRunes+1)},
+		"empty type":       {Node: "node-a", Types: []string{""}},
+		"spaced class":     {Node: "node-a", Classes: []string{" Bridge"}},
+		"too many drivers": {Node: "node-a", Drivers: make([]string, maxNodeHardwareFilters+1)},
+		"invalid limit":    {Node: "node-a", Limit: maxNodeHardwareLimit + 1},
+		"invalid cursor":   {Node: "node-a", Cursor: "bad\ncursor"},
+		"long cursor":      {Node: "node-a", Cursor: strings.Repeat("x", maxNodeHardwareCursorRunes+1)},
 	}
 	for name, options := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -124,25 +126,12 @@ func TestListNodeHardwareRejectsMalformedDaemonData(t *testing.T) {
 	}
 }
 
-func TestListNodeHardwareRejectsInconsistentLocalNodeData(t *testing.T) {
-	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/system/hardware", query: url.Values{},
-		payload: `{"kind":"HardwareList","items":[
-			{"kind":"HardwareItem","meta":{"node":"node-a"},"data":{"type":"pci","class":"Bridge","driver":"","path":"00:00.0","description":"Bridge"}},
-			{"kind":"HardwareItem","meta":{"node":"node-b"},"data":{"type":"pci","class":"Bridge","driver":"","path":"00:01.0","description":"Bridge"}}
-		]}`,
-	}
-	if _, err := New(client).ListNodeHardware(context.Background(), ListNodeHardwareOptions{}); err == nil || !strings.Contains(err.Error(), "inconsistent node") {
-		t.Fatalf("got inconsistent local node error %v", err)
-	}
-}
-
 func TestListNodeHardwareRejectsStaleCursor(t *testing.T) {
 	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/system/hardware", query: url.Values{},
+		t: t, path: "/api/node/name/node-a/system/hardware", query: url.Values{},
 		payload: `{"kind":"HardwareList","items":[{"kind":"HardwareItem","meta":{"node":"node-a"},"data":{"type":"pci","class":"Bridge","driver":"","path":"00:00.0","description":"Bridge"}}]}`,
 	}
-	if _, err := New(client).ListNodeHardware(context.Background(), ListNodeHardwareOptions{Cursor: "missing.0"}); err == nil || !strings.Contains(err.Error(), "no longer present") {
+	if _, err := New(client).ListNodeHardware(context.Background(), ListNodeHardwareOptions{Node: "node-a", Cursor: "missing.0"}); err == nil || !strings.Contains(err.Error(), "no longer present") {
 		t.Fatalf("got stale cursor error %v", err)
 	}
 }

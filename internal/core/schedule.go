@@ -116,19 +116,11 @@ func (s *Service) ListSchedules(ctx context.Context, options ListSchedulesOption
 		return ScheduleList{}, fmt.Errorf("list schedules: response contains %d items, limit is %d", len(response.Items), maxScheduleItems)
 	}
 
-	resolvedNode := target.node
 	records := make([]scheduleRecord, 0, len(response.Items))
 	for index, raw := range response.Items {
 		entry, err := projectScheduleEntry(raw, target)
 		if err != nil {
 			return ScheduleList{}, fmt.Errorf("list schedules: item %d: %w", index, err)
-		}
-		if target.node == localDaemonNodeAlias {
-			if resolvedNode == localDaemonNodeAlias {
-				resolvedNode = entry.Node
-			} else if entry.Node != resolvedNode {
-				return ScheduleList{}, fmt.Errorf("list schedules: item %d reports inconsistent node %q", index, entry.Node)
-			}
 		}
 		records = append(records, scheduleRecord{entry: entry})
 	}
@@ -175,7 +167,7 @@ func (s *Service) ListSchedules(ctx context.Context, options ListSchedulesOption
 	result := ScheduleList{
 		Provenance: s.newProvenance(),
 		Scope:      target.scope,
-		Node:       resolvedNode,
+		Node:       target.node,
 		Total:      len(records),
 		Count:      len(items),
 		Schedules:  items,
@@ -201,8 +193,8 @@ func validateScheduleOptions(options ListSchedulesOptions) (scheduleTarget, int,
 		if options.Path != "" {
 			return scheduleTarget{}, 0, "", fmt.Errorf("schedule path must be empty for node scope")
 		}
-		if !validExactNodeName(target.node) {
-			return scheduleTarget{}, 0, "", fmt.Errorf("schedule node must be one exact OpenSVC node name of at most 255 characters")
+		if err := validateNodeTarget(target.node); err != nil {
+			return scheduleTarget{}, 0, "", err
 		}
 	case ScheduleScopeObject:
 		if target.node != "" {
@@ -214,8 +206,8 @@ func validateScheduleOptions(options ListSchedulesOptions) (scheduleTarget, int,
 		}
 		target.object, target.hasObject = reference, true
 	case ScheduleScopeInstance:
-		if !validExactNodeName(target.node) {
-			return scheduleTarget{}, 0, "", fmt.Errorf("schedule node must be one exact OpenSVC node name of at most 255 characters")
+		if err := validateNodeTarget(target.node); err != nil {
+			return scheduleTarget{}, 0, "", err
 		}
 		reference, err := validateExactObjectPath(options.Path)
 		if err != nil {
@@ -257,7 +249,7 @@ func projectScheduleEntry(raw daemonScheduleItem, target scheduleTarget) (Schedu
 	if !validExactNodeName(raw.Meta.Node) {
 		return ScheduleEntry{}, fmt.Errorf("invalid node %q", raw.Meta.Node)
 	}
-	if target.node != "" && target.node != localDaemonNodeAlias && raw.Meta.Node != target.node {
+	if target.node != "" && raw.Meta.Node != target.node {
 		return ScheduleEntry{}, fmt.Errorf("unexpected node %q", raw.Meta.Node)
 	}
 	if raw.Meta.Object != "" {

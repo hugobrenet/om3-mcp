@@ -50,23 +50,18 @@ Accept: application/octet-stream
 ```
 
 The MCP always sends `redact-secrets=true` and exposes no option to disable it.
-The daemon performs redaction and requires the global `root` grant. For the
-local node, the handler reads the current `node.conf` file. For another cluster
-node, the contacted daemon proxies the same request to that node. The call does
+The daemon performs redaction and requires the global `root` grant. The
+contacted daemon reads the named node's current `node.conf` file, proxying the
+request when that node is another cluster node. The call does
 not read the cluster status cache, refresh drivers, or change configuration.
 
 #### Input and output
 
-`node` is optional and defaults to `_`, the daemon API alias for the local
-node. A supplied value must be one exact OpenSVC node name of at most 255
-characters using letters, digits, dot, underscore, or hyphen. Leading and
-trailing whitespace, paths, wildcards, and selectors are rejected before any
-daemon request.
+`node` is required, as for every [node target](README.md#node-targets).
 
 The output has the same `provenance`, `content`, `size_bytes`,
 `returned_bytes`, `truncated`, and `redaction_requested` fields as
-`get_cluster_config`, plus `node` containing the requested node or `_` when the
-local default was used. The 65,536-byte MCP output limit, 1 MiB transport ceiling, UTF-8 requirement, and
+`get_cluster_config`, plus `node` containing the requested node. The 65,536-byte MCP output limit, 1 MiB transport ceiling, UTF-8 requirement, and
 `application/octet-stream` check are identical.
 
 #### MCP properties
@@ -86,7 +81,7 @@ Annotations are client hints; OpenSVC enforces access using the OpenSVC JWT.
 Input:
 
 ```json
-{}
+{"node":"node-a"}
 ```
 
 Output:
@@ -94,7 +89,7 @@ Output:
 ```json
 {
   "provenance": {"source": "opensvc_daemon", "observed_at": "2026-09-23T10:00:01Z"},
-  "node": "_",
+  "node": "node-a",
   "content": "[node]\nsshkey = ********\n",
   "size_bytes": 27,
   "returned_bytes": 27,
@@ -336,12 +331,11 @@ errors; it does not classify a node or compare nodes automatically.
 #### OpenSVC API, authorization, and freshness
 
 ```text
-GET /api/node/name/_/system/property
+GET /api/node/name/{node}/system/property
 ```
 
-The endpoint requires the global `root` grant. It reads the local node system
-cache by default. When `node` is supplied, OpenSVC replaces `_` with that exact
-name and proxies the request when necessary. The call does not execute an asset
+The endpoint requires the global `root` grant. It reads the system cache of the
+named node, which OpenSVC proxies when necessary. The call does not execute an asset
 probe, run `push asset`, register the node with a collector, or update the
 cache.
 
@@ -358,7 +352,7 @@ the MCP read and does not establish when the properties were collected.
 
 | Input | Required | Default | Bounds | Meaning |
 |---|---:|---:|---:|---|
-| `node` | No | Local node (`_`) | Exact hostname using letters, digits, `.`, `_`, or `-`; at most 255 characters | Node whose system cache is read |
+| `node` | Yes | — | Exact node name; at most 255 characters | Node whose system cache is read |
 | `names` | No | All | At most 32 exact names of at most 255 characters | Include only these property names |
 | `sources` | No | All | At most 32 exact sources of at most 255 characters | Include only these collection sources, such as `probe`, `config`, or `default` |
 | `limit` | No | 100 | 1..200 | Maximum matching properties returned |
@@ -406,6 +400,7 @@ Input:
 
 ```json
 {
+  "node": "node-a",
   "names": ["cpu_threads", "os_release", "node_env"],
   "sources": ["probe", "config"]
 }
@@ -476,11 +471,11 @@ healthy.
 #### OpenSVC API, authorization, and freshness
 
 ```text
-GET /api/node/name/_/system/hardware
+GET /api/node/name/{node}/system/hardware
 ```
 
-The endpoint requires the global `root` grant. It reads the local node system
-cache by default and uses the OpenSVC proxy path for another exact node. It
+The endpoint requires the global `root` grant. It reads the system cache of the
+named node, using the OpenSVC proxy path for another node. It
 does not scan buses, load drivers, execute `push asset`, register with a
 collector, or update the cache.
 
@@ -493,7 +488,7 @@ exposes no cache timestamp, so `provenance.observed_at` dates only the MCP read.
 
 | Input | Required | Default | Bounds | Meaning |
 |---|---:|---:|---:|---|
-| `node` | No | Local node (`_`) | Exact hostname using letters, digits, `.`, `_`, or `-`; at most 255 characters | Node whose cached hardware is read |
+| `node` | Yes | — | Exact node name; at most 255 characters | Node whose cached hardware is read |
 | `types` | No | All | At most 32 exact values of at most 255 characters | Include hardware types such as `pci` or `mem` |
 | `classes` | No | All | At most 32 exact values of at most 1024 characters | Include only the reported hardware classes |
 | `drivers` | No | All | At most 32 exact values of at most 1024 characters | Include only the reported drivers; `""` selects entries with an empty driver |
@@ -532,6 +527,7 @@ Input:
 
 ```json
 {
+  "node": "node-a",
   "types": ["pci"],
   "classes": ["Network controller", "Mass storage controller"],
   "limit": 20
@@ -592,11 +588,11 @@ vulnerable, compatible, correctly signed, or trusted.
 #### OpenSVC API, authorization, and freshness
 
 ```text
-GET /api/node/name/_/system/package
+GET /api/node/name/{node}/system/package
 ```
 
-The endpoint requires the global `root` grant. It reads the local node package
-cache by default and uses the OpenSVC proxy path for another exact node. It
+The endpoint requires the global `root` grant. It reads the package cache of the
+named node, using the OpenSVC proxy path for another node. It
 does not inventory the operating system, execute `push pkg`, contact a
 collector, install or remove packages, or update the cache.
 
@@ -611,7 +607,7 @@ freshness of the cache.
 
 | Input | Required | Default | Bounds | Meaning |
 |---|---:|---:|---:|---|
-| `node` | No | Local node (`_`) | Exact hostname using letters, digits, `.`, `_`, or `-`; at most 255 characters | Node whose cached packages are read |
+| `node` | Yes | — | Exact node name; at most 255 characters | Node whose cached packages are read |
 | `names` | No | All | At most 32 exact values of at most 255 characters | Include exact package names |
 | `name_prefixes` | No | All | At most 32 case-sensitive prefixes of at most 255 characters | Include package families such as `opensvc-` or `linux-image-` |
 | `types` | No | All | At most 32 exact values of at most 255 characters | Include package manager types such as `deb`, `rpm`, or `snap`; `""` selects an unreported type |
@@ -652,6 +648,7 @@ Input:
 
 ```json
 {
+  "node": "node-a",
   "name_prefixes": ["opensvc-"],
   "types": ["deb"],
   "architectures": ["amd64"],
@@ -713,13 +710,11 @@ dependencies.
 #### OpenSVC API, authorization, and freshness
 
 ```text
-GET /api/node/name/_/capabilities
+GET /api/node/name/{node}/capabilities
 ```
 
 The endpoint requires the global `root` grant. It loads the capability cache
-of the local node by default. When the optional `node` input is set, `_` is
-replaced with that exact node name and OpenSVC proxies the request when
-necessary. This read does not execute scanners, probe dependencies, or modify
+of the named node, which OpenSVC proxies when necessary. This read does not execute scanners, probe dependencies, or modify
 the cache.
 
 The endpoint provides no scan timestamp. `provenance.observed_at` dates only
@@ -734,15 +729,12 @@ features.
 
 | Input | Required | Default | Bounds | Meaning |
 |---|---:|---:|---:|---|
-| `node` | No | Local node (`_`) | Exact hostname using letters, digits, `.`, `_`, or `-`; at most 255 characters | Node whose cache is read |
+| `node` | Yes | — | Exact node name; at most 255 characters | Node whose cache is read |
 | `limit` | No | 100 | 1..200 | Maximum distinct capability names returned |
 | `cursor` | No | — | At most 1024 characters | Exact `next_cursor` from the preceding page for the same node |
 
-The MCP validates every `CapabilityItem`. With an explicit node,
-`meta.node` must match it. With the local `_` alias, all entries must report
-one consistent exact node, which is returned in the output `node` field. An
-empty local result keeps `node` set to `_`, because no item can resolve the
-alias. Names are preserved exactly; only exact duplicates are removed before
+The MCP validates every `CapabilityItem`: `meta.node` must match the requested
+node, returned in the output `node` field. Names are preserved exactly; only exact duplicates are removed before
 lexicographic sorting. `reported_total` is the raw number of entries returned
 by OpenSVC; `total` is the number of distinct names. A page is additionally
 bounded to 64 Ki Unicode code points, and each name to 1024.
@@ -762,7 +754,7 @@ bounded to 64 Ki Unicode code points, and each name to 1024.
 Input:
 
 ```json
-{"limit":3}
+{"node":"node-a","limit":3}
 ```
 
 Representative capability output:
@@ -811,13 +803,11 @@ status.
 #### OpenSVC API and authorization
 
 ```text
-GET /api/node/name/_/drivers
+GET /api/node/name/{node}/drivers
 ```
 
 The endpoint requires the global `root` grant. It reads the in-memory driver
-registry of the local daemon by default. When the optional `node` input is
-set, `_` is replaced with that exact node name and OpenSVC proxies the request
-when necessary. This read does not execute drivers, scan capabilities, probe
+registry of the named node's daemon, which OpenSVC proxies when necessary. This read does not execute drivers, scan capabilities, probe
 dependencies, or change daemon state.
 
 The registry includes drivers compiled or loaded into the running process.
@@ -831,15 +821,13 @@ matters. The MCP deliberately does not merge both sources into an
 
 | Input | Required | Default | Bounds | Meaning |
 |---|---:|---:|---:|---|
-| `node` | No | Local node (`_`) | Exact hostname using letters, digits, `.`, `_`, or `-`; at most 255 characters | Node whose running driver registry is read |
+| `node` | Yes | — | Exact node name; at most 255 characters | Node whose running driver registry is read |
 | `limit` | No | 100 | 1..200 | Maximum distinct driver names returned |
 | `cursor` | No | — | At most 1024 characters | Exact `next_cursor` from the preceding page for the same node |
 
 The MCP validates the live response shape observed from OpenSVC:
-`DriverList` containing `DriverItem` entries. With an explicit node,
-`meta.node` must match it. With the local `_` alias, all entries must report
-one consistent exact node, which is returned in the output `node` field. An
-empty local result keeps `node` set to `_`. Names are preserved exactly; only
+`DriverList` containing `DriverItem` entries. `meta.node` must match the
+requested node, returned in the output `node` field. Names are preserved exactly; only
 exact duplicates are removed before lexicographic sorting. `reported_total`
 is the raw number of entries returned by OpenSVC; `total` is the number of
 distinct names. A page is additionally bounded to 64 Ki Unicode code points,
@@ -864,7 +852,7 @@ actual daemon contract and rejects the schema-only spelling.
 Input:
 
 ```json
-{"limit":5}
+{"node":"node-a","limit":5}
 ```
 
 Representative driver registry output:
@@ -911,12 +899,11 @@ source for object, instance, resource, heartbeat, or cluster status.
 #### OpenSVC API and scope
 
 ```text
-GET /api/node/name/_/metrics
+GET /api/node/name/{node}/metrics
 Accept: text/plain
 ```
 
-The optional `node` input replaces `_` with one exact node name; OpenSVC may
-proxy the read to that node. The daemon authorizes requests using the request-scoped delegated OpenSVC JWT. The request does not probe resources or
+OpenSVC proxies the read to the named node when necessary. The daemon authorizes requests using the request-scoped delegated OpenSVC JWT. The request does not probe resources or
 change daemon state.
 
 The endpoint exports metrics of the OpenSVC daemon process, including its Go
@@ -929,7 +916,7 @@ calculate rates, compare thresholds, or emit a health conclusion.
 
 | Input | Required | Default | Bounds | Meaning |
 |---|---:|---:|---:|---|
-| `node` | No | Local daemon (`_`) | Exact node name; at most 255 characters | Daemon whose metrics are read |
+| `node` | Yes | — | Exact node name; at most 255 characters | Daemon whose metrics are read |
 | `names` | No | All | At most 32 | Exact metric family names |
 | `prefixes` | No | All | At most 32 | Metric family name prefixes |
 | `limit` | No | 100 | 1..200 | Maximum families in the page |
@@ -948,9 +935,7 @@ values are strings; summaries expose count, sum, and quantiles; histograms
 expose count, sum, and cumulative buckets. Numeric strings preserve Prometheus
 special values such as `NaN` and `+Inf` in valid JSON.
 
-`target_node` is the requested node or `_`. Unlike JSON list endpoints, the
-Prometheus response contains no metadata that reliably resolves `_` to a node
-name, so the MCP does not invent one.
+`target_node` is the requested node.
 
 #### MCP properties
 
@@ -967,14 +952,14 @@ name, so the MCP does not invent one.
 Input:
 
 ```json
-{"prefixes":["opensvc_api_"],"limit":20}
+{"node":"node-a","prefixes":["opensvc_api_"],"limit":20}
 ```
 
 Abbreviated output:
 
 ```json
 {
-  "target_node":"_",
+  "target_node":"node-a",
   "reported_total":59,
   "total":2,
   "sample_total":5,
@@ -1017,10 +1002,7 @@ daemon's node proxy path.
 GET /api/node/name/<node>/ping
 ```
 
-The endpoint requires the global `root` grant. The target `node` is mandatory;
-there is no implicit `_` default because probing the daemon already contacted
-by the MCP adds little diagnostic evidence. `_` remains accepted when supplied
-explicitly for a deliberate local control probe.
+The endpoint requires the global `root` grant. The target `node` is mandatory.
 
 For a remote target, the contacted daemon first verifies that it has status
 data for the node and that the node belongs to the cluster, then calls the
@@ -1047,7 +1029,7 @@ Successful output fields are:
 | Field | Meaning |
 |---|---|
 | `provenance` | Daemon API source and MCP completion time |
-| `node` | Exact requested node or an explicitly supplied `_` alias |
+| `node` | Exact requested node |
 | `reachable` | `true`, because only an exact `204` produces a successful result |
 | `status_code` | `204` |
 | `round_trip_ms` | End-to-end elapsed milliseconds measured by the MCP |
@@ -1170,14 +1152,14 @@ multipath paths nor disk health.
 
 | Input | Meaning |
 |---|---|
-| `node` | Optional exact node name; defaults to the daemon receiving the request through the `_` alias |
+| `node` | Required exact node name |
 | `type` | Optional exact disk type, such as `mpath`, `disk` or `rom` |
 | `claimed_only`, `unclaimed_only` | Optional, mutually exclusive: the disks an OpenSVC object claims, or the others |
 | `limit`, `cursor` | Page size between 1 and 200, default 100, and the `next_cursor` of a previous call |
 
 #### Output
 
-`provenance`, `node` (resolved from the entries), the filters, `reported_total`
+`provenance`, `node`, the filters, `reported_total`
 (disks in the inventory), `total` (matching disks), `count`, `disks`,
 `next_cursor` and `truncated`. Disks are sorted by type, then identifier. Each
 disk holds `id` (such as the WWID of a multipath LUN), `devpath`, `size_bytes`,

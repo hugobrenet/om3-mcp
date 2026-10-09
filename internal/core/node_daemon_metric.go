@@ -40,7 +40,7 @@ type GetNodeDaemonMetricsOptions struct {
 
 type NodeDaemonMetricList struct {
 	Provenance          Provenance               `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
-	TargetNode          string                   `json:"target_node" jsonschema:"exact requested OpenSVC node name or the underscore alias for the local daemon node"`
+	TargetNode          string                   `json:"target_node" jsonschema:"exact requested OpenSVC node name"`
 	ReportedTotal       int                      `json:"reported_total" jsonschema:"number of metric families parsed from the daemon response before filtering"`
 	Total               int                      `json:"total" jsonschema:"number of metric families matching the requested exact names or prefixes before pagination"`
 	SampleTotal         int                      `json:"sample_total" jsonschema:"number of samples across all matching metric families before pagination"`
@@ -170,10 +170,8 @@ func (s *Service) GetNodeDaemonMetrics(ctx context.Context, options GetNodeDaemo
 
 func validateNodeDaemonMetricOptions(options GetNodeDaemonMetricsOptions) (string, []string, []string, int, string, error) {
 	node := options.Node
-	if node == "" {
-		node = localDaemonNodeAlias
-	} else if node != localDaemonNodeAlias && !validExactNodeName(node) {
-		return "", nil, nil, 0, "", fmt.Errorf("node must be one exact OpenSVC node name of at most 255 characters")
+	if err := validateNodeTarget(node); err != nil {
+		return "", nil, nil, 0, "", err
 	}
 	names, err := normalizeNodeDaemonMetricFilters("name", options.Names)
 	if err != nil {

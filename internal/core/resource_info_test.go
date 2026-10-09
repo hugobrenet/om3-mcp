@@ -163,6 +163,7 @@ func TestListResourceInfoRejectsInvalidInputsBeforeDaemonCall(t *testing.T) {
 		"object with node":       {Scope: ResourceInfoScopeObject, Path: "lab/svc/app", Node: "node-a"},
 		"instance without node":  {Scope: ResourceInfoScopeInstance, Path: "lab/svc/app"},
 		"instance node selector": {Scope: ResourceInfoScopeInstance, Path: "lab/svc/app", Node: "node*"},
+		"instance local alias":   {Scope: ResourceInfoScopeInstance, Path: "lab/svc/app", Node: "_"},
 		"bad path":               {Scope: ResourceInfoScopeObject, Path: "not/a/path/at/all"},
 		"long rid":               {Scope: ResourceInfoScopeObject, Path: "lab/svc/app", RID: strings.Repeat("x", maxResourceInfoFilterRunes+1)},
 		"control key":            {Scope: ResourceInfoScopeObject, Path: "lab/svc/app", Key: "driver\n"},

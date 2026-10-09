@@ -16,8 +16,8 @@ aggregate status.
 Implementation:
 
 - business logic: `internal/core/object.go`, `internal/core/object_status.go`,
-  `internal/core/object_config.go`, and
-  `internal/core/object_config_keyword.go`;
+  `internal/core/config_object.go`, and
+  `internal/core/config_object_keyword.go`;
 - MCP definitions: `internal/tools/object.go`.
 
 ## Tool selection

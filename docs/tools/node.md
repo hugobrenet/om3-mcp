@@ -24,7 +24,7 @@ one daemon.
 
 Implementation:
 
-- business logic: `internal/core/node.go`, `internal/core/node_property.go`,
+- business logic: `internal/core/node.go`, `internal/core/config_node.go`, `internal/core/node_property.go`,
   `internal/core/node_hardware.go`, `internal/core/node_capability.go`, `internal/core/node_driver.go`,
   `internal/core/node_daemon_metric.go`, and `internal/core/node_reachability.go`;
 - MCP definitions: `internal/tools/node.go`.

@@ -10,7 +10,11 @@ conversation storage belong here.
 One server can route requests to multiple administrator-configured clusters.
 Most tools are read-only. `refresh_instance_status` is an explicit,
 non-destructive active probe; it executes status drivers and updates daemon
-state. Do not expand operational or authentication scope without user direction.
+state. Action tools, which change the cluster state, are registered only when
+`OPENSVC_MCP_ACTIONS=enabled`, on both listeners. Add an action only at user
+direction, one tool per action, and keep destructive data operations
+(unprovision, purge, delete) and daemon or heartbeat control out of scope
+unless explicitly decided.
 
 Module and binary: `github.com/opensvc/om3-mcp` and `om3-mcp`.
 Use Go, the standard library and `github.com/modelcontextprotocol/go-sdk`.
@@ -105,7 +109,13 @@ or authentication logic in core/tool handlers.
 - Register every tool through `Registrar`, not direct domain-level
   `mcp.AddTool` calls. Keep stable snake_case names, concise metadata, typed
   input/output schemas and accurate annotations.
-- Annotations are client hints, never authorization controls.
+- Annotations are client hints, never authorization controls. A tool that
+  changes state sets `readOnlyHint: false`, which clients use to ask the user
+  for confirmation; `destructiveHint: true` marks one that can stop, move or
+  lose a service. A read-only tool is never destructive.
+- An action tool targets one exact object or node, never a selector, and
+  returns what the daemon queued, such as an `orchestration_id`, without
+  blocking on the outcome; the read-only tools follow it.
 - Every successful result includes `core.Provenance`: `source` and UTC
   `observed_at`. Collection time does not prove fresh daemon state; preserve
   daemon timestamps, refresh outcomes and truncation information separately.

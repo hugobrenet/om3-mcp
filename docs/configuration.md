@@ -16,6 +16,7 @@
 | OPENSVC_MCP_AUTH_CONFIG_FILE | empty | Version 1 confidential SSO profile file; required when a cluster sets `auth` |
 | OPENSVC_MCP_CLUSTER_CONFIG_FILE | empty | Cluster catalogue; required for the Unix socket and for exchanged daemon calls |
 | OPENSVC_MCP_DELEGATED_SOCKET | empty | Absolute Unix socket path, at most 103 bytes; enables the delegated listener |
+| OPENSVC_MCP_ACTIONS | disabled | `enabled` registers the [action tools](tools/actions.md), which change the cluster state, on both listeners; `disabled` leaves them out |
 
 The MCP has two optional listeners; configure at least one:
 

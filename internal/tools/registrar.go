@@ -140,8 +140,8 @@ func validateToolDeclaration(tool *mcp.Tool) error {
 	if tool.Annotations.DestructiveHint == nil {
 		return fmt.Errorf("tool %q destructive annotation is missing", tool.Name)
 	}
-	if *tool.Annotations.DestructiveHint {
-		return fmt.Errorf("tool %q must be non-destructive", tool.Name)
+	if tool.Annotations.ReadOnlyHint && *tool.Annotations.DestructiveHint {
+		return fmt.Errorf("tool %q cannot be both read-only and destructive", tool.Name)
 	}
 	if tool.Annotations.OpenWorldHint == nil {
 		return fmt.Errorf("tool %q open-world annotation is missing", tool.Name)

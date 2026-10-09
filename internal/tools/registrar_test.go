@@ -29,7 +29,10 @@ func TestValidateToolDeclarationRejectsInvalidMetadata(t *testing.T) {
 		{name: "long description", tool: mutateTestTool(func(tool *mcp.Tool) { tool.Description = strings.Repeat("d", maxToolDescriptionBytes+1) })},
 		{name: "missing annotations", tool: mutateTestTool(func(tool *mcp.Tool) { tool.Annotations = nil })},
 		{name: "missing destructive", tool: mutateTestTool(func(tool *mcp.Tool) { tool.Annotations.DestructiveHint = nil })},
-		{name: "destructive", tool: mutateTestTool(func(tool *mcp.Tool) { tool.Annotations.DestructiveHint = &trueValue })},
+		{name: "read-only and destructive", tool: mutateTestTool(func(tool *mcp.Tool) {
+			tool.Annotations.ReadOnlyHint = true
+			tool.Annotations.DestructiveHint = &trueValue
+		})},
 		{name: "missing open world", tool: mutateTestTool(func(tool *mcp.Tool) { tool.Annotations.OpenWorldHint = nil })},
 		{name: "open world", tool: mutateTestTool(func(tool *mcp.Tool) { tool.Annotations.OpenWorldHint = &trueValue })},
 		{name: "custom metadata", tool: mutateTestTool(func(tool *mcp.Tool) { tool.Meta = mcp.Meta{"tag": "diagnostic"} })},
@@ -37,10 +40,14 @@ func TestValidateToolDeclarationRejectsInvalidMetadata(t *testing.T) {
 			tool.Annotations.DestructiveHint = &falseValue
 			tool.Annotations.OpenWorldHint = &falseValue
 		})},
+		{name: "destructive action is valid", tool: mutateTestTool(func(tool *mcp.Tool) {
+			tool.Annotations.ReadOnlyHint = false
+			tool.Annotations.DestructiveHint = &trueValue
+		})},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := validateToolDeclaration(test.tool)
-			if test.name == "explicit false values are valid" {
+			if strings.HasSuffix(test.name, "is valid") || strings.HasSuffix(test.name, "are valid") {
 				if err != nil {
 					t.Fatalf("valid declaration error: %v", err)
 				}
@@ -93,6 +100,7 @@ func TestRegisterAllToolDomains(t *testing.T) {
 		"pool":     func(registrar *Registrar) error { return RegisterPoolTools(registrar, nil) },
 		"network":  func(registrar *Registrar) error { return RegisterNetworkTools(registrar, nil) },
 		"auth":     func(registrar *Registrar) error { return RegisterAuthTools(registrar, nil) },
+		"actions":  func(registrar *Registrar) error { return RegisterObjectActionTools(registrar, nil) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := register(registrar); err != nil {

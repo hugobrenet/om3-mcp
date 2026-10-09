@@ -3,8 +3,9 @@
 A Go Model Context Protocol server providing AI agents with typed tools for the
 OpenSVC v3 daemon API: cluster state, nodes, objects, instances, resources and logs.
 
-Tools are mostly read-only, with an explicit instance status refresh.
-The OpenSVC daemon enforces the caller's grants.
+Tools are mostly read-only, with an explicit instance status refresh. Action
+tools, which change the cluster state, are registered only when
+`OPENSVC_MCP_ACTIONS=enabled`. The OpenSVC daemon enforces the caller's grants.
 
 ## Status
 

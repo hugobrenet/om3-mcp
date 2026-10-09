@@ -121,9 +121,9 @@ func newMCPHandler(cfg config.Config) (http.Handler, error) {
 		if e != nil {
 			return nil, e
 		}
-		handler, err = newConfiguredToolsHandler(api, catalog, api)
+		handler, err = newConfiguredToolsHandler(api, catalog, api, cfg.Actions)
 	} else {
-		handler, err = newConfiguredToolsHandler(nil, nil, nil)
+		handler, err = newConfiguredToolsHandler(nil, nil, nil, cfg.Actions)
 	}
 	if err != nil {
 		return nil, err
@@ -149,7 +149,7 @@ func newDelegatedHandler(cfg config.Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	handler, err := newConfiguredToolsHandler(api, nil, nil)
+	handler, err := newConfiguredToolsHandler(api, nil, nil, cfg.Actions)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +172,7 @@ func shutdownHTTPServer(server *http.Server, timeout time.Duration) error {
 	return nil
 }
 
-func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catalog, router tools.ClusterRouter) (http.Handler, error) {
+func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catalog, router tools.ClusterRouter, actions bool) (http.Handler, error) {
 	service := core.New(api)
 	server := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: serverVersion}, nil)
 	registrar, err := tools.NewRegistrar(server)
@@ -194,6 +194,11 @@ func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catal
 		tools.RegisterPoolTools, tools.RegisterNetworkTools, tools.RegisterAuthTools,
 	} {
 		if err := register(registrar, service); err != nil {
+			return nil, err
+		}
+	}
+	if actions {
+		if err := tools.RegisterObjectActionTools(registrar, service); err != nil {
 			return nil, err
 		}
 	}

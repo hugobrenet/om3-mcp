@@ -32,6 +32,9 @@ type Config struct {
 	DelegatedSocket   string
 	Clusters          *clusterconfig.Catalog
 	ClusterConfigFile string
+	// Actions registers the tools that change the cluster state, on both
+	// listeners. They are left out unless OPENSVC_MCP_ACTIONS is enabled.
+	Actions bool
 }
 
 func (c Config) HTTPSEnabled() bool { return c.TLSCertFile != "" }
@@ -96,6 +99,13 @@ func Load() (Config, error) {
 		if err != nil {
 			return Config{}, fmt.Errorf("OPENSVC_MCP_AUTH_CONFIG_FILE: %w", err)
 		}
+	}
+	switch actions := strings.TrimSpace(os.Getenv("OPENSVC_MCP_ACTIONS")); actions {
+	case "", "disabled":
+	case "enabled":
+		cfg.Actions = true
+	default:
+		return Config{}, fmt.Errorf("OPENSVC_MCP_ACTIONS must be enabled or disabled")
 	}
 	for _, c := range cfg.Clusters.List() {
 		if c.AuthProfile == "" {

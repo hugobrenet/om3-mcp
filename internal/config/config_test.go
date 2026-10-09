@@ -209,3 +209,25 @@ func TestLoadRejectsInvalidListenerConfiguration(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadActions(t *testing.T) {
+	clearListenerEnvironment(t)
+	t.Setenv("OPENSVC_MCP_OAUTH_RESOURCE_URL", "")
+	t.Setenv("OPENSVC_MCP_OAUTH_ISSUER", "")
+	clusters := testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster"})
+	t.Setenv("OPENSVC_MCP_DELEGATED_SOCKET", "/run/opensvc-mcp/delegated.sock")
+	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", clusters)
+	for value, want := range map[string]bool{"": false, "disabled": false, "enabled": true, " enabled ": true} {
+		t.Setenv("OPENSVC_MCP_ACTIONS", value)
+		cfg, err := Load()
+		if err != nil || cfg.Actions != want {
+			t.Fatalf("OPENSVC_MCP_ACTIONS=%q gave %v, %v; want %v", value, cfg.Actions, err, want)
+		}
+	}
+	for _, value := range []string{"true", "yes", "ENABLED"} {
+		t.Setenv("OPENSVC_MCP_ACTIONS", value)
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "OPENSVC_MCP_ACTIONS") {
+			t.Fatalf("OPENSVC_MCP_ACTIONS=%q accepted: %v", value, err)
+		}
+	}
+}

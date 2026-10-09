@@ -92,6 +92,7 @@ func TestRegisterAllToolDomains(t *testing.T) {
 		"schedule": func(registrar *Registrar) error { return RegisterScheduleTools(registrar, nil) },
 		"pool":     func(registrar *Registrar) error { return RegisterPoolTools(registrar, nil) },
 		"network":  func(registrar *Registrar) error { return RegisterNetworkTools(registrar, nil) },
+		"auth":     func(registrar *Registrar) error { return RegisterAuthTools(registrar, nil) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := register(registrar); err != nil {

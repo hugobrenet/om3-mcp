@@ -27,6 +27,7 @@ documents describe the implemented tool contracts.
 | Scheduler | `list_schedules` | [Scheduler tools](schedules.md) |
 | Pools | `list_storage_pools`, `list_pool_volumes` | [Pool tools](pools.md) |
 | Networks | `list_networks`, `list_network_ips` | [Network tools](networks.md) |
+| Auth | `get_caller_identity` | [Auth tools](auth.md) |
 
 ## Authentication and visibility
 

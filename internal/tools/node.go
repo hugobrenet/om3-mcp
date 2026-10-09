@@ -20,9 +20,12 @@ type GetNodeConfigInput struct {
 type GetNodeConfigOutput = core.NodeConfig
 
 type GetNodeLogsInput struct {
-	Node      string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard or selector"`
-	Lines     int    `json:"lines,omitempty" jsonschema:"optional maximum number of recent log entries between 1 and 100; defaults to 50"`
-	Component string `json:"component,omitempty" jsonschema:"optional exact OpenSVC component such as daemon/hbctrl; filters the journal PKG field"`
+	Node            string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard or selector"`
+	Lines           int    `json:"lines,omitempty" jsonschema:"optional maximum number of recent log entries between 1 and 100; defaults to 50"`
+	Component       string `json:"component,omitempty" jsonschema:"optional exact OpenSVC component such as daemon/hbctrl; filters the journal PKG field"`
+	ExecID          string `json:"exec_id,omitempty" jsonschema:"optional canonical UUID of a daemon execution, as listed by list_daemon_executions; keeps the entries logged under it"`
+	SessionID       string `json:"session_id,omitempty" jsonschema:"optional canonical UUID of a session; keeps the entries logged under it on this node"`
+	OrchestrationID string `json:"orchestration_id,omitempty" jsonschema:"optional canonical UUID of an orchestration; keeps the entries logged under it on this node"`
 }
 
 type GetNodeLogsOutput = core.NodeLogList
@@ -216,14 +219,16 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 	if err := addTool(
 		registrar,
 		&mcp.Tool{
-			Name:        "get_node_logs",
-			Title:       "Get node logs",
-			Description: "Read bounded recent OpenSVC om journal entries on one exact node, optionally filtering by OpenSVC component. Includes the systemd unit when journald provides it. This finite read does not follow the stream, does not return systemd manager messages or workload stdout, and requires root access to the daemon endpoint.",
+			Name:  "get_node_logs",
+			Title: "Get node logs",
+			Description: "Read bounded recent OpenSVC om journal entries on one exact node, optionally filtering by OpenSVC component and by the daemon execution, session or orchestration id the entries were logged under. " +
+				"Use exec_id with the node of an execution from list_daemon_executions to read why it failed; a session or an orchestration may span several nodes, each read separately. Includes the systemd unit when journald provides it. This finite read does not follow the stream, does not return systemd manager messages or workload stdout, and requires root access to the daemon endpoint.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input GetNodeLogsInput) (*mcp.CallToolResult, GetNodeLogsOutput, error) {
 			logs, err := service.GetNodeLogs(ctx, core.GetNodeLogsOptions{
 				Node: input.Node, Lines: input.Lines, Component: input.Component,
+				ExecID: input.ExecID, SessionID: input.SessionID, OrchestrationID: input.OrchestrationID,
 			})
 			if err != nil {
 				return nil, GetNodeLogsOutput{}, err

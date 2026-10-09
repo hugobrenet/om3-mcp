@@ -485,9 +485,10 @@ Example input:
 | `truncated` | Older entries or message content were omitted |
 
 Each entry can contain `timestamp`, normalized `level`, bounded `message`,
-`message_truncated`, `component`, `resource_id`, `session_id`, `event_id`,
-`request_id`, and `orchestration_id`. Optional identifiers are omitted when the
-record does not provide them.
+`message_truncated`, `component`, `resource_id`, `session_id`, `exec_id`,
+`event_id`, `request_id`, and `orchestration_id`. Optional identifiers are
+omitted when the record does not provide them. `session_id` is read from the
+`SESSION_ID` field, or `SID` as logged by earlier agents.
 
 Messages are limited to 2,048 Unicode code points each and 64 Ki Unicode code
 points across the response. Correlation fields are limited to 255 code points.

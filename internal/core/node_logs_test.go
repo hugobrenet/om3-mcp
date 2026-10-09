@@ -111,3 +111,82 @@ func nodeLogEvent(t *testing.T, message string, level string, priority string, c
 	}
 	return event
 }
+
+// Shaped after a dev5 entry of a daemon execution: the ids are journald fields
+// and fields of the nested OpenSVC payload.
+const nodeLogExecEvent = `{"__REALTIME_TIMESTAMP":"1789732800000000","MESSAGE":"instance: lab/svc/web: removed /etc/opensvc/namespaces/lab/svc/web.conf","NODE":"node-a","OBJ_PATH":"lab/svc/web","PRIORITY":"6","EXEC_ID":"2fc52a5a-741b-414a-9325-a382bab43282","SESSION_ID":"ee34b12e-9f4b-4b39-9fd9-bd01bca40a99","ORCHESTRATION_ID":"30000000-0000-0000-0000-000000000003","JSON":"{\"level\":\"info\",\"node\":\"node-a\",\"session_id\":\"ee34b12e-9f4b-4b39-9fd9-bd01bca40a99\",\"exec_id\":\"2fc52a5a-741b-414a-9325-a382bab43282\",\"obj_path\":\"lab/svc/web\",\"time\":\"2026-10-09T12:35:01+02:00\",\"message\":\"instance: lab/svc/web: removed /etc/opensvc/namespaces/lab/svc/web.conf\"}"}`
+
+func TestGetNodeLogsFiltersByDaemonIDs(t *testing.T) {
+	client := &instanceLogsClient{
+		t: t, path: "/api/node/name/node-a/log",
+		query: url.Values{"follow": {"false"}, "lines": {"11"}, "filter": {
+			"EXEC_ID=2fc52a5a-741b-414a-9325-a382bab43282",
+			"SESSION_ID=ee34b12e-9f4b-4b39-9fd9-bd01bca40a99",
+			"ORCHESTRATION_ID=30000000-0000-0000-0000-000000000003",
+		}},
+		events: [][]byte{[]byte(nodeLogExecEvent)},
+	}
+	result, err := New(client).GetNodeLogs(context.Background(), GetNodeLogsOptions{
+		Node: "node-a", Lines: 10,
+		ExecID:          "2FC52A5A-741B-414A-9325-A382BAB43282",
+		SessionID:       "ee34b12e-9f4b-4b39-9fd9-bd01bca40a99",
+		OrchestrationID: "30000000-0000-0000-0000-000000000003",
+	})
+	if err != nil {
+		t.Fatalf("get node logs: %v", err)
+	}
+	if result.IDs.ExecID != "2fc52a5a-741b-414a-9325-a382bab43282" || result.Count != 1 || result.Truncated {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	entry := result.Entries[0]
+	if entry.ExecID != "2fc52a5a-741b-414a-9325-a382bab43282" || entry.SessionID != "ee34b12e-9f4b-4b39-9fd9-bd01bca40a99" ||
+		entry.OrchestrationID != "30000000-0000-0000-0000-000000000003" || entry.ObjectPath != "lab/svc/web" {
+		t.Fatalf("daemon ids not reported: %+v", entry)
+	}
+}
+
+func TestGetNodeLogsCombinesTheComponentWithAnID(t *testing.T) {
+	client := &instanceLogsClient{
+		t: t, path: "/api/node/name/node-a/log",
+		query: url.Values{"follow": {"false"}, "lines": {"51"}, "filter": {"PKG=daemon/imon", "EXEC_ID=2fc52a5a-741b-414a-9325-a382bab43282"}},
+	}
+	result, err := New(client).GetNodeLogs(context.Background(), GetNodeLogsOptions{
+		Node: "node-a", Component: "daemon/imon", ExecID: "2fc52a5a-741b-414a-9325-a382bab43282",
+	})
+	if err != nil || result.Count != 0 || result.Entries == nil {
+		t.Fatalf("got %+v, %v", result, err)
+	}
+}
+
+func TestGetNodeLogsReadsTheLegacySessionField(t *testing.T) {
+	event := `{"__REALTIME_TIMESTAMP":"1789732800000000","MESSAGE":"done","NODE":"node-a","SID":"ee34b12e-9f4b-4b39-9fd9-bd01bca40a99"}`
+	client := &instanceLogsClient{
+		t: t, path: "/api/node/name/node-a/log",
+		query: url.Values{"follow": {"false"}, "lines": {"51"}}, events: [][]byte{[]byte(event)},
+	}
+	result, err := New(client).GetNodeLogs(context.Background(), GetNodeLogsOptions{Node: "node-a"})
+	if err != nil || result.Entries[0].SessionID != "ee34b12e-9f4b-4b39-9fd9-bd01bca40a99" {
+		t.Fatalf("got %+v, %v", result, err)
+	}
+}
+
+func TestGetNodeLogsRejectsInvalidIDsAndForeignEntries(t *testing.T) {
+	for _, options := range []GetNodeLogsOptions{
+		{Node: "node-a", ExecID: "not-a-uuid"},
+		{Node: "node-a", SessionID: "ee34b12e-9f4b-4b39-9fd9-bd01bca40a99,x"},
+		{Node: "node-a", OrchestrationID: " 30000000-0000-0000-0000-000000000003"},
+	} {
+		client := &instanceLogsClient{t: t}
+		if _, err := New(client).GetNodeLogs(context.Background(), options); err == nil || client.calls != 0 {
+			t.Fatalf("options %+v were accepted or reached the daemon", options)
+		}
+	}
+	client := &instanceLogsClient{
+		t: t, path: "/api/node/name/node-a/log",
+		query:  url.Values{"follow": {"false"}, "lines": {"51"}, "filter": {"EXEC_ID=20000000-0000-0000-0000-000000000001"}},
+		events: [][]byte{[]byte(nodeLogExecEvent)},
+	}
+	if _, err := New(client).GetNodeLogs(context.Background(), GetNodeLogsOptions{Node: "node-a", ExecID: "20000000-0000-0000-0000-000000000001"}); err == nil || !strings.Contains(err.Error(), "unexpected execution id") {
+		t.Fatalf("an entry of another execution was accepted: %v", err)
+	}
+}

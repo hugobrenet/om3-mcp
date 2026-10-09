@@ -181,3 +181,18 @@ func instanceLogEvent(t *testing.T, timestamp string, message string, component 
 	}
 	return envelope
 }
+
+func TestGetInstanceLogsReportsTheSessionAndExecutionIDs(t *testing.T) {
+	event := `{"__REALTIME_TIMESTAMP":"1789732800000000","MESSAGE":"stopped","NODE":"node-a","OBJ_PATH":"prod/svc/app","SESSION_ID":"ee34b12e-9f4b-4b39-9fd9-bd01bca40a99","EXEC_ID":"2fc52a5a-741b-414a-9325-a382bab43282","JSON":"{\"message\":\"stopped\",\"session_id\":\"ee34b12e-9f4b-4b39-9fd9-bd01bca40a99\",\"exec_id\":\"2fc52a5a-741b-414a-9325-a382bab43282\"}"}`
+	client := &instanceLogsClient{
+		t: t, path: "/api/node/name/node-a/instance/path/prod/svc/app/log",
+		query: url.Values{"follow": {"false"}, "lines": {"51"}}, events: [][]byte{[]byte(event)},
+	}
+	result, err := New(client).GetInstanceLogs(context.Background(), GetInstanceLogsOptions{Path: "prod/svc/app", Node: "node-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry := result.Entries[0]; entry.SessionID != "ee34b12e-9f4b-4b39-9fd9-bd01bca40a99" || entry.ExecID != "2fc52a5a-741b-414a-9325-a382bab43282" {
+		t.Fatalf("ids not reported: %+v", entry)
+	}
+}

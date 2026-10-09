@@ -131,7 +131,10 @@ Returns commands currently running or recently retained by the OpenSVC daemon
 on one exact node. Use it to correlate a diagnostic with a session,
 orchestration, object, resource, origin, exit code, or daemon-reported error.
 It preserves the exact execution state and does not infer success, failure, or
-cluster health.
+cluster health. To read what an execution logged, pass its `exec_id` to
+[`get_node_logs`](node.md#get_node_logs) with the same node. Filter with
+`exec_id` to read one execution: the daemon answers the same record for one
+id as in its list.
 
 #### OpenSVC API
 

@@ -96,6 +96,15 @@ type GetNodeSANTopologyInput struct {
 
 type GetNodeSANTopologyOutput = core.NodeSANTopology
 
+type ListNodeIPAddressesInput struct {
+	Node        string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
+	Interface   string `json:"interface,omitempty" jsonschema:"optional exact network interface name, such as eth0"`
+	Family      string `json:"family,omitempty" jsonschema:"optional address family: ipv4 or ipv6"`
+	UnicastOnly *bool  `json:"unicast_only,omitempty" jsonschema:"optional; defaults to true, leaving out multicast group memberships and link-local addresses; false lists every cached address"`
+}
+
+type ListNodeIPAddressesOutput = core.NodeIPAddressList
+
 type GetNodeDaemonMetricsInput struct {
 	Node     string   `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
 	Names    []string `json:"names,omitempty" jsonschema:"optional exact Prometheus metric family names; combined with prefixes using OR; at most 32 entries"`
@@ -364,6 +373,30 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 				return nil, GetNodeSANTopologyOutput{}, err
 			}
 			return nil, topology, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "list_node_ip_addresses",
+			Title: "List node IP addresses",
+			Description: "List the addresses held by the network interfaces of one OpenSVC node, from the system cache the node writes on its push asset schedule: interface, address, prefix length, family, MAC and deprecated flag. " +
+				"This is a snapshot of undated age, not the live state: use list_cluster_ip_resources for where an OpenSVC address is up now. " +
+				"Multicast group memberships and link-local addresses are left out unless unicast_only is false. " +
+				"This root-only read does not refresh the cache; a missing cache remains an explicit daemon error until asset data has been pushed.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListNodeIPAddressesInput) (*mcp.CallToolResult, ListNodeIPAddressesOutput, error) {
+			unicastOnly := input.UnicastOnly == nil || *input.UnicastOnly
+			addresses, err := service.ListNodeIPAddresses(ctx, core.ListNodeIPAddressesOptions{
+				Node: input.Node, Interface: input.Interface, Family: input.Family, UnicastOnly: unicastOnly,
+			})
+			if err != nil {
+				return nil, ListNodeIPAddressesOutput{}, err
+			}
+			return nil, addresses, nil
 		},
 	); err != nil {
 		return err

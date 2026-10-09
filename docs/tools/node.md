@@ -12,6 +12,7 @@ tools:
   - get_node_daemon_metrics
   - list_node_disks
   - get_node_san_topology
+  - list_node_ip_addresses
   - probe_node_reachability
 stability: experimental
 ---
@@ -27,7 +28,7 @@ one daemon.
 Implementation:
 
 - business logic: `internal/core/node.go`, `internal/core/config_node.go`, `internal/core/node_disk.go`,
-  `internal/core/node_san.go`, `internal/core/node_property.go`,
+  `internal/core/node_san.go`, `internal/core/node_ip_address.go`, `internal/core/node_property.go`,
   `internal/core/node_hardware.go`, `internal/core/node_capability.go`, `internal/core/node_driver.go`,
   `internal/core/node_daemon_metric.go`, and `internal/core/node_reachability.go`;
 - MCP definitions: `internal/tools/node.go`.
@@ -1211,3 +1212,47 @@ distinct targets the initiator reaches), sorted by type then name, and `paths`
 (`initiator` and `target`, each `name` and `type`), sorted by initiator then
 target. Initiators and paths are bounded to 512 and 4096 entries, reported by
 `initiators_truncated` and `paths_truncated`.
+
+### `list_node_ip_addresses`
+
+Lists the addresses held by the network interfaces of one node. Use it as an
+inventory of the node network: which interfaces and subnets the node has, for
+example to choose the `dev` of an `ip` resource or to check the addresses a
+heartbeat uses.
+
+#### OpenSVC API, authorization, and freshness
+
+```text
+GET /api/node/name/{node}/system/ipaddress
+```
+
+The daemon requires the global `root` grant, and proxies the request to the
+named node.
+
+**The addresses come from a cache, not from the interfaces.** The node writes
+its system cache on its `pushasset` schedule, or after
+`om node push asset --dry-run`, and the daemon serves that file as is. The API
+gives no cache date: the list can be as old as the last push. An address
+added or removed since, such as an OpenSVC service address that moved to
+another node, is not reflected. For where an OpenSVC address is up now, use
+`list_cluster_ip_resources`, which reads the live resource status. A node that
+never pushed has no cache, and the daemon error ("waiting for cached value")
+is returned as is.
+
+#### Input
+
+| Input | Meaning |
+|---|---|
+| `node` | Required exact node name |
+| `interface` | Optional exact interface name |
+| `family` | Optional `ipv4` or `ipv6` |
+| `unicast_only` | Optional, `true` by default: leaves out the multicast group memberships the cache lists (such as `224.0.0.1` or `ff02::1`) and the link-local addresses (`fe80::/10`, `169.254.0.0/16`). `false` lists every cached address |
+
+#### Output
+
+`provenance`, `node`, the filters applied, `reported_total` (addresses in the
+cache), `total` (matching addresses) and `addresses`, sorted by interface then
+address. Each address holds `interface`, `address`, `prefix_length` (as
+reported; empty for a multicast group membership), `family`, `mac` and
+`deprecated`. The cache holds at most a few hundred entries: the list is not
+paginated, and a response over 4096 entries is an error.

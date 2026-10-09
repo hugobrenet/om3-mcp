@@ -18,6 +18,7 @@ func TestNodeDiagnosticToolsRequireNode(t *testing.T) {
 		"get_node_daemon_metrics":    func() (*jsonschema.Schema, error) { return jsonschema.For[GetNodeDaemonMetricsInput](nil) },
 		"list_node_disks":            func() (*jsonschema.Schema, error) { return jsonschema.For[ListNodeDisksInput](nil) },
 		"get_node_san_topology":      func() (*jsonschema.Schema, error) { return jsonschema.For[GetNodeSANTopologyInput](nil) },
+		"list_node_ip_addresses":     func() (*jsonschema.Schema, error) { return jsonschema.For[ListNodeIPAddressesInput](nil) },
 		"probe_node_reachability":    func() (*jsonschema.Schema, error) { return jsonschema.For[ProbeNodeReachabilityInput](nil) },
 		"list_daemon_executions":     func() (*jsonschema.Schema, error) { return jsonschema.For[ListDaemonExecutionsInput](nil) },
 		"list_daemon_orchestrations": func() (*jsonschema.Schema, error) { return jsonschema.For[ListDaemonOrchestrationsInput](nil) },

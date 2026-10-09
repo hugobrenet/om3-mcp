@@ -42,7 +42,8 @@ func TestGetClusterStatusPreservesFactsAndExactValues(t *testing.T) {
 					"scope":["node-b","node-a"],"updated_at":"2026-09-23T09:14:00Z"},
 				"prod/svc/db":{"avail":"down","overall":"down","provisioned":"false","frozen":"unfrozen","placement_state":"non-optimal"}
 			}
-		}
+		},
+		"daemon": {"nodename": "node-b"}
 	}`})
 	service.now = func() time.Time { return time.Date(2026, 9, 23, 9, 16, 0, 0, time.UTC) }
 
@@ -91,7 +92,7 @@ func TestGetClusterStatusPreservesFactsAndExactValues(t *testing.T) {
 			t.Errorf("factual result contains deterministic diagnosis %q: %s", forbidden, encoded)
 		}
 	}
-	if result.Provenance.Source != provenanceSourceOpenSVCDaemon || result.Provenance.ObservedAt != "2026-09-23T09:16:00Z" {
+	if result.Provenance.Source != provenanceSourceOpenSVCDaemon || result.Provenance.ObservedAt != "2026-09-23T09:16:00Z" || result.Provenance.ServedBy != "node-b" {
 		t.Errorf("provenance = %+v", result.Provenance)
 	}
 

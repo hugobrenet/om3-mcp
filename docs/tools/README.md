@@ -78,6 +78,10 @@ collecting and normalizing the result. It is not a status update timestamp and
 does not guarantee that the underlying data is fresh. Tool errors have no
 successful result provenance.
 
+`get_cluster_status` and `get_node_status` add `served_by`: the node whose
+daemon answered the request, usually the node carrying the cluster VIP. Only
+their daemon response names it; the other tools omit the field.
+
 Read-only status tools return the last-known state held by the daemon. They do
 not execute resource drivers. An out-of-band runtime failure or recovery may be
 absent until OpenSVC refreshes the instance status.

@@ -117,7 +117,8 @@ Returns the last-known status of one exact node after `get_cluster_status`
 provides the cluster-wide facts. It exposes the reported agent
 and compatibility versions, leader and overload flags, freeze and boot times,
 monitor state and targets, capacity statistics, memory and swap policy
-thresholds, factual membership context, bounded heartbeat data, and the
+thresholds, environment, labels and daemon grace periods, factual membership
+context, bounded heartbeat data, and the
 process and subsystem states of the node daemon. Use
 `get_cluster_status` for a factual cluster-wide snapshot. This node-focused
 tool does not classify heartbeat health or freshness.
@@ -165,6 +166,7 @@ default node, selector, or pagination is used.
 | `monitor` | State, global and local targets, orchestration ID/completion, and update time |
 | `stats` | Fifteen-minute load, available and total memory/swap, and OpenSVC capacity score; `null` if absent |
 | `policy` | Minimum available memory and swap percentages; `null` if absent; zero disables the corresponding check |
+| `config` | Environment, labels and three daemon periods the node configuration sets; `null` if absent |
 | `heartbeat` | Publication time, messages, secret version numbers, streams, alerts, peers, and their exact values; `null` if absent |
 | `daemon` | Daemon `pid`, `started_at`, and `subsystems`: `daemon_data`, `listener`, `dns`, `collector`, `scheduler`, `runner_imon`, each with its exact state and timestamps, or `null` if absent |
 
@@ -173,6 +175,18 @@ than the selected node, sorted by exact name and limited to 200. It returns
 `total`, `count`, `items`, and `truncated`. This context lets the agent compare
 configured peers with reported heartbeat links without the MCP declaring a
 peer missing or stale.
+
+`config` holds `env`, such as `PRD` or `TST`, and `labels`, the labels the
+node selectors of objects match: an object whose selector names a label the
+node lacks is not placed there. Labels are limited to 100, values to 1,024
+characters, reported by `labels_truncated`. The three periods are in
+nanoseconds:
+
+| Field | Meaning |
+|---|---|
+| `maintenance_grace_period_ns` | How long a daemon keeps the data of a peer in maintenance, announced on `daemon stop` and `daemon restart`, and does not take over its instances |
+| `rejoin_grace_period_ns` | How long a starting daemon stays in `rejoin` state, with orchestration not allowed, waiting for a heartbeat from every peer |
+| `ready_period_ns` | How long the daemon waits before starting an instance in `ready` state; a peer can preempt the start meanwhile |
 
 `daemon` is what the node daemon last published in the cluster status, as the
 rest of the result: for a node other than the one receiving the request, it

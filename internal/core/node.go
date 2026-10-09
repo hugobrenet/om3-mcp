@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -22,8 +23,21 @@ type NodeStatus struct {
 	Monitor    NodeMonitorStatus   `json:"monitor" jsonschema:"the node monitor state last published by OpenSVC"`
 	Stats      *NodeCapacityStats  `json:"stats" jsonschema:"published node capacity statistics, or null when unavailable"`
 	Policy     *NodeCapacityPolicy `json:"policy" jsonschema:"configured memory and swap availability thresholds, or null when unavailable"`
+	Config     *NodeConfigFacts    `json:"config" jsonschema:"the environment, labels and grace periods the node configuration sets, or null when unavailable"`
 	Heartbeat  *HeartbeatFacts     `json:"heartbeat" jsonschema:"bounded heartbeat facts reported by OpenSVC, or null when unavailable"`
 	Daemon     NodeDaemon          `json:"daemon" jsonschema:"the daemon process and subsystem facts the node last published"`
+}
+
+// NodeConfigFacts are node configuration values the node publishes in the
+// cluster status: its environment, the labels object node selectors match,
+// and the periods its daemon waits on.
+type NodeConfigFacts struct {
+	Env                      string            `json:"env" jsonschema:"the node environment, such as PRD or TST"`
+	Labels                   map[string]string `json:"labels" jsonschema:"the node labels, matched by the node selectors of objects; at most 100, values limited to 1024 characters"`
+	LabelsTruncated          bool              `json:"labels_truncated" jsonschema:"whether labels were omitted after 100 entries or values shortened"`
+	MaintenanceGracePeriodNS int64             `json:"maintenance_grace_period_ns" jsonschema:"how long a daemon keeps the data of a peer in maintenance, and does not take over its instances, in nanoseconds"`
+	RejoinGracePeriodNS      int64             `json:"rejoin_grace_period_ns" jsonschema:"how long a starting daemon stays in rejoin state, with orchestration not allowed, waiting for a heartbeat from every peer, in nanoseconds"`
+	ReadyPeriodNS            int64             `json:"ready_period_ns" jsonschema:"how long the daemon waits before starting an instance in ready state, during which a peer can preempt the start, in nanoseconds"`
 }
 
 type NodeMembershipFacts struct {
@@ -177,6 +191,7 @@ func (s *Service) GetNodeStatus(ctx context.Context, nodeName string) (NodeStatu
 			MinAvailMemPct:  node.Config.MinAvailMemPct,
 			MinAvailSwapPct: node.Config.MinAvailSwapPct,
 		}
+		result.Config = nodeConfigFacts(*node.Config)
 	}
 	result.Provenance = s.newProvenance()
 	result.Provenance.ServedBy = servedBy(clusterStatus)
@@ -290,6 +305,34 @@ func (s *Service) GetNodeLogs(ctx context.Context, options GetNodeLogsOptions) (
 		Provenance: s.newProvenance(), Node: node, Component: component, IDs: ids,
 		Lines: lines, Count: len(entries), Entries: entries, Truncated: truncated,
 	}, nil
+}
+
+const (
+	maxNodeLabels          = 100
+	maxNodeLabelValueRunes = 1024
+)
+
+func nodeConfigFacts(config clusterNodeConfig) *NodeConfigFacts {
+	names := make([]string, 0, len(config.Labels))
+	for name := range config.Labels {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	labels := make(map[string]string, min(len(names), maxNodeLabels))
+	truncated := len(names) > maxNodeLabels
+	for _, name := range names[:min(len(names), maxNodeLabels)] {
+		value, shortened := boundedRunes(config.Labels[name], maxNodeLabelValueRunes)
+		label, labelShortened := boundedRunes(name, maxNodeLabelValueRunes)
+		labels[label] = value
+		truncated = truncated || shortened || labelShortened
+	}
+	env, _ := boundedRunes(config.Env, maxNodeLabelValueRunes)
+	return &NodeConfigFacts{
+		Env: env, Labels: labels, LabelsTruncated: truncated,
+		MaintenanceGracePeriodNS: config.MaintenanceGracePeriod,
+		RejoinGracePeriodNS:      config.RejoinGracePeriod,
+		ReadyPeriodNS:            config.ReadyPeriod,
+	}
 }
 
 // validateNodeLogIDs accepts empty ids or canonical UUIDs, lowered as the

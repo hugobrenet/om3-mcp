@@ -29,6 +29,13 @@ type GetObjectConfigInput struct {
 
 type GetObjectConfigOutput = core.ObjectConfig
 
+type ListObjectDataKeysInput struct {
+	Path string `json:"path" jsonschema:"the exact canonical path of a cfg, sec or usr object"`
+	Name string `json:"name,omitempty" jsonschema:"optional exact key name, to check that one key exists"`
+}
+
+type ListObjectDataKeysOutput = core.ObjectDataKeyList
+
 type ListObjectConfigKeywordsInput struct {
 	Path    string `json:"path" jsonschema:"the exact canonical OpenSVC object path returned by list_cluster_objects"`
 	Driver  string `json:"driver,omitempty" jsonschema:"optional exact driver filter such as container.docker; mutually exclusive with section"`
@@ -124,6 +131,26 @@ func RegisterObjectTools(registrar *Registrar, service *core.Service) error {
 				return nil, ListClusterObjectsOutput{}, err
 			}
 			return nil, objects, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "list_object_data_keys",
+			Title: "List object data keys",
+			Description: "List the names of the keys a cfg, sec or usr object stores, with their stored size, never their values. " +
+				"Use name to check that an expected key exists. The stored size of a sec or usr key is that of the encrypted, encoded value. " +
+				"The daemon reads the copy of the object on itself, or on one node holding it, reported as node. Requires guest access to the object namespace.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListObjectDataKeysInput) (*mcp.CallToolResult, ListObjectDataKeysOutput, error) {
+			keys, err := service.ListObjectDataKeys(ctx, core.ListObjectDataKeysOptions{Path: input.Path, Name: input.Name})
+			if err != nil {
+				return nil, ListObjectDataKeysOutput{}, err
+			}
+			return nil, keys, nil
 		},
 	); err != nil {
 		return err

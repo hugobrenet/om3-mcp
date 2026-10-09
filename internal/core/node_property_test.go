@@ -9,7 +9,7 @@ import (
 
 func TestListNodePropertiesPreservesTypesSortsFiltersAndPaginates(t *testing.T) {
 	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/system/property", query: url.Values{},
+		t: t, path: "/api/node/name/node-a/system/property", query: url.Values{},
 		payload: `{"kind":"PropertyList","items":[
 			{"kind":"PropertyItem","meta":{"node":"node-a"},"data":{"name":"node_env","title":"environment","source":"config","value":"TST","error":""}},
 			{"kind":"PropertyItem","meta":{"node":"node-a"},"data":{"name":"cpu_threads","title":"cpu threads","source":"probe","value":4,"error":""}},
@@ -19,7 +19,7 @@ func TestListNodePropertiesPreservesTypesSortsFiltersAndPaginates(t *testing.T) 
 	}
 	service := New(client)
 
-	first, err := service.ListNodeProperties(context.Background(), ListNodePropertiesOptions{Sources: []string{"probe", "probe"}, Limit: 2})
+	first, err := service.ListNodeProperties(context.Background(), ListNodePropertiesOptions{Node: "node-a", Sources: []string{"probe", "probe"}, Limit: 2})
 	if err != nil {
 		t.Fatalf("list first node property page: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestListNodePropertiesPreservesTypesSortsFiltersAndPaginates(t *testing.T) 
 		t.Errorf("unexpected boolean property or cursor: %#v", first)
 	}
 
-	second, err := service.ListNodeProperties(context.Background(), ListNodePropertiesOptions{Sources: []string{"probe"}, Limit: 2, Cursor: first.NextCursor})
+	second, err := service.ListNodeProperties(context.Background(), ListNodePropertiesOptions{Node: "node-a", Sources: []string{"probe"}, Limit: 2, Cursor: first.NextCursor})
 	if err != nil {
 		t.Fatalf("list second node property page: %v", err)
 	}
@@ -66,23 +66,23 @@ func TestListNodePropertiesCombinesExactNameAndSourceFilters(t *testing.T) {
 
 func TestListNodePropertiesReturnsEmptyNonNilList(t *testing.T) {
 	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/system/property", query: url.Values{}, payload: `{"kind":"PropertyList","items":[]}`,
+		t: t, path: "/api/node/name/node-a/system/property", query: url.Values{}, payload: `{"kind":"PropertyList","items":[]}`,
 	}
-	result, err := New(client).ListNodeProperties(context.Background(), ListNodePropertiesOptions{})
+	result, err := New(client).ListNodeProperties(context.Background(), ListNodePropertiesOptions{Node: "node-a"})
 	if err != nil {
 		t.Fatalf("list empty node properties: %v", err)
 	}
-	if result.Node != localDaemonNodeAlias || result.ReportedTotal != 0 || result.Total != 0 || result.Count != 0 || result.Properties == nil || result.Truncated {
+	if result.Node != "node-a" || result.ReportedTotal != 0 || result.Total != 0 || result.Count != 0 || result.Properties == nil || result.Truncated {
 		t.Errorf("unexpected empty property list: %#v", result)
 	}
 }
 
 func TestListNodePropertiesBoundsStringValueAndError(t *testing.T) {
 	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/system/property", query: url.Values{},
+		t: t, path: "/api/node/name/node-a/system/property", query: url.Values{},
 		payload: `{"kind":"PropertyList","items":[{"kind":"PropertyItem","meta":{"node":"node-a"},"data":{"name":"serial","title":"serial","source":"probe","value":"` + strings.Repeat("v", maxNodePropertyValueRunes+1) + `","error":"` + strings.Repeat("e", maxNodePropertyErrorRunes+1) + `"}}]}`,
 	}
-	result, err := New(client).ListNodeProperties(context.Background(), ListNodePropertiesOptions{})
+	result, err := New(client).ListNodeProperties(context.Background(), ListNodePropertiesOptions{Node: "node-a"})
 	if err != nil {
 		t.Fatalf("list bounded node properties: %v", err)
 	}
@@ -94,14 +94,16 @@ func TestListNodePropertiesBoundsStringValueAndError(t *testing.T) {
 
 func TestListNodePropertiesRejectsInvalidInputsBeforeCallingDaemon(t *testing.T) {
 	tests := map[string]ListNodePropertiesOptions{
+		"missing node":     {},
+		"local alias":      {Node: "_"},
 		"node selector":    {Node: "node*"},
 		"spaced node":      {Node: " node-a"},
-		"invalid limit":    {Limit: maxNodePropertyLimit + 1},
-		"empty name":       {Names: []string{""}},
-		"spaced source":    {Sources: []string{" probe"}},
-		"too many names":   {Names: make([]string, maxNodePropertyFilters+1)},
-		"invalid cursor":   {Cursor: "bad\ncursor"},
-		"oversized cursor": {Cursor: strings.Repeat("x", maxNodePropertyCursorRunes+1)},
+		"invalid limit":    {Node: "node-a", Limit: maxNodePropertyLimit + 1},
+		"empty name":       {Node: "node-a", Names: []string{""}},
+		"spaced source":    {Node: "node-a", Sources: []string{" probe"}},
+		"too many names":   {Node: "node-a", Names: make([]string, maxNodePropertyFilters+1)},
+		"invalid cursor":   {Node: "node-a", Cursor: "bad\ncursor"},
+		"oversized cursor": {Node: "node-a", Cursor: strings.Repeat("x", maxNodePropertyCursorRunes+1)},
 	}
 	for name, options := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -138,25 +140,12 @@ func TestListNodePropertiesRejectsMalformedDaemonData(t *testing.T) {
 	}
 }
 
-func TestListNodePropertiesRejectsInconsistentLocalNodeData(t *testing.T) {
-	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/system/property", query: url.Values{},
-		payload: `{"kind":"PropertyList","items":[
-			{"kind":"PropertyItem","meta":{"node":"node-a"},"data":{"name":"os_name","title":"os name","source":"probe","value":"linux","error":""}},
-			{"kind":"PropertyItem","meta":{"node":"node-b"},"data":{"name":"os_arch","title":"os arch","source":"probe","value":"amd64","error":""}}
-		]}`,
-	}
-	if _, err := New(client).ListNodeProperties(context.Background(), ListNodePropertiesOptions{}); err == nil || !strings.Contains(err.Error(), "inconsistent node") {
-		t.Fatalf("got inconsistent local node error %v", err)
-	}
-}
-
 func TestListNodePropertiesRejectsStaleCursor(t *testing.T) {
 	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/system/property", query: url.Values{},
+		t: t, path: "/api/node/name/node-a/system/property", query: url.Values{},
 		payload: `{"kind":"PropertyList","items":[{"kind":"PropertyItem","meta":{"node":"node-a"},"data":{"name":"os_name","title":"os name","source":"probe","value":"linux","error":""}}]}`,
 	}
-	if _, err := New(client).ListNodeProperties(context.Background(), ListNodePropertiesOptions{Cursor: "os_release"}); err == nil || !strings.Contains(err.Error(), "no longer present") {
+	if _, err := New(client).ListNodeProperties(context.Background(), ListNodePropertiesOptions{Node: "node-a", Cursor: "os_release"}); err == nil || !strings.Contains(err.Error(), "no longer present") {
 		t.Fatalf("got stale cursor error %v", err)
 	}
 }

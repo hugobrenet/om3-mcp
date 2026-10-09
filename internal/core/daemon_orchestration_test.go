@@ -42,15 +42,15 @@ const daemonOrchestrationPayload = `{
 
 func TestListDaemonOrchestrationsUsesLocalAliasSortsAndPaginates(t *testing.T) {
 	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/daemon/orchestration", query: url.Values{}, payload: daemonOrchestrationPayload,
+		t: t, path: "/api/node/name/node-a/daemon/orchestration", query: url.Values{}, payload: daemonOrchestrationPayload,
 	}
 	service := New(client)
 
-	first, err := service.ListDaemonOrchestrations(context.Background(), ListDaemonOrchestrationsOptions{Limit: 1})
+	first, err := service.ListDaemonOrchestrations(context.Background(), ListDaemonOrchestrationsOptions{Node: "node-a", Limit: 1})
 	if err != nil {
 		t.Fatalf("list first daemon orchestration page: %v", err)
 	}
-	if first.Total != 3 || first.Count != 1 || !first.Truncated || first.NextCursor == "" {
+	if first.Node != "node-a" || first.Total != 3 || first.Count != 1 || !first.Truncated || first.NextCursor == "" {
 		t.Fatalf("unexpected first page metadata: %#v", first)
 	}
 	got := first.Orchestrations[0]
@@ -65,7 +65,7 @@ func TestListDaemonOrchestrationsUsesLocalAliasSortsAndPaginates(t *testing.T) {
 		t.Fatalf("unexpected opaque cursor %q: decoded=%q err=%v", first.NextCursor, decoded, err)
 	}
 
-	second, err := service.ListDaemonOrchestrations(context.Background(), ListDaemonOrchestrationsOptions{Limit: 1, Cursor: first.NextCursor})
+	second, err := service.ListDaemonOrchestrations(context.Background(), ListDaemonOrchestrationsOptions{Node: "node-a", Limit: 1, Cursor: first.NextCursor})
 	if err != nil {
 		t.Fatalf("list second daemon orchestration page: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestListDaemonOrchestrationsForwardsValidatedNativeFilters(t *testing.T) {
 		payload: daemonOrchestrationPayload,
 	}
 	result, err := New(client).ListDaemonOrchestrations(context.Background(), ListDaemonOrchestrationsOptions{
-		Node:       " node-a ",
+		Node:       "node-a",
 		States:     []string{" failed ", "running", "failed"},
 		ObjectPath: " prod/svc/app ",
 	})
@@ -107,9 +107,9 @@ func TestListDaemonOrchestrationsBoundsTextFields(t *testing.T) {
 		`"expect":"` + strings.Repeat("t", maxDaemonOrchestrationExpectRunes+1) + `",` +
 		`"error":"` + strings.Repeat("e", maxDaemonOrchestrationErrorRunes+1) + `"}]}`
 	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/daemon/orchestration", query: url.Values{}, payload: payload,
+		t: t, path: "/api/node/name/node-a/daemon/orchestration", query: url.Values{}, payload: payload,
 	}
-	result, err := New(client).ListDaemonOrchestrations(context.Background(), ListDaemonOrchestrationsOptions{})
+	result, err := New(client).ListDaemonOrchestrations(context.Background(), ListDaemonOrchestrationsOptions{Node: "node-a"})
 	if err != nil {
 		t.Fatalf("list daemon orchestrations: %v", err)
 	}
@@ -128,11 +128,13 @@ func TestListDaemonOrchestrationsRejectsInvalidInputsBeforeCallingDaemon(t *test
 		tooManyStates[index] = "state"
 	}
 	tests := map[string]ListDaemonOrchestrationsOptions{
+		"missing node":    {},
+		"local alias":     {Node: "_"},
 		"node selector":   {Node: "node*"},
-		"too many states": {States: tooManyStates},
-		"object selector": {ObjectPath: "prod/svc/*"},
-		"invalid limit":   {Limit: maxDaemonOrchestrationLimit + 1},
-		"invalid cursor":  {Cursor: base64.RawURLEncoding.EncodeToString([]byte("not-a-uuid"))},
+		"too many states": {Node: "node-a", States: tooManyStates},
+		"object selector": {Node: "node-a", ObjectPath: "prod/svc/*"},
+		"invalid limit":   {Node: "node-a", Limit: maxDaemonOrchestrationLimit + 1},
+		"invalid cursor":  {Node: "node-a", Cursor: base64.RawURLEncoding.EncodeToString([]byte("not-a-uuid"))},
 	}
 	for name, options := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -164,9 +166,9 @@ func TestListDaemonOrchestrationsRejectsMalformedDaemonData(t *testing.T) {
 	for name, payload := range tests {
 		t.Run(name, func(t *testing.T) {
 			client := &recordingJSONGetter{
-				t: t, path: "/api/node/name/_/daemon/orchestration", query: url.Values{}, payload: payload,
+				t: t, path: "/api/node/name/node-a/daemon/orchestration", query: url.Values{}, payload: payload,
 			}
-			if _, err := New(client).ListDaemonOrchestrations(context.Background(), ListDaemonOrchestrationsOptions{}); err == nil {
+			if _, err := New(client).ListDaemonOrchestrations(context.Background(), ListDaemonOrchestrationsOptions{Node: "node-a"}); err == nil {
 				t.Fatal("expected malformed daemon response error")
 			}
 		})

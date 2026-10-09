@@ -47,11 +47,11 @@ func TestListNodeDisksFilters(t *testing.T) {
 		options ListNodeDisksOptions
 		ids     []string
 	}{
-		{ListNodeDisksOptions{Type: "mpath"}, []string{"36001405105890c7c2304921aea6236d2", "360014058c47036759364d489f302f35b"}},
-		{ListNodeDisksOptions{ClaimedOnly: true}, []string{"36001405105890c7c2304921aea6236d2"}},
-		{ListNodeDisksOptions{Type: "mpath", UnclaimedOnly: true}, []string{"360014058c47036759364d489f302f35b"}},
+		{ListNodeDisksOptions{Node: "node-a", Type: "mpath"}, []string{"36001405105890c7c2304921aea6236d2", "360014058c47036759364d489f302f35b"}},
+		{ListNodeDisksOptions{Node: "node-a", ClaimedOnly: true}, []string{"36001405105890c7c2304921aea6236d2"}},
+		{ListNodeDisksOptions{Node: "node-a", Type: "mpath", UnclaimedOnly: true}, []string{"360014058c47036759364d489f302f35b"}},
 	} {
-		client := &recordingJSONGetter{t: t, path: "/api/node/name/_/system/disk", query: url.Values{}, payload: nodeDiskPayload}
+		client := &recordingJSONGetter{t: t, path: "/api/node/name/node-a/system/disk", query: url.Values{}, payload: nodeDiskPayload}
 		disks, err := New(client).ListNodeDisks(context.Background(), tc.options)
 		if err != nil {
 			t.Fatal(err)
@@ -68,8 +68,8 @@ func TestListNodeDisksFilters(t *testing.T) {
 
 func TestListNodeDisksRejectsInvalidInputBeforeTheDaemonCall(t *testing.T) {
 	for _, options := range []ListNodeDisksOptions{
-		{Node: "n*"}, {Node: ".."}, {Type: " mpath"}, {Type: strings.Repeat("t", 65)},
-		{ClaimedOnly: true, UnclaimedOnly: true}, {Limit: -1}, {Limit: 201}, {Cursor: "not base64!"},
+		{}, {Node: "_"}, {Node: "n*"}, {Node: ".."}, {Node: "n", Type: " mpath"}, {Node: "n", Type: strings.Repeat("t", 65)},
+		{Node: "n", ClaimedOnly: true, UnclaimedOnly: true}, {Node: "n", Limit: -1}, {Node: "n", Limit: 201}, {Node: "n", Cursor: "not base64!"},
 	} {
 		client := &recordingJSONGetter{t: t}
 		if _, err := New(client).ListNodeDisks(context.Background(), options); err == nil || client.calls != 0 {

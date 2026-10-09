@@ -37,6 +37,7 @@ type ListDaemonOrchestrationsOptions struct {
 
 type DaemonOrchestrationList struct {
 	Provenance     Provenance            `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
+	Node           string                `json:"node" jsonschema:"the exact requested OpenSVC node name whose daemon reported the orchestrations"`
 	Total          int                   `json:"total" jsonschema:"number of daemon orchestrations matching the requested filters before MCP pagination"`
 	Count          int                   `json:"count" jsonschema:"number of daemon orchestrations returned in this page"`
 	Orchestrations []DaemonOrchestration `json:"orchestrations" jsonschema:"daemon orchestration records sorted by start time descending and then orchestration id"`
@@ -139,6 +140,7 @@ func (s *Service) ListDaemonOrchestrations(ctx context.Context, options ListDaem
 	}
 	result := DaemonOrchestrationList{
 		Provenance:     s.newProvenance(),
+		Node:           targetNode,
 		Total:          len(parsed),
 		Count:          len(items),
 		Orchestrations: items,
@@ -151,9 +153,9 @@ func (s *Service) ListDaemonOrchestrations(ctx context.Context, options ListDaem
 }
 
 func validateDaemonOrchestrationOptions(options ListDaemonOrchestrationsOptions) (string, url.Values, string, int, error) {
-	node := strings.TrimSpace(options.Node)
-	if node != "" && (len(node) > maxDaemonOrchestrationNodeLength || node == "." || node == ".." || strings.ContainsAny(node, "*?[]/\\#")) {
-		return "", nil, "", 0, fmt.Errorf("daemon orchestration node must be one exact node name of at most %d characters", maxDaemonOrchestrationNodeLength)
+	node := options.Node
+	if err := validateNodeTarget(node); err != nil {
+		return "", nil, "", 0, err
 	}
 	states, err := normalizeDaemonOrchestrationStates(options.States)
 	if err != nil {
@@ -181,9 +183,6 @@ func validateDaemonOrchestrationOptions(options ListDaemonOrchestrationsOptions)
 		return "", nil, "", 0, err
 	}
 
-	if node == "" {
-		node = localDaemonNodeAlias
-	}
 	query := make(url.Values)
 	for _, state := range states {
 		query.Add("state", state)

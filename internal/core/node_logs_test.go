@@ -65,7 +65,7 @@ func TestGetNodeLogsPreservesMissingLevelAndUsesJournalTimestamp(t *testing.T) {
 
 func TestGetNodeLogsRejectsInvalidInputAndUnexpectedEvents(t *testing.T) {
 	for _, options := range []GetNodeLogsOptions{
-		{}, {Node: "node/a"}, {Node: "node-a", Lines: -1},
+		{}, {Node: "_"}, {Node: "node/a"}, {Node: "node-a", Lines: -1},
 		{Node: "node-a", Lines: 101}, {Node: "node-a", Component: "daemon/hbctrl +"},
 	} {
 		client := &instanceLogsClient{t: t}

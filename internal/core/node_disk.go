@@ -29,7 +29,7 @@ type ListNodeDisksOptions struct {
 
 type NodeDiskList struct {
 	Provenance    Provenance `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
-	Node          string     `json:"node" jsonschema:"the OpenSVC node reported by the disk entries, or the local-node alias underscore when an empty local result cannot resolve it"`
+	Node          string     `json:"node" jsonschema:"the exact requested OpenSVC node name, reported by every entry"`
 	TypeFilter    string     `json:"type_filter,omitempty" jsonschema:"the optional exact disk type filter applied"`
 	ClaimedOnly   bool       `json:"claimed_only" jsonschema:"whether only the disks an OpenSVC object claims are listed"`
 	UnclaimedOnly bool       `json:"unclaimed_only" jsonschema:"whether only the disks no OpenSVC object claims are listed"`
@@ -93,10 +93,8 @@ type daemonNodeDiskItem struct {
 // presence and claims, not path or health states, which the inventory lacks.
 func (s *Service) ListNodeDisks(ctx context.Context, options ListNodeDisksOptions) (NodeDiskList, error) {
 	node := options.Node
-	if node == "" {
-		node = localDaemonNodeAlias
-	} else if node != localDaemonNodeAlias && !validExactNodeName(node) {
-		return NodeDiskList{}, fmt.Errorf("node must be one exact OpenSVC node name of at most 255 characters")
+	if err := validateNodeTarget(node); err != nil {
+		return NodeDiskList{}, err
 	}
 	diskType := options.Type
 	if diskType != "" && (len(diskType) > maxNodeDiskTypeRunes || strings.TrimSpace(diskType) != diskType || containsControl(diskType)) {
@@ -128,7 +126,6 @@ func (s *Service) ListNodeDisks(ctx context.Context, options ListNodeDisksOption
 		return NodeDiskList{}, fmt.Errorf("list node disks: response contains %d items, limit is %d", len(response.Items), maxNodeDiskItems)
 	}
 
-	resolvedNode := node
 	disks := make([]NodeDisk, 0, len(response.Items))
 	for index, raw := range response.Items {
 		if raw.Kind != "DiskItem" {
@@ -137,15 +134,8 @@ func (s *Service) ListNodeDisks(ctx context.Context, options ListNodeDisksOption
 		if !validExactNodeName(raw.Meta.Node) {
 			return NodeDiskList{}, fmt.Errorf("list node disks: item %d reports invalid node %q", index, raw.Meta.Node)
 		}
-		if node != localDaemonNodeAlias && raw.Meta.Node != node {
+		if raw.Meta.Node != node {
 			return NodeDiskList{}, fmt.Errorf("list node disks: item %d reports unexpected node %q", index, raw.Meta.Node)
-		}
-		if node == localDaemonNodeAlias {
-			if resolvedNode == localDaemonNodeAlias {
-				resolvedNode = raw.Meta.Node
-			} else if raw.Meta.Node != resolvedNode {
-				return NodeDiskList{}, fmt.Errorf("list node disks: item %d reports inconsistent node %q", index, raw.Meta.Node)
-			}
 		}
 		disk := projectNodeDisk(raw)
 		if diskType != "" && disk.Type != diskType || options.ClaimedOnly && !disk.Claimed || options.UnclaimedOnly && disk.Claimed {
@@ -159,7 +149,7 @@ func (s *Service) ListNodeDisks(ctx context.Context, options ListNodeDisksOption
 	end := min(start+limit, len(disks))
 	page := append([]NodeDisk{}, disks[start:end]...)
 	result := NodeDiskList{
-		Node:          resolvedNode,
+		Node:          node,
 		TypeFilter:    diskType,
 		ClaimedOnly:   options.ClaimedOnly,
 		UnclaimedOnly: options.UnclaimedOnly,

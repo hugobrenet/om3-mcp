@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"slices"
@@ -108,8 +109,8 @@ type daemonNodeLogEnvelope struct {
 }
 
 func (s *Service) GetNodeStatus(ctx context.Context, nodeName string) (NodeStatus, error) {
-	if nodeName == "" || len(nodeName) > 255 || nodeName != strings.TrimSpace(nodeName) || strings.ContainsAny(nodeName, "*?[]/\\") {
-		return NodeStatus{}, fmt.Errorf("node must be one exact OpenSVC node name of at most 255 characters")
+	if err := validateNodeTarget(nodeName); err != nil {
+		return NodeStatus{}, err
 	}
 
 	clusterStatus, err := s.getClusterStatus(ctx)
@@ -187,12 +188,26 @@ func nodeMembershipFacts(nodeName string, configuredNodes []string) NodeMembersh
 	}
 }
 
+// localDaemonNodeAlias is the daemon alias of the node receiving the request.
+const localDaemonNodeAlias = "_"
+
+// errNodeTarget is the error of every tool given an invalid node.
+var errNodeTarget = errors.New("node must be one exact OpenSVC node name of at most 255 characters, without wildcard, selector or the _ alias")
+
+// validateNodeTarget requires one exact node name. The daemon resolves the _
+// alias to itself, which is the node carrying the cluster VIP: it would move
+// on failover, so a node diagnostic always names its node.
+func validateNodeTarget(node string) error {
+	if node == localDaemonNodeAlias || !validExactNodeName(node) {
+		return errNodeTarget
+	}
+	return nil
+}
+
 func (s *Service) GetNodeLogs(ctx context.Context, options GetNodeLogsOptions) (NodeLogList, error) {
-	node := strings.TrimSpace(options.Node)
-	if node == "" || len(node) > 255 || node != options.Node || strings.IndexFunc(node, func(r rune) bool {
-		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || strings.ContainsRune("_.-", r))
-	}) >= 0 {
-		return NodeLogList{}, fmt.Errorf("node must be one exact OpenSVC node name of at most 255 characters")
+	node := options.Node
+	if err := validateNodeTarget(node); err != nil {
+		return NodeLogList{}, err
 	}
 	lines := options.Lines
 	if lines == 0 {

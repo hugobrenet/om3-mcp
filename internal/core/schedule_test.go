@@ -110,6 +110,8 @@ func TestListSchedulesRejectsInvalidInputsBeforeDaemonCall(t *testing.T) {
 		"instance without node": {Scope: ScheduleScopeInstance, Path: "lab/svc/app"},
 		"instance bad path":     {Scope: ScheduleScopeInstance, Node: "node-a", Path: "not/a/path/at/all"},
 		"node selector":         {Scope: ScheduleScopeNode, Node: "node*"},
+		"node local alias":      {Scope: ScheduleScopeNode, Node: "_"},
+		"instance local alias":  {Scope: ScheduleScopeInstance, Node: "_", Path: "lab/svc/app"},
 		"invalid limit":         {Scope: ScheduleScopeObject, Path: "lab/svc/app", Limit: maxScheduleLimit + 1},
 		"invalid cursor":        {Scope: ScheduleScopeObject, Path: "lab/svc/app", Cursor: "not-a-cursor"},
 		"long cursor":           {Scope: ScheduleScopeObject, Path: "lab/svc/app", Cursor: strings.Repeat("x", maxScheduleCursorRunes+1)},

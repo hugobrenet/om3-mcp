@@ -125,6 +125,7 @@ func TestGetNodeStatusRejectsUnknownAndMissingNodes(t *testing.T) {
 		want string
 	}{
 		{name: "", want: "one exact"},
+		{name: "_", want: "one exact"},
 		{name: "node-*", want: "one exact"},
 		{name: "node-a ", want: "one exact"},
 		{name: "node-a", want: "no published status data"},

@@ -10,7 +10,7 @@ import (
 func TestListNodeDriversSortsDeduplicatesAndPaginates(t *testing.T) {
 	client := &recordingJSONGetter{
 		t:     t,
-		path:  "/api/node/name/_/drivers",
+		path:  "/api/node/name/node-a/drivers",
 		query: url.Values{},
 		payload: `{"kind":"DriverList","items":[
 			{"kind":"DriverItem","meta":{"node":"node-a"},"data":{"name":"fs.zfs"}},
@@ -21,7 +21,7 @@ func TestListNodeDriversSortsDeduplicatesAndPaginates(t *testing.T) {
 	}
 	service := New(client)
 
-	first, err := service.ListNodeDrivers(context.Background(), ListNodeDriversOptions{Limit: 2})
+	first, err := service.ListNodeDrivers(context.Background(), ListNodeDriversOptions{Node: "node-a", Limit: 2})
 	if err != nil {
 		t.Fatalf("list first node driver page: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestListNodeDriversSortsDeduplicatesAndPaginates(t *testing.T) {
 		t.Errorf("drivers are not sorted, deduplicated, or paginated: %#v", first)
 	}
 
-	second, err := service.ListNodeDrivers(context.Background(), ListNodeDriversOptions{Limit: 2, Cursor: first.NextCursor})
+	second, err := service.ListNodeDrivers(context.Background(), ListNodeDriversOptions{Node: "node-a", Limit: 2, Cursor: first.NextCursor})
 	if err != nil {
 		t.Fatalf("list second node driver page: %v", err)
 	}
@@ -60,11 +60,13 @@ func TestListNodeDriversSupportsExplicitNodeAndEmptyList(t *testing.T) {
 
 func TestListNodeDriversRejectsInvalidInputsBeforeCallingDaemon(t *testing.T) {
 	tests := map[string]ListNodeDriversOptions{
+		"missing node":   {},
+		"local alias":    {Node: "_"},
 		"node selector":  {Node: "node*"},
 		"spaced node":    {Node: " node-a"},
-		"invalid limit":  {Limit: maxNodeDriverLimit + 1},
-		"invalid cursor": {Cursor: "bad\ncursor"},
-		"long cursor":    {Cursor: strings.Repeat("x", maxNodeDriverCursorLength+1)},
+		"invalid limit":  {Node: "node-a", Limit: maxNodeDriverLimit + 1},
+		"invalid cursor": {Node: "node-a", Cursor: "bad\ncursor"},
+		"long cursor":    {Node: "node-a", Cursor: strings.Repeat("x", maxNodeDriverCursorLength+1)},
 	}
 	for name, options := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -99,25 +101,12 @@ func TestListNodeDriversRejectsMalformedDaemonData(t *testing.T) {
 	}
 }
 
-func TestListNodeDriversRejectsInconsistentLocalNodeData(t *testing.T) {
-	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/drivers", query: url.Values{},
-		payload: `{"kind":"DriverList","items":[
-			{"kind":"DriverItem","meta":{"node":"node-a"},"data":{"name":"app.simple"}},
-			{"kind":"DriverItem","meta":{"node":"node-b"},"data":{"name":"container.docker"}}
-		]}`,
-	}
-	if _, err := New(client).ListNodeDrivers(context.Background(), ListNodeDriversOptions{}); err == nil || !strings.Contains(err.Error(), "inconsistent node") {
-		t.Fatalf("got inconsistent local node error %v", err)
-	}
-}
-
 func TestListNodeDriversRejectsStaleCursor(t *testing.T) {
 	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/drivers", query: url.Values{},
+		t: t, path: "/api/node/name/node-a/drivers", query: url.Values{},
 		payload: `{"kind":"DriverList","items":[{"kind":"DriverItem","meta":{"node":"node-a"},"data":{"name":"app.simple"}}]}`,
 	}
-	if _, err := New(client).ListNodeDrivers(context.Background(), ListNodeDriversOptions{Cursor: "disk.missing"}); err == nil || !strings.Contains(err.Error(), "no longer present") {
+	if _, err := New(client).ListNodeDrivers(context.Background(), ListNodeDriversOptions{Node: "node-a", Cursor: "disk.missing"}); err == nil || !strings.Contains(err.Error(), "no longer present") {
 		t.Fatalf("got stale cursor error %v", err)
 	}
 }

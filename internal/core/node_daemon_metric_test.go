@@ -57,16 +57,16 @@ process_gc_seconds_count 2
 
 func TestGetNodeDaemonMetricsFiltersProjectsAndPaginates(t *testing.T) {
 	client := &nodeDaemonMetricClient{
-		t: t, path: "/api/node/name/_/metrics", query: url.Values{}, payload: nodeDaemonMetricFixture,
+		t: t, path: "/api/node/name/node-a/metrics", query: url.Values{}, payload: nodeDaemonMetricFixture,
 	}
 	service := New(client)
 	first, err := service.GetNodeDaemonMetrics(context.Background(), GetNodeDaemonMetricsOptions{
-		Names: []string{"go_goroutines"}, Prefixes: []string{"opensvc_"}, Limit: 2,
+		Node: "node-a", Names: []string{"go_goroutines"}, Prefixes: []string{"opensvc_"}, Limit: 2,
 	})
 	if err != nil {
 		t.Fatalf("get first metric page: %v", err)
 	}
-	if first.TargetNode != "_" || first.ReportedTotal != 4 || first.Total != 3 || first.SampleTotal != 4 || first.Count != 2 || first.ReturnedSampleCount != 2 || !first.Truncated {
+	if first.TargetNode != "node-a" || first.ReportedTotal != 4 || first.Total != 3 || first.SampleTotal != 4 || first.Count != 2 || first.ReturnedSampleCount != 2 || !first.Truncated {
 		t.Fatalf("unexpected first page metadata: %#v", first)
 	}
 	if got := []string{first.Metrics[0].Name, first.Metrics[1].Name}; !reflect.DeepEqual(got, []string{"go_goroutines", "opensvc_api_request_duration_seconds"}) {
@@ -87,7 +87,7 @@ func TestGetNodeDaemonMetricsFiltersProjectsAndPaginates(t *testing.T) {
 	}
 
 	second, err := service.GetNodeDaemonMetrics(context.Background(), GetNodeDaemonMetricsOptions{
-		Names: []string{"go_goroutines"}, Prefixes: []string{"opensvc_"}, Limit: 2, Cursor: first.NextCursor,
+		Node: "node-a", Names: []string{"go_goroutines"}, Prefixes: []string{"opensvc_"}, Limit: 2, Cursor: first.NextCursor,
 	})
 	if err != nil {
 		t.Fatalf("get second metric page: %v", err)
@@ -122,12 +122,14 @@ func TestGetNodeDaemonMetricsProjectsSummary(t *testing.T) {
 
 func TestGetNodeDaemonMetricsRejectsInvalidInputsBeforeCallingDaemon(t *testing.T) {
 	tests := map[string]GetNodeDaemonMetricsOptions{
+		"missing node":     {},
+		"local alias":      {Node: "_"},
 		"node selector":    {Node: "node*"},
-		"invalid limit":    {Limit: maxNodeDaemonMetricLimit + 1},
-		"empty name":       {Names: []string{""}},
-		"spaced prefix":    {Prefixes: []string{"opensvc api"}},
-		"too many filters": {Names: make([]string, maxNodeDaemonMetricFilters+1)},
-		"invalid cursor":   {Cursor: "bad\ncursor"},
+		"invalid limit":    {Node: "node-a", Limit: maxNodeDaemonMetricLimit + 1},
+		"empty name":       {Node: "node-a", Names: []string{""}},
+		"spaced prefix":    {Node: "node-a", Prefixes: []string{"opensvc api"}},
+		"too many filters": {Node: "node-a", Names: make([]string, maxNodeDaemonMetricFilters+1)},
+		"invalid cursor":   {Node: "node-a", Cursor: "bad\ncursor"},
 	}
 	for name, options := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -149,8 +151,8 @@ func TestGetNodeDaemonMetricsRejectsMalformedOrOversizedData(t *testing.T) {
 	}
 	for name, payload := range tests {
 		t.Run(name, func(t *testing.T) {
-			client := &nodeDaemonMetricClient{t: t, path: "/api/node/name/_/metrics", query: url.Values{}, payload: payload}
-			if _, err := New(client).GetNodeDaemonMetrics(context.Background(), GetNodeDaemonMetricsOptions{}); err == nil {
+			client := &nodeDaemonMetricClient{t: t, path: "/api/node/name/node-a/metrics", query: url.Values{}, payload: payload}
+			if _, err := New(client).GetNodeDaemonMetrics(context.Background(), GetNodeDaemonMetricsOptions{Node: "node-a"}); err == nil {
 				t.Fatal("expected daemon data error")
 			}
 		})
@@ -158,8 +160,8 @@ func TestGetNodeDaemonMetricsRejectsMalformedOrOversizedData(t *testing.T) {
 }
 
 func TestGetNodeDaemonMetricsRejectsStaleCursor(t *testing.T) {
-	client := &nodeDaemonMetricClient{t: t, path: "/api/node/name/_/metrics", query: url.Values{}, payload: nodeDaemonMetricFixture}
-	_, err := New(client).GetNodeDaemonMetrics(context.Background(), GetNodeDaemonMetricsOptions{Cursor: "missing_metric"})
+	client := &nodeDaemonMetricClient{t: t, path: "/api/node/name/node-a/metrics", query: url.Values{}, payload: nodeDaemonMetricFixture}
+	_, err := New(client).GetNodeDaemonMetrics(context.Background(), GetNodeDaemonMetricsOptions{Node: "node-a", Cursor: "missing_metric"})
 	if err == nil || !strings.Contains(err.Error(), "no longer present") {
 		t.Fatalf("got stale cursor error %v", err)
 	}
@@ -167,7 +169,7 @@ func TestGetNodeDaemonMetricsRejectsStaleCursor(t *testing.T) {
 
 func TestGetNodeDaemonMetricsRequiresTextClient(t *testing.T) {
 	client := &recordingJSONGetter{t: t}
-	_, err := New(client).GetNodeDaemonMetrics(context.Background(), GetNodeDaemonMetricsOptions{})
+	_, err := New(client).GetNodeDaemonMetrics(context.Background(), GetNodeDaemonMetricsOptions{Node: "node-a"})
 	if err == nil || !strings.Contains(err.Error(), "does not support text") {
 		t.Fatalf("got error %v", err)
 	}
@@ -175,8 +177,8 @@ func TestGetNodeDaemonMetricsRequiresTextClient(t *testing.T) {
 
 func TestGetNodeDaemonMetricsPreservesSpecialValues(t *testing.T) {
 	payload := "# TYPE special gauge\nspecial NaN\n"
-	client := &nodeDaemonMetricClient{t: t, path: "/api/node/name/_/metrics", query: url.Values{}, payload: payload}
-	result, err := New(client).GetNodeDaemonMetrics(context.Background(), GetNodeDaemonMetricsOptions{})
+	client := &nodeDaemonMetricClient{t: t, path: "/api/node/name/node-a/metrics", query: url.Values{}, payload: payload}
+	result, err := New(client).GetNodeDaemonMetrics(context.Background(), GetNodeDaemonMetricsOptions{Node: "node-a"})
 	if err != nil {
 		t.Fatalf("get special metric: %v", err)
 	}

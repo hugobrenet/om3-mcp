@@ -62,7 +62,7 @@ func TestListStoragePoolsSelectsTheClusterViewOrOneNode(t *testing.T) {
 func TestListStoragePoolsRejectsSelectorsBeforeTheDaemonCall(t *testing.T) {
 	for _, options := range []ListStoragePoolsOptions{
 		{Node: "node-a", PerNode: true},
-		{Node: "n*"}, {Node: "a,b"}, {Node: "label=value"}, {Node: ".."},
+		{Node: "_"}, {Node: "n*"}, {Node: "a,b"}, {Node: "label=value"}, {Node: ".."},
 		{Pool: "p*"}, {Pool: "a,b"}, {Pool: " padded"}, {Pool: "a b"}, {Pool: strings.Repeat("p", 256)},
 	} {
 		client := &recordingJSONGetter{t: t}

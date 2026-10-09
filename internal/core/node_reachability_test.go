@@ -54,21 +54,8 @@ func TestProbeNodeReachability(t *testing.T) {
 	}
 }
 
-func TestProbeNodeReachabilityAcceptsExplicitLocalAlias(t *testing.T) {
-	client := &nodeReachabilityClient{
-		t: t, path: "/api/node/name/_/ping", query: url.Values{},
-	}
-	result, err := New(client).ProbeNodeReachability(context.Background(), "_")
-	if err != nil {
-		t.Fatalf("probe explicit local alias: %v", err)
-	}
-	if result.Node != "_" || !result.Reachable {
-		t.Errorf("unexpected local probe result: %#v", result)
-	}
-}
-
 func TestProbeNodeReachabilityRejectsInvalidNodeBeforeCallingDaemon(t *testing.T) {
-	for _, node := range []string{"", " node-b", "node*", "node/b", strings.Repeat("x", 256)} {
+	for _, node := range []string{"", "_", " node-b", "node*", "node/b", strings.Repeat("x", 256)} {
 		t.Run(fmt.Sprintf("node_%q", node), func(t *testing.T) {
 			client := &nodeReachabilityClient{t: t}
 			if _, err := New(client).ProbeNodeReachability(context.Background(), node); err == nil {

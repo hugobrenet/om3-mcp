@@ -10,7 +10,7 @@ import (
 func TestListNodeCapabilitiesSortsDeduplicatesAndPaginates(t *testing.T) {
 	client := &recordingJSONGetter{
 		t:     t,
-		path:  "/api/node/name/_/capabilities",
+		path:  "/api/node/name/node-a/capabilities",
 		query: url.Values{},
 		payload: `{"kind":"CapabilityList","items":[
 			{"kind":"CapabilityItem","meta":{"node":"node-a"},"data":{"name":"node.x.systemd"}},
@@ -21,7 +21,7 @@ func TestListNodeCapabilitiesSortsDeduplicatesAndPaginates(t *testing.T) {
 	}
 	service := New(client)
 
-	first, err := service.ListNodeCapabilities(context.Background(), ListNodeCapabilitiesOptions{Limit: 2})
+	first, err := service.ListNodeCapabilities(context.Background(), ListNodeCapabilitiesOptions{Node: "node-a", Limit: 2})
 	if err != nil {
 		t.Fatalf("list first node capability page: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestListNodeCapabilitiesSortsDeduplicatesAndPaginates(t *testing.T) {
 	}
 
 	second, err := service.ListNodeCapabilities(context.Background(), ListNodeCapabilitiesOptions{
-		Limit: 2, Cursor: first.NextCursor,
+		Node: "node-a", Limit: 2, Cursor: first.NextCursor,
 	})
 	if err != nil {
 		t.Fatalf("list second node capability page: %v", err)
@@ -48,20 +48,22 @@ func TestListNodeCapabilitiesSortsDeduplicatesAndPaginates(t *testing.T) {
 
 func TestListNodeCapabilitiesReturnsEmptyNonNilList(t *testing.T) {
 	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/capabilities", query: url.Values{},
+		t: t, path: "/api/node/name/node-a/capabilities", query: url.Values{},
 		payload: `{"kind":"CapabilityList","items":[]}`,
 	}
-	result, err := New(client).ListNodeCapabilities(context.Background(), ListNodeCapabilitiesOptions{})
+	result, err := New(client).ListNodeCapabilities(context.Background(), ListNodeCapabilitiesOptions{Node: "node-a"})
 	if err != nil {
 		t.Fatalf("list empty node capabilities: %v", err)
 	}
-	if result.Node != localDaemonNodeAlias || result.ReportedTotal != 0 || result.Total != 0 || result.Count != 0 || result.Capabilities == nil || result.Truncated {
+	if result.Node != "node-a" || result.ReportedTotal != 0 || result.Total != 0 || result.Count != 0 || result.Capabilities == nil || result.Truncated {
 		t.Errorf("unexpected empty capability list: %#v", result)
 	}
 }
 
 func TestListNodeCapabilitiesRejectsInvalidInputsBeforeCallingDaemon(t *testing.T) {
 	tests := map[string]ListNodeCapabilitiesOptions{
+		"missing node":   {},
+		"local alias":    {Node: "_"},
 		"node selector":  {Node: "node*"},
 		"spaced node":    {Node: " node-a"},
 		"invalid limit":  {Node: "node-a", Limit: maxNodeCapabilityLimit + 1},
@@ -98,19 +100,6 @@ func TestListNodeCapabilitiesRejectsMalformedDaemonData(t *testing.T) {
 				t.Fatal("expected malformed daemon response error")
 			}
 		})
-	}
-}
-
-func TestListNodeCapabilitiesRejectsInconsistentLocalNodeData(t *testing.T) {
-	client := &recordingJSONGetter{
-		t: t, path: "/api/node/name/_/capabilities", query: url.Values{},
-		payload: `{"kind":"CapabilityList","items":[
-			{"kind":"CapabilityItem","meta":{"node":"node-a"},"data":{"name":"node.x.systemd"}},
-			{"kind":"CapabilityItem","meta":{"node":"node-b"},"data":{"name":"drivers.resource.container.docker"}}
-		]}`,
-	}
-	if _, err := New(client).ListNodeCapabilities(context.Background(), ListNodeCapabilitiesOptions{}); err == nil || !strings.Contains(err.Error(), "inconsistent node") {
-		t.Fatalf("got inconsistent local node error %v", err)
 	}
 }
 

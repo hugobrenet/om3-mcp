@@ -12,7 +12,7 @@ type GetDaemonStatusInput struct{}
 type GetDaemonStatusOutput = core.DaemonStatus
 
 type ListDaemonExecutionsInput struct {
-	Node            string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node"`
+	Node            string   `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
 	States          []string `json:"states,omitempty" jsonschema:"optional exact daemon execution states; at most 16 values; unknown states are accepted"`
 	Origins         []string `json:"origins,omitempty" jsonschema:"optional exact execution origins such as api, imon, nmon, or scheduler; at most 16 values"`
 	SessionID       string   `json:"session_id,omitempty" jsonschema:"optional exact canonical UUID shared by related executions"`
@@ -27,7 +27,7 @@ type ListDaemonExecutionsInput struct {
 type ListDaemonExecutionsOutput = core.DaemonExecutionList
 
 type ListDaemonOrchestrationsInput struct {
-	Node       string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node"`
+	Node       string   `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
 	States     []string `json:"states,omitempty" jsonschema:"optional exact orchestration states; at most 16 values; unknown states are accepted"`
 	ObjectPath string   `json:"object_path,omitempty" jsonschema:"optional exact canonical OpenSVC object path; the daemon calls this filter selector but matches one exact path"`
 	Limit      int      `json:"limit,omitempty" jsonschema:"optional page size between 1 and 100; defaults to 50"`
@@ -94,7 +94,7 @@ func RegisterDaemonTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:  "list_daemon_orchestrations",
 			Title: "List daemon orchestrations",
-			Description: "List bounded, paginated orchestrations running or recently completed on one OpenSVC daemon. " +
+			Description: "List bounded, paginated orchestrations running or recently completed on one exact OpenSVC node. " +
 				"Use orchestration_id to correlate a requested target state and its exact outcome with list_daemon_executions. " +
 				"The tool preserves unknown states and errors without deriving a health verdict. It requires root access and makes no changes.",
 			Annotations: readOnlyClosedWorldAnnotations(),

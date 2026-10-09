@@ -38,10 +38,10 @@ const (
 
 func TestGetNodeSANTopologyReportsInitiatorsPathsAndTargetCounts(t *testing.T) {
 	client := &sanJSONGetter{payloads: map[string]string{
-		"/api/node/name/_/system/san/initiator": sanInitiatorPayload,
-		"/api/node/name/_/system/san/path":      sanPathPayload,
+		"/api/node/name/node-a/system/san/initiator": sanInitiatorPayload,
+		"/api/node/name/node-a/system/san/path":      sanPathPayload,
 	}}
-	topology, err := New(client).GetNodeSANTopology(context.Background(), GetNodeSANTopologyOptions{})
+	topology, err := New(client).GetNodeSANTopology(context.Background(), GetNodeSANTopologyOptions{Node: "node-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,6 +81,15 @@ func TestGetNodeSANTopologyKeepsTheDaemonError(t *testing.T) {
 		client := &sanJSONGetter{}
 		if _, err := New(client).GetNodeSANTopology(context.Background(), GetNodeSANTopologyOptions{Node: node}); err == nil || len(client.calls) != 0 {
 			t.Fatalf("node %q accepted or reached the daemon", node)
+		}
+	}
+}
+
+func TestGetNodeSANTopologyRejectsInvalidNodeBeforeTheDaemonCall(t *testing.T) {
+	for _, node := range []string{"", "_", "n*", ".."} {
+		client := &recordingJSONGetter{t: t}
+		if _, err := New(client).GetNodeSANTopology(context.Background(), GetNodeSANTopologyOptions{Node: node}); err == nil || client.calls != 0 {
+			t.Fatalf("node %q was accepted or reached the daemon", node)
 		}
 	}
 }

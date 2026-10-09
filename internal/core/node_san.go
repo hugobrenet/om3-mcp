@@ -19,7 +19,7 @@ type GetNodeSANTopologyOptions struct {
 
 type NodeSANTopology struct {
 	Provenance          Provenance     `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
-	Node                string         `json:"node" jsonschema:"the OpenSVC node reported by the initiator entries, or the local-node alias underscore when an empty local result cannot resolve it"`
+	Node                string         `json:"node" jsonschema:"the exact requested OpenSVC node name, reported by every entry"`
 	Initiators          []SANInitiator `json:"initiators" jsonschema:"the SAN initiators of the node, such as iSCSI initiators or HBA ports, sorted by type then name"`
 	InitiatorsTruncated bool           `json:"initiators_truncated" jsonschema:"whether initiators were omitted after 512 entries"`
 	Paths               []SANPath      `json:"paths" jsonschema:"the initiator to target pairs the node sees, sorted by initiator then target"`
@@ -72,10 +72,8 @@ type daemonSANPathList struct {
 // topology, not the state of the paths.
 func (s *Service) GetNodeSANTopology(ctx context.Context, options GetNodeSANTopologyOptions) (NodeSANTopology, error) {
 	node := options.Node
-	if node == "" {
-		node = localDaemonNodeAlias
-	} else if node != localDaemonNodeAlias && !validExactNodeName(node) {
-		return NodeSANTopology{}, fmt.Errorf("node must be one exact OpenSVC node name of at most 255 characters")
+	if err := validateNodeTarget(node); err != nil {
+		return NodeSANTopology{}, err
 	}
 
 	var initiatorList daemonSANInitiatorList
@@ -93,7 +91,6 @@ func (s *Service) GetNodeSANTopology(ctx context.Context, options GetNodeSANTopo
 		return NodeSANTopology{}, fmt.Errorf("get node SAN paths: unexpected response kind %q", pathList.Kind)
 	}
 
-	resolvedNode := node
 	initiators := make([]SANInitiator, 0, len(initiatorList.Items))
 	for index, raw := range initiatorList.Items {
 		if raw.Kind != "SANPathInitiatorItem" {
@@ -102,15 +99,8 @@ func (s *Service) GetNodeSANTopology(ctx context.Context, options GetNodeSANTopo
 		if !validExactNodeName(raw.Meta.Node) {
 			return NodeSANTopology{}, fmt.Errorf("get node SAN initiators: item %d reports invalid node %q", index, raw.Meta.Node)
 		}
-		if node != localDaemonNodeAlias && raw.Meta.Node != node {
+		if raw.Meta.Node != node {
 			return NodeSANTopology{}, fmt.Errorf("get node SAN initiators: item %d reports unexpected node %q", index, raw.Meta.Node)
-		}
-		if node == localDaemonNodeAlias {
-			if resolvedNode == localDaemonNodeAlias {
-				resolvedNode = raw.Meta.Node
-			} else if raw.Meta.Node != resolvedNode {
-				return NodeSANTopology{}, fmt.Errorf("get node SAN initiators: item %d reports inconsistent node %q", index, raw.Meta.Node)
-			}
 		}
 		endpoint := projectSANEndpoint(raw.Data)
 		initiators = append(initiators, SANInitiator{Name: endpoint.Name, Type: endpoint.Type})
@@ -143,7 +133,7 @@ func (s *Service) GetNodeSANTopology(ctx context.Context, options GetNodeSANTopo
 		return paths[i].Target.Name < paths[j].Target.Name
 	})
 	result := NodeSANTopology{
-		Node:                resolvedNode,
+		Node:                node,
 		Initiators:          initiators[:min(len(initiators), maxNodeSANInitiators)],
 		InitiatorsTruncated: len(initiators) > maxNodeSANInitiators,
 		Paths:               paths[:min(len(paths), maxNodeSANPaths)],

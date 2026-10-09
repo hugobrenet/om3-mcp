@@ -37,7 +37,7 @@ type ListNodeHardwareOptions struct {
 
 type NodeHardwareList struct {
 	Provenance    Provenance     `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
-	Node          string         `json:"node" jsonschema:"the OpenSVC node reported by hardware entries, or the local-node alias underscore when an empty local result cannot resolve it"`
+	Node          string         `json:"node" jsonschema:"the exact requested OpenSVC node name, reported by every entry"`
 	ReportedTotal int            `json:"reported_total" jsonschema:"number of hardware entries returned by OpenSVC before MCP filtering"`
 	Total         int            `json:"total" jsonschema:"number of hardware entries matching all requested filter families before pagination"`
 	Count         int            `json:"count" jsonschema:"number of hardware entries returned in this page"`
@@ -98,7 +98,6 @@ func (s *Service) ListNodeHardware(ctx context.Context, options ListNodeHardware
 		return NodeHardwareList{}, fmt.Errorf("list node hardware: response contains %d items, limit is %d", len(response.Items), maxNodeHardwareItems)
 	}
 
-	resolvedNode := node
 	records := make([]nodeHardwareRecord, 0, len(response.Items))
 	for index, raw := range response.Items {
 		if raw.Kind != "HardwareItem" {
@@ -107,15 +106,8 @@ func (s *Service) ListNodeHardware(ctx context.Context, options ListNodeHardware
 		if !validExactNodeName(raw.Meta.Node) {
 			return NodeHardwareList{}, fmt.Errorf("list node hardware: item %d reports invalid node %q", index, raw.Meta.Node)
 		}
-		if node != localDaemonNodeAlias && raw.Meta.Node != node {
+		if raw.Meta.Node != node {
 			return NodeHardwareList{}, fmt.Errorf("list node hardware: item %d reports unexpected node %q", index, raw.Meta.Node)
-		}
-		if node == localDaemonNodeAlias {
-			if resolvedNode == localDaemonNodeAlias {
-				resolvedNode = raw.Meta.Node
-			} else if raw.Meta.Node != resolvedNode {
-				return NodeHardwareList{}, fmt.Errorf("list node hardware: item %d reports inconsistent node %q", index, raw.Meta.Node)
-			}
 		}
 
 		record, err := projectNodeHardware(raw)
@@ -170,7 +162,7 @@ func (s *Service) ListNodeHardware(ctx context.Context, options ListNodeHardware
 		items = []NodeHardware{}
 	}
 	result := NodeHardwareList{
-		Provenance: s.newProvenance(), Node: resolvedNode, ReportedTotal: len(response.Items),
+		Provenance: s.newProvenance(), Node: node, ReportedTotal: len(response.Items),
 		Total: len(records), Count: len(items), Hardware: items, Truncated: end < len(records),
 	}
 	if result.Truncated {
@@ -181,10 +173,8 @@ func (s *Service) ListNodeHardware(ctx context.Context, options ListNodeHardware
 
 func validateNodeHardwareOptions(options ListNodeHardwareOptions) (string, []string, []string, []string, int, string, error) {
 	node := options.Node
-	if node == "" {
-		node = localDaemonNodeAlias
-	} else if node != localDaemonNodeAlias && !validExactNodeName(node) {
-		return "", nil, nil, nil, 0, "", fmt.Errorf("node must be one exact OpenSVC node name of at most 255 characters")
+	if err := validateNodeTarget(node); err != nil {
+		return "", nil, nil, nil, 0, "", err
 	}
 	types, err := normalizeNodeHardwareFilters("type", options.Types, maxNodeHardwareTypeRunes, false)
 	if err != nil {

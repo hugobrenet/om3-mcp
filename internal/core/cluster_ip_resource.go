@@ -59,8 +59,10 @@ func (s *Service) ListClusterIPResources(ctx context.Context, options ListCluste
 		}
 	}
 	node := strings.TrimSpace(options.Node)
-	if node != "" && (len(node) > 255 || strings.ContainsAny(node, "*?[]/\\")) {
-		return ClusterIPResourceList{}, fmt.Errorf("node must be one exact OpenSVC node name of at most 255 characters")
+	if node != "" {
+		if err := validateNodeTarget(node); err != nil {
+			return ClusterIPResourceList{}, err
+		}
 	}
 
 	limit := options.Limit

@@ -24,7 +24,7 @@ func (f *fakeJSONGetter) GetJSON(_ context.Context, path string, query url.Value
 	return json.Unmarshal([]byte(f.payload), output)
 }
 
-func TestGetDaemonStatus(t *testing.T) {
+func TestGetNodeStatusReportsTheDaemonSubsystems(t *testing.T) {
 	service := New(&fakeJSONGetter{t: t, payload: `{
 		"cluster": {
 			"config": {
@@ -50,30 +50,20 @@ func TestGetDaemonStatus(t *testing.T) {
 				}
 			}
 		},
-		"daemon": {"nodename": "node-a", "routines": 121}
+		"daemon": {"nodename": "node-b", "routines": 121}
 	}`})
 
-	status, err := service.GetDaemonStatus(context.Background())
+	// The receiving daemon is node-b: the node asked for is reported, not it.
+	result, err := service.GetNodeStatus(context.Background(), "node-a")
 	if err != nil {
-		t.Fatalf("get daemon status: %v", err)
+		t.Fatalf("get node status: %v", err)
 	}
-	if status.Daemon.NodeName != "node-a" {
-		t.Errorf("got nodename %q, want node-a", status.Daemon.NodeName)
+	status := result.Daemon
+	if result.Node != "node-a" || status.PID != 2610 || status.StartedAt != "2026-07-10T17:23:35+09:00" {
+		t.Errorf("got daemon %#v, want the process facts of node-a", status)
 	}
-	if status.Daemon.PID != 2610 {
-		t.Errorf("got PID %d, want 2610", status.Daemon.PID)
-	}
-	if status.Cluster.ID != "cluster-123" {
-		t.Errorf("got cluster ID %q, want cluster-123", status.Cluster.ID)
-	}
-	if !status.Cluster.QuorumEnabled {
-		t.Error("expected cluster quorum feature to be enabled")
-	}
-	if status.Node.AgentVersion != "v3.0.0" {
-		t.Errorf("got agent version %q, want v3.0.0", status.Node.AgentVersion)
-	}
-	if status.ListenerConfig.Port != 1215 {
-		t.Errorf("got listener port %d, want 1215", status.ListenerConfig.Port)
+	if result.Status.AgentVersion != "v3.0.0" {
+		t.Errorf("got agent version %q, want v3.0.0", result.Status.AgentVersion)
 	}
 	if status.Subsystems.DaemonData == nil || status.Subsystems.DaemonData.State != "future-state" || status.Subsystems.DaemonData.QueueSize != 3 {
 		t.Errorf("got daemondata %#v, want exact unknown state and queue size", status.Subsystems.DaemonData)
@@ -88,13 +78,13 @@ func TestGetDaemonStatus(t *testing.T) {
 	if !endpoint.Valid || endpoint.Scheme != "https" || endpoint.Host != "collector.example:8443" || !endpoint.UserInfoRedacted || !endpoint.PathRedacted || !endpoint.QueryRedacted || !endpoint.FragmentRedacted {
 		t.Errorf("got collector endpoint %#v, want credential-safe projection", endpoint)
 	}
-	encoded, err := json.Marshal(status)
+	encoded, err := json.Marshal(result)
 	if err != nil {
-		t.Fatalf("marshal daemon status: %v", err)
+		t.Fatalf("marshal node status: %v", err)
 	}
 	for _, secret := range []string{"alice", "secret", "private/token", "jwt=hidden", "#fragment"} {
 		if strings.Contains(string(encoded), secret) {
-			t.Errorf("daemon status leaks collector URL component %q: %s", secret, encoded)
+			t.Errorf("node status leaks collector URL component %q: %s", secret, encoded)
 		}
 	}
 }

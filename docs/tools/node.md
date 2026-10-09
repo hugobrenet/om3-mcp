@@ -10,6 +10,8 @@ tools:
   - list_node_capabilities
   - list_node_drivers
   - get_node_daemon_metrics
+  - list_node_disks
+  - get_node_san_topology
   - probe_node_reachability
 stability: experimental
 ---
@@ -24,7 +26,8 @@ one daemon.
 
 Implementation:
 
-- business logic: `internal/core/node.go`, `internal/core/config_node.go`, `internal/core/node_property.go`,
+- business logic: `internal/core/node.go`, `internal/core/config_node.go`, `internal/core/node_disk.go`,
+  `internal/core/node_san.go`, `internal/core/node_property.go`,
   `internal/core/node_hardware.go`, `internal/core/node_capability.go`, `internal/core/node_driver.go`,
   `internal/core/node_daemon_metric.go`, and `internal/core/node_reachability.go`;
 - MCP definitions: `internal/tools/node.go`.
@@ -1140,3 +1143,72 @@ identifiers, command lines, and user IDs is omitted. `truncated` reports older
 entries omitted by the requested line limit or message content shortened by
 these bounds. Invalid inputs, malformed SSE or JSON, unexpected node or
 component values, oversized streams, and daemon errors become MCP tool errors.
+
+### `list_node_disks`
+
+Lists the disks of one node, with the OpenSVC objects claiming disk regions.
+Use it to find a LUN missing on a node, by listing the disks of two nodes, or
+the disks an object uses.
+
+#### OpenSVC API, authorization, and freshness
+
+```text
+GET /api/node/name/{node}/system/disk
+```
+
+The daemon requires the global `root` grant, and proxies the request to the
+named node. It serves the disk inventory the node caches on its `pushdisks`
+schedule, or after `om node push disks --dry-run`, which writes the cache
+without contacting a collector. The API gives no cache date: the inventory can
+be as old as the last push. A node that never pushed has no cache, and the
+daemon error ("waiting for cached value") is returned as is.
+
+The inventory holds presence, size, identity and claims, not the state of
+multipath paths nor disk health.
+
+#### Input
+
+| Input | Meaning |
+|---|---|
+| `node` | Optional exact node name; defaults to the daemon receiving the request through the `_` alias |
+| `type` | Optional exact disk type, such as `mpath`, `disk` or `rom` |
+| `claimed_only`, `unclaimed_only` | Optional, mutually exclusive: the disks an OpenSVC object claims, or the others |
+| `limit`, `cursor` | Page size between 1 and 200, default 100, and the `next_cursor` of a previous call |
+
+#### Output
+
+`provenance`, `node` (resolved from the entries), the filters, `reported_total`
+(disks in the inventory), `total` (matching disks), `count`, `disks`,
+`next_cursor` and `truncated`. Disks are sorted by type, then identifier. Each
+disk holds `id` (such as the WWID of a multipath LUN), `devpath`, `size_bytes`,
+`vendor` and `model` (unmodified, trailing spaces included), `type`, `claimed`,
+and `regions` (at most 64): `id`, `devpath`, `object` (the claiming object path,
+empty when none), `group` and `size_bytes`.
+
+### `get_node_san_topology`
+
+Reads the SAN topology of one node: its initiators, such as iSCSI initiators
+or HBA ports, the initiator to target pairs, and how many targets each
+initiator reaches. Use it to find an initiator that lost a target.
+
+#### OpenSVC API, authorization, and freshness
+
+```text
+GET /api/node/name/{node}/system/san/initiator
+GET /api/node/name/{node}/system/san/path
+```
+
+The daemon requires the global `root` grant, and proxies the requests to the
+named node. Both serve the system inventory the node caches on its `pushasset`
+schedule, or after `om node push asset --dry-run`, with the same freshness
+limits as `list_node_disks`. The inventory holds the topology, not the state
+of the paths: a degraded multipath is not reported, a lost target is.
+
+#### Input and output
+
+The only input is `node`, as for `list_node_disks`. The output holds
+`provenance`, `node`, `initiators` (`name`, `type`, `target_count`: the
+distinct targets the initiator reaches), sorted by type then name, and `paths`
+(`initiator` and `target`, each `name` and `type`), sorted by initiator then
+target. Initiators and paths are bounded to 512 and 4096 entries, reported by
+`initiators_truncated` and `paths_truncated`.

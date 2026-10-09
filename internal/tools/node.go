@@ -76,6 +76,23 @@ type ListNodePackagesInput struct {
 
 type ListNodePackagesOutput = core.NodePackageList
 
+type ListNodeDisksInput struct {
+	Node          string `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+	Type          string `json:"type,omitempty" jsonschema:"optional exact disk type such as mpath, disk or rom"`
+	ClaimedOnly   bool   `json:"claimed_only,omitempty" jsonschema:"optional; true lists only the disks an OpenSVC object claims; exclusive with unclaimed_only"`
+	UnclaimedOnly bool   `json:"unclaimed_only,omitempty" jsonschema:"optional; true lists only the disks no OpenSVC object claims; exclusive with claimed_only"`
+	Limit         int    `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
+	Cursor        string `json:"cursor,omitempty" jsonschema:"optional opaque next_cursor returned by a previous call with the same node and filters"`
+}
+
+type ListNodeDisksOutput = core.NodeDiskList
+
+type GetNodeSANTopologyInput struct {
+	Node string `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
+}
+
+type GetNodeSANTopologyOutput = core.NodeSANTopology
+
 type GetNodeDaemonMetricsInput struct {
 	Node     string   `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name; defaults to the local daemon node through the underscore alias; no wildcard or selector"`
 	Names    []string `json:"names,omitempty" jsonschema:"optional exact Prometheus metric family names; combined with prefixes using OR; at most 32 entries"`
@@ -298,6 +315,50 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 				return nil, ProbeNodeReachabilityOutput{}, err
 			}
 			return nil, probe, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "list_node_disks",
+			Title: "List node disks",
+			Description: "List the disks of one OpenSVC node from its disk inventory cache, defaulting to the local node: identifier, device path, size, vendor, model, type, and the OpenSVC objects claiming disk regions. " +
+				"Filter by type or by claim, with stable pagination; compare nodes to find a LUN missing on one of them. " +
+				"The inventory holds presence and claims, not path or health states. " +
+				"This root-only read does not refresh the cache, written by the push disks schedule; a missing cache remains an explicit daemon error.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListNodeDisksInput) (*mcp.CallToolResult, ListNodeDisksOutput, error) {
+			disks, err := service.ListNodeDisks(ctx, core.ListNodeDisksOptions{
+				Node: input.Node, Type: input.Type, ClaimedOnly: input.ClaimedOnly, UnclaimedOnly: input.UnclaimedOnly,
+				Limit: input.Limit, Cursor: input.Cursor,
+			})
+			if err != nil {
+				return nil, ListNodeDisksOutput{}, err
+			}
+			return nil, disks, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "get_node_san_topology",
+			Title: "Get node SAN topology",
+			Description: "Read the SAN topology of one OpenSVC node from its system inventory cache, defaulting to the local node: the initiators, such as iSCSI initiators or HBA ports, the initiator to target pairs, and the number of targets each initiator reaches. " +
+				"The inventory holds the topology, not the state of the paths: a degraded multipath is not reported, a lost target is. " +
+				"This root-only read does not refresh the cache, written by the push asset schedule; a missing cache remains an explicit daemon error.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input GetNodeSANTopologyInput) (*mcp.CallToolResult, GetNodeSANTopologyOutput, error) {
+			topology, err := service.GetNodeSANTopology(ctx, core.GetNodeSANTopologyOptions{Node: input.Node})
+			if err != nil {
+				return nil, GetNodeSANTopologyOutput{}, err
+			}
+			return nil, topology, nil
 		},
 	); err != nil {
 		return err

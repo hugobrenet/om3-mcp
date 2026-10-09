@@ -42,6 +42,15 @@ Use Go, the standard library and `github.com/modelcontextprotocol/go-sdk`.
   pools, never caller credentials.
 - `internal/core`: deterministic OpenSVC use cases, endpoint selection, domain
   validation, private daemon response shapes and bounded typed results.
+  It stays one package: organize it by file, never by sub-package. Name files
+  after their domain prefix (`cluster_*`, `node_*`, `object_*`, `instance_*`,
+  `daemon_*`…), and put every configuration use case in `config_*` files:
+  `config_cluster.go`, `config_node.go`, `config_object.go`,
+  `config_object_keyword.go`. A new configuration file tool reads through the
+  shared `readConfigFile` in `config_file.go` (redaction, UTF-8 bounds, sizes)
+  instead of repeating that sequence; only its input validation and result
+  type are its own. Reuse the existing validators (`validateExactObjectPath`,
+  `validExactNodeName`…) rather than writing local rules.
 - `internal/tools`: MCP declarations, schemas, annotations and registrar.
   Handlers stay thin: typed input, one core use case, typed output.
 

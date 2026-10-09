@@ -9,28 +9,26 @@ import (
 
 const maxConfigFileOutputBytes = 64 << 10
 
-type ClusterConfig struct {
-	Provenance         Provenance `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
-	Content            string     `json:"content" jsonschema:"bounded OpenSVC cluster configuration file content returned by the daemon"`
-	SizeBytes          int        `json:"size_bytes" jsonschema:"complete redacted configuration file size in bytes before MCP output truncation"`
-	ReturnedBytes      int        `json:"returned_bytes" jsonschema:"number of configuration content bytes included in this result"`
-	Truncated          bool       `json:"truncated" jsonschema:"whether configuration content was omitted after the 65536-byte output limit"`
-	RedactionRequested bool       `json:"redaction_requested" jsonschema:"whether the MCP required daemon-side secret redaction for this request; always true"`
+// configFile is a daemon configuration file read with secret redaction and
+// bounded for the MCP output. The cluster and node config results share it.
+type configFile struct {
+	content   string
+	sizeBytes int
+	truncated bool
 }
 
-func (s *Service) GetClusterConfig(ctx context.Context) (ClusterConfig, error) {
-	payload, err := s.getRedactedConfigFile(ctx, "/api/cluster/config/file")
+// readConfigFile requests the configuration file at endpoint with daemon-side
+// secret redaction, and bounds it to valid UTF-8 within the output limit.
+func (s *Service) readConfigFile(ctx context.Context, endpoint string) (configFile, error) {
+	payload, err := s.getRedactedConfigFile(ctx, endpoint)
 	if err != nil {
-		return ClusterConfig{}, fmt.Errorf("get cluster config: %w", err)
+		return configFile{}, err
 	}
 	content, truncated, err := boundConfigFile(payload)
 	if err != nil {
-		return ClusterConfig{}, fmt.Errorf("get cluster config: %w", err)
+		return configFile{}, err
 	}
-	return ClusterConfig{
-		Provenance: s.newProvenance(), Content: content, SizeBytes: len(payload),
-		ReturnedBytes: len(content), Truncated: truncated, RedactionRequested: true,
-	}, nil
+	return configFile{content: content, sizeBytes: len(payload), truncated: truncated}, nil
 }
 
 func (s *Service) getRedactedConfigFile(ctx context.Context, endpoint string) ([]byte, error) {

@@ -13,7 +13,8 @@ They do not produce a diagnostic verdict.
 
 Implementation:
 
-- business logic: `internal/core/config_file.go` and `internal/core/cluster.go`;
+- business logic: `internal/core/cluster.go`, `internal/core/config_cluster.go`
+  and the shared configuration file reader `internal/core/config_file.go`;
 - MCP definitions: `internal/tools/cluster.go`.
 
 ## Tools

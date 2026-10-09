@@ -21,6 +21,7 @@ func TestNodeDiagnosticToolsRequireNode(t *testing.T) {
 		"probe_node_reachability":    func() (*jsonschema.Schema, error) { return jsonschema.For[ProbeNodeReachabilityInput](nil) },
 		"list_daemon_executions":     func() (*jsonschema.Schema, error) { return jsonschema.For[ListDaemonExecutionsInput](nil) },
 		"list_daemon_orchestrations": func() (*jsonschema.Schema, error) { return jsonschema.For[ListDaemonOrchestrationsInput](nil) },
+		"list_dns_records":           func() (*jsonschema.Schema, error) { return jsonschema.For[ListDNSRecordsInput](nil) },
 	}
 	for name, schemaFor := range schemas {
 		schema, err := schemaFor()

@@ -4,6 +4,7 @@ tools:
   - get_daemon_status
   - list_daemon_executions
   - list_daemon_orchestrations
+  - list_dns_records
 stability: experimental
 ---
 
@@ -15,7 +16,7 @@ its factual subsystem status.
 Implementation:
 
 - business logic: `internal/core/daemon.go`, `internal/core/daemon_execution.go`,
-  and `internal/core/daemon_orchestration.go`;
+  `internal/core/daemon_orchestration.go`, and `internal/core/daemon_dns.go`;
 - MCP definitions: `internal/tools/daemon.go`.
 
 ## Tools
@@ -337,3 +338,57 @@ target state was operationally appropriate.
 | Cursor record no longer retained | Explicit stale-cursor tool error |
 | Malformed kind, UUID, path, timestamp, or oversized identity field | Tool error; no partial list |
 | Daemon unavailable | Tool error with transport context |
+
+### `list_dns_records`
+
+Lists the records of the cluster DNS zone one daemon serves. Use it to check
+whether a name resolves to the expected address, or which names point to an
+address.
+
+#### OpenSVC API, authorization, and freshness
+
+```text
+GET /api/node/name/{node}/daemon/dns/dump
+```
+
+The daemon requires the global `root` grant, and proxies the request to the
+named node. Each daemon builds its zone from the instance status of the whole
+cluster and from `cluster.dns`, and keeps it current as the status changes:
+the zones of two nodes normally match. The dump is the zone as built, whether
+or not a nameserver serves it. A zone without `SOA` and `NS` records means
+`cluster.dns` declares no nameserver; the DNS subsystem state and its
+nameservers are reported by `get_daemon_status`.
+
+The zone of a cluster `<cluster>` holds, for each address an instance resource
+reports:
+
+| Name | Type | Published |
+|---|---|---|
+| `<name>.<namespace>.<kind>.<cluster>.` | `A` or `AAAA` | Only for the addresses serving the object: a resource up, and for a standby resource, an instance serving. An address every instance reports is the object's own and is published once, whatever the instance states |
+| `<name>.<namespace>.<kind>.<node>.node.<cluster>.` | `A` or `AAAA` | For every instance, whatever its state |
+| `<index>.` or `<hostname>.` before either name | `A` or `AAAA` | The name of the resource, by its index or its `hostname` |
+| The reverse name of the address | `PTR` | Pointing to the resource name, or to the object name when the resource has none |
+| `_<port>._<network>.<name>.<namespace>.<kind>.<cluster>.` | `SRV` | For each `expose` of the resource, weighted by the node score |
+
+A name missing from the zone is therefore a fact about the instances: a
+stopped object keeps its node affine names but loses its object name, unless
+every instance reports the same address.
+
+#### Input
+
+| Input | Meaning |
+|---|---|
+| `node` | Required exact node name, following the [node target](README.md#node-targets) rule |
+| `name` | Optional exact name, case insensitive, with or without its final dot |
+| `type` | Optional type: `A`, `AAAA`, `PTR`, `SRV`, `SOA` or `NS` |
+| `content` | Optional exact content; an address matches whatever its spelling |
+| `object` | Optional exact object path: the records whose name, or for `PTR` whose content, is a name of the object |
+| `limit`, `cursor` | Page size between 1 and 200, default 100, and the `next_cursor` of a previous call |
+
+#### Output
+
+`provenance`, `node`, the filters applied, `reported_total` (records in the
+zone), `total` (matching records), `count`, `records`, `next_cursor` and
+`truncated`. Each record holds `name`, `type`, `ttl` and `content`. Records are
+sorted by name, type and content; records the daemon repeats, such as one
+`SOA` per nameserver, are listed once.

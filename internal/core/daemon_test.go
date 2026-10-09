@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -33,6 +34,7 @@ func TestGetNodeStatusReportsTheDaemonSubsystems(t *testing.T) {
 			},
 			"node": {
 				"node-a": {
+					"config": {"env":"PRD","labels":{"zone":"z1","rack":"r2"},"maintenance_grace_period":60000000000,"rejoin_grace_period":90000000000,"ready_period":5000000000,"min_avail_mem_pct":2},
 					"status": {
 						"agent": "v3.0.0", "api": 1, "compat": 2,
 						"is_leader": true, "is_overloaded": false,
@@ -57,6 +59,11 @@ func TestGetNodeStatusReportsTheDaemonSubsystems(t *testing.T) {
 	result, err := service.GetNodeStatus(context.Background(), "node-a")
 	if err != nil {
 		t.Fatalf("get node status: %v", err)
+	}
+	if result.Config == nil || result.Config.Env != "PRD" || len(result.Config.Labels) != 2 || result.Config.Labels["zone"] != "z1" ||
+		result.Config.MaintenanceGracePeriodNS != 60000000000 || result.Config.RejoinGracePeriodNS != 90000000000 ||
+		result.Config.ReadyPeriodNS != 5000000000 || result.Config.LabelsTruncated {
+		t.Errorf("got config %#v, want the published node configuration facts", result.Config)
 	}
 	if result.Provenance.ServedBy != "node-b" {
 		t.Errorf("got served_by %q, want the answering daemon node-b", result.Provenance.ServedBy)
@@ -130,5 +137,19 @@ func TestServedByIsOmittedWithoutAValidDaemonNodeName(t *testing.T) {
 		if result.Provenance.ServedBy != "" || strings.Contains(string(encoded), "served_by") {
 			t.Fatalf("payload %s gave provenance %s", payload, encoded)
 		}
+	}
+}
+
+func TestNodeConfigFactsBoundLabels(t *testing.T) {
+	labels := map[string]string{"long": strings.Repeat("v", maxNodeLabelValueRunes+1)}
+	for i := 0; i < maxNodeLabels; i++ {
+		labels[fmt.Sprintf("l%03d", i)] = "x"
+	}
+	facts := nodeConfigFacts(clusterNodeConfig{Labels: labels})
+	if len(facts.Labels) != maxNodeLabels || !facts.LabelsTruncated || facts.Labels == nil {
+		t.Fatalf("got %d labels, truncated %v", len(facts.Labels), facts.LabelsTruncated)
+	}
+	if empty := nodeConfigFacts(clusterNodeConfig{}); empty.Labels == nil || len(empty.Labels) != 0 {
+		t.Fatalf("an absent label map must be an empty object: %#v", empty)
 	}
 }

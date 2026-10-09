@@ -201,9 +201,14 @@ type clusterNodeDaemon struct {
 }
 
 type clusterNodeConfig struct {
-	MinAvailMemPct  int      `json:"min_avail_mem_pct"`
-	MinAvailSwapPct int      `json:"min_avail_swap_pct"`
-	Issues          []string `json:"issues"`
+	MinAvailMemPct         int               `json:"min_avail_mem_pct"`
+	MinAvailSwapPct        int               `json:"min_avail_swap_pct"`
+	Issues                 []string          `json:"issues"`
+	Env                    string            `json:"env"`
+	Labels                 map[string]string `json:"labels"`
+	MaintenanceGracePeriod int64             `json:"maintenance_grace_period"`
+	RejoinGracePeriod      int64             `json:"rejoin_grace_period"`
+	ReadyPeriod            int64             `json:"ready_period"`
 }
 
 type clusterNodeStats struct {

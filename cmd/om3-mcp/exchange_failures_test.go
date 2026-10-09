@@ -161,11 +161,13 @@ func TestOAuthExchangeFailureIsolation(t *testing.T) {
 			t.Fatal("missing node caused fallback or extra requests")
 		}
 	})
+	// The client timeout reads "Client.Timeout exceeded" or "context deadline
+	// exceeded", depending on where the request stood when it fired.
 	for _, tc := range []struct {
 		name string
 		mode int32
-		want string
-	}{{"daemon unavailable", 1, "503"}, {"daemon timeout", 2, "Client.Timeout"}, {"daemon redirect", 3, "307"}} {
+		want []string
+	}{{"daemon unavailable", 1, []string{"503"}}, {"daemon timeout", 2, []string{"Client.Timeout", "deadline exceeded"}}, {"daemon redirect", 3, []string{"307"}}} {
 		t.Run(tc.name+" leaves other cluster usable", func(t *testing.T) {
 			fault.Store(tc.mode)
 			defer fault.Store(0)
@@ -173,7 +175,15 @@ func TestOAuthExchangeFailureIsolation(t *testing.T) {
 			failed := make(chan outcome, 1)
 			go func() { failed <- call("get_node_status", args("cluster-b", "shared-node")) }()
 			check(t, call("get_node_status", args("cluster-a", "shared-node")), false, "healthy-a")
-			check(t, <-failed, true, tc.want)
+			got := <-failed
+			data, _ := json.Marshal(got.result)
+			want := tc.want[0]
+			for _, text := range tc.want {
+				if strings.Contains(string(data), text) {
+					want = text
+				}
+			}
+			check(t, got, true, want)
 			if calls[0].Load() != beforeA+1 || calls[1].Load() != beforeB+1 || exchanges.Load() != beforeExchange+2 {
 				t.Fatal("failure triggered fallback, a followed redirect, or unexpected retries")
 			}

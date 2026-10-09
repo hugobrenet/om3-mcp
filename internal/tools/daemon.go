@@ -34,6 +34,18 @@ type ListDaemonOrchestrationsInput struct {
 	Cursor     string   `json:"cursor,omitempty" jsonschema:"optional opaque next_cursor returned by a previous call with the same filters"`
 }
 
+type ListDNSRecordsInput struct {
+	Node    string `json:"node" jsonschema:"required exact OpenSVC node name whose daemon zone is read; no wildcard, selector or underscore alias"`
+	Name    string `json:"name,omitempty" jsonschema:"optional exact record name, with or without its final dot, such as web.prod.svc.mycluster"`
+	Type    string `json:"type,omitempty" jsonschema:"optional record type: A, AAAA, PTR, SRV, SOA or NS"`
+	Content string `json:"content,omitempty" jsonschema:"optional exact record content, such as an address to find the names pointing to it"`
+	Object  string `json:"object,omitempty" jsonschema:"optional exact OpenSVC object path; keeps the object, node, resource, service and reverse records naming it"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
+	Cursor  string `json:"cursor,omitempty" jsonschema:"optional next_cursor returned by a previous call with the same node and filters"`
+}
+
+type ListDNSRecordsOutput = core.DNSRecordList
+
 type ListDaemonOrchestrationsOutput = core.DaemonOrchestrationList
 
 func RegisterDaemonTools(registrar *Registrar, service *core.Service) error {
@@ -111,6 +123,30 @@ func RegisterDaemonTools(registrar *Registrar, service *core.Service) error {
 				return nil, ListDaemonOrchestrationsOutput{}, err
 			}
 			return nil, orchestrations, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "list_dns_records",
+			Title: "List DNS records",
+			Description: "List the records of the cluster DNS zone one OpenSVC daemon serves, built from the instance status of the cluster: object names, node affine names, resource names, service and reverse records. " +
+				"Filter by exact name, type, content such as an address, or object path, and use the cursor to continue a page. " +
+				"An object name resolves only to the addresses serving the object, while node affine names are published whatever the instance state. " +
+				"Reports the zone as the daemon builds it, without checking resolution. Requires root access to the daemon endpoint.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListDNSRecordsInput) (*mcp.CallToolResult, ListDNSRecordsOutput, error) {
+			records, err := service.ListDNSRecords(ctx, core.ListDNSRecordsOptions{
+				Node: input.Node, Name: input.Name, Type: input.Type, Content: input.Content, Object: input.Object,
+				Limit: input.Limit, Cursor: input.Cursor,
+			})
+			if err != nil {
+				return nil, ListDNSRecordsOutput{}, err
+			}
+			return nil, records, nil
 		},
 	); err != nil {
 		return err

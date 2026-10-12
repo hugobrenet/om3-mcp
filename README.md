@@ -17,8 +17,8 @@ The MCP has two listeners, each with one authentication model:
   the MCP token for a target-specific daemon token. `list_clusters` discovers
   those clusters. Without exchange configuration, daemon calls remain blocked.
   MCP-audience tokens are never forwarded directly to a daemon.
-- **Local Unix socket** for OpenSVC components such as the AI agent behind
-  `om ai`: a daemon-issued token and an `X-OpenSVC-Cluster-ID` header are
+- **Local Unix socket** for OpenSVC components such as the AI agent used by
+  the webapp: a daemon-issued token and an `X-OpenSVC-Cluster-ID` header are
   forwarded unchanged to the cluster VIP, whose daemon verifies them. The
   socket also serves the `whoami` identity bridge.
 

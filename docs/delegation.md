@@ -2,13 +2,13 @@
 
 [Back to README](../README.md) · [Configuration](configuration.md) · [Authentication](authentication.md)
 
-OpenSVC components such as the AI agent behind `om ai` reach the MCP through a
-local Unix socket. They forward a daemon-issued token unchanged, with the ID of
-the cluster that issued it. The daemon of that cluster verifies the token and
-enforces its grants. No SSO is involved.
+OpenSVC components such as the AI agent used by the webapp reach the MCP
+through a local Unix socket. They forward a daemon-issued token unchanged, with
+the ID of the cluster that issued it. The daemon of that cluster verifies the
+token and enforces its grants. No SSO is involved.
 
 ```text
-om ai ── HTTPS ──> AI agent ── Unix socket ──> MCP ── HTTPS ──> cluster VIP daemon
+webapp ── HTTPS ──> AI agent ── Unix socket ──> MCP ── HTTPS ──> cluster VIP daemon
 ```
 
 The socket is a separate listener with its own routes. The HTTPS listener never
@@ -21,7 +21,7 @@ accepts daemon-issued tokens, and the socket never accepts OAuth tokens.
 2. Set `OPENSVC_MCP_CLUSTER_CONFIG_FILE` and `OPENSVC_MCP_DELEGATED_SOCKET`, for
    example `/run/opensvc-mcp/delegated.sock`.
 3. Run the MCP and the AI agent on the same host, typically as two resources of
-   one OpenSVC service, and point the agent's `OPENSVC_AI_MCP_SOCKET` to the
+   one OpenSVC service, and point the agent's `OPENSVC_AI_OM3_MCP_SOCKET` to the
    socket.
 
 ## Socket access

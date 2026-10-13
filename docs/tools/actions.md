@@ -4,6 +4,7 @@ tools:
   - abort_object_orchestration
   - start_object
   - stop_object
+  - restart_object
   - freeze_object
   - unfreeze_object
 stability: experimental
@@ -48,6 +49,7 @@ To follow an action, pass its `orchestration_id` to
 | `abort_object_orchestration` | `POST /api/object/path/<ns>/<kind>/<name>/action/abort` | svc, vol, cfg, sec, usr, nscfg | No | Yes |
 | `start_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/start` | svc | No | Yes |
 | `stop_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/stop` | svc | Yes | Yes |
+| `restart_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/restart` | svc | Yes | No |
 
 - `freeze_object` stops the automatic actions of the daemon on the object on
   all its nodes, such as an ha failover or the restart of a degraded monitored
@@ -69,6 +71,13 @@ To follow an action, pass its `orchestration_id` to
   through the `interrupt_syncs=true` query parameter. A service already
   stopped is accepted and left unchanged. A frozen service is stopped too and
   stays frozen.
+- `restart_object` stops then starts each running instance of the service, one
+  node after the other, so the service is interrupted on each node in turn.
+  Instances down or in standby are left as they are, and a service already
+  stopped stays stopped; the restart still clears the stopped flag of its
+  instances, so the daemon may then start an ha service on its own. The tool
+  sends no request body: the daemon `force` option, which shuts the instances
+  down and starts only their standby resources, is not exposed.
 
 ### Input and output
 

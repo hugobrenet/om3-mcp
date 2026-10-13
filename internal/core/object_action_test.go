@@ -46,6 +46,7 @@ func TestSubmitObjectActionQueuesAnOrchestration(t *testing.T) {
 		{"prod/cfg/settings", ObjectActionAbort, "/api/object/path/prod/cfg/settings/action/abort"},
 		{"prod/svc/web", ObjectActionStart, "/api/object/path/prod/svc/web/action/start"},
 		{"prod/svc/web", ObjectActionStop, "/api/object/path/prod/svc/web/action/stop"},
+		{"prod/svc/web", ObjectActionRestart, "/api/object/path/prod/svc/web/action/restart"},
 	} {
 		client := &objectActionClient{t: t, path: tc.post, response: `{"orchestration_id":"30000000-0000-0000-0000-00000000000A"}`}
 		result, err := New(client).SubmitObjectAction(context.Background(), tc.path, tc.action, ObjectActionOptions{})
@@ -71,6 +72,7 @@ func TestSubmitObjectActionRejectsInvalidTargetsBeforePosting(t *testing.T) {
 		{"prod/svc/web", ObjectAction("delete")},
 		{"prod/vol/data", ObjectActionStart},
 		{"prod/vol/data", ObjectActionStop},
+		{"prod/vol/data", ObjectActionRestart},
 	} {
 		client := &objectActionClient{t: t}
 		if _, err := New(client).SubmitObjectAction(context.Background(), tc.path, tc.action, ObjectActionOptions{}); err == nil || client.posts != 0 {

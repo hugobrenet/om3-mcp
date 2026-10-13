@@ -18,6 +18,7 @@ const (
 	ObjectActionAbort    ObjectAction = "abort"
 	ObjectActionStart    ObjectAction = "start"
 	ObjectActionStop     ObjectAction = "stop"
+	ObjectActionRestart  ObjectAction = "restart"
 )
 
 // objectActionKinds are the object kinds each action accepts, as the daemon
@@ -28,6 +29,7 @@ var objectActionKinds = map[ObjectAction][]string{
 	ObjectActionAbort:    {"svc", "vol", "cfg", "sec", "usr", "nscfg"},
 	ObjectActionStart:    {"svc"},
 	ObjectActionStop:     {"svc"},
+	ObjectActionRestart:  {"svc"},
 }
 
 // ObjectActionOptions are the options of the actions that take some.

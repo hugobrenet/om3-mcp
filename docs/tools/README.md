@@ -28,7 +28,7 @@ documents describe the implemented tool contracts.
 | Pools | `list_storage_pools`, `list_pool_volumes` | [Pool tools](pools.md) |
 | Networks | `list_networks`, `list_network_ips` | [Network tools](networks.md) |
 | Auth | `get_caller_identity` | [Auth tools](auth.md) |
-| Actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_object`, `unfreeze_object`, `abort_object_orchestration`, `start_object`, `stop_object`, `restart_object` | [Action tools](actions.md) |
+| Actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_object`, `unfreeze_object`, `abort_object_orchestration`, `start_object`, `stop_object`, `restart_object`, `switch_object`, `giveback_object` | [Action tools](actions.md) |
 
 ## Authentication and visibility
 
@@ -142,6 +142,8 @@ are representative and will differ between calls.
 | `start_object` | No | No | `operator` on the object namespace |
 | `stop_object` | No | Yes | `operator` on the object namespace |
 | `restart_object` | No | Yes | `operator` on the object namespace |
+| `switch_object` | No | Yes | `operator` on the object namespace |
+| `giveback_object` | No | Yes | `operator` on the object namespace |
 | `list_cluster_ip_resources` | Yes | No | Visible namespaces |
 | `list_object_resources` | Yes | No | Visibility on the object namespace |
 | `list_resource_info` | Yes | No | Namespace `guest` or higher |

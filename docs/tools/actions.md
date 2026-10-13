@@ -5,6 +5,8 @@ tools:
   - start_object
   - stop_object
   - restart_object
+  - switch_object
+  - giveback_object
   - freeze_object
   - unfreeze_object
 stability: experimental
@@ -50,6 +52,8 @@ To follow an action, pass its `orchestration_id` to
 | `start_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/start` | svc | No | Yes |
 | `stop_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/stop` | svc | Yes | Yes |
 | `restart_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/restart` | svc | Yes | No |
+| `switch_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/switch` | svc | Yes | No |
+| `giveback_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/giveback` | svc | Yes | Yes |
 
 - `freeze_object` stops the automatic actions of the daemon on the object on
   all its nodes, such as an ha failover or the restart of a degraded monitored
@@ -78,11 +82,26 @@ To follow an action, pass its `orchestration_id` to
   instances, so the daemon may then start an ha service on its own. The tool
   sends no request body: the daemon `force` option, which shuts the instances
   down and starts only their standby resources, is not exposed.
+- `switch_object` moves the service to another node: the daemon stops the
+  instance where it runs and starts it on the destination. `to` names the one
+  destination node; omitted, the daemon selects the first provisioned node
+  where the service is not up, in placement order. The MCP sends the request
+  body `{"destination": ["<to>"], "live": <live>, "interrupt_syncs": <bool>}`,
+  without `destination` when `to` is omitted. It accepts one exact node name
+  only, where the daemon reads the destination as a node selector. `live`
+  migrates the service live when its resources allow it, and otherwise
+  switches it by a stop and a start. A switch to the node already running the
+  service changes nothing; the daemon answers 409 when no provisioned node can
+  receive it.
+- `giveback_object` moves the running instances of the service to the nodes
+  its placement policy ranks first. A service already on its preferred nodes
+  is left as it is.
 
 ### Input and output
 
 The input is `path`, one exact canonical object path, plus the optional
-`interrupt_syncs` of `stop_object`. The output holds
+`interrupt_syncs` of `stop_object`, and the optional `to`, `live` and
+`interrupt_syncs` of `switch_object`. The output holds
 `provenance`, `object` (the canonical reference), `action` and
 `orchestration_id`. An object of another kind is refused before the daemon
 call; the daemon answers 404 for an object no node holds and 409 for an

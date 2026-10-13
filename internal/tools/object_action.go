@@ -16,6 +16,13 @@ type StopObjectInput struct {
 	InterruptSyncs bool   `json:"interrupt_syncs,omitempty" jsonschema:"optional; true ends the data syncs running on the instances instead of waiting for them to end before stopping"`
 }
 
+type SwitchObjectInput struct {
+	Path           string `json:"path" jsonschema:"the exact canonical OpenSVC object path; no wildcard or selector"`
+	To             string `json:"to,omitempty" jsonschema:"optional exact name of the one node to move the service to; omitted, the daemon selects the first provisioned node where it is not up, in placement order"`
+	Live           bool   `json:"live,omitempty" jsonschema:"optional; true migrates the service live when its resources allow it, such as a virtual machine; otherwise the switch stops and starts it"`
+	InterruptSyncs bool   `json:"interrupt_syncs,omitempty" jsonschema:"optional; true ends the data syncs running on the instance stopped instead of waiting for them to end"`
+}
+
 type ObjectActionOutput = core.ObjectActionResult
 
 // objectActionFollowUp tells the agent how to follow the queued orchestration.
@@ -59,6 +66,11 @@ func RegisterObjectActionTools(registrar *Registrar, service *core.Service) erro
 				"Instances that are down or in standby are left as they are, and a service already stopped stays stopped; a restart still clears the stopped flag of its instances, so the daemon may then start an ha service on its own. ",
 			destructive: true,
 		},
+		{
+			action: core.ObjectActionGiveback, name: "giveback_object", title: "Give back object",
+			description: "Give one OpenSVC svc object back to its preferred nodes: the daemon moves its running instances to the nodes its placement policy ranks first, stopping them where they run and starting them there. A service already on its preferred nodes is left as it is. ",
+			destructive: true, idempotent: true,
+		},
 	} {
 		declared := declared
 		if err := addTool(
@@ -79,6 +91,27 @@ func RegisterObjectActionTools(registrar *Registrar, service *core.Service) erro
 		); err != nil {
 			return err
 		}
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "switch_object",
+			Title: "Switch object",
+			Description: "Move one OpenSVC svc object to another node: the daemon stops the instance where it runs and starts it on the destination, so the service is interrupted during the move unless it is migrated live. " +
+				"The destination is one exact node name, or, omitted, the first provisioned node where the service is not up, in placement order. A switch to the node already running the service changes nothing. " +
+				"The daemon refuses with 409 a switch with no provisioned destination, with the reason. " +
+				objectActionFollowUp,
+			Annotations: actionAnnotations(true, false),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input SwitchObjectInput) (*mcp.CallToolResult, ObjectActionOutput, error) {
+			result, err := service.SubmitObjectAction(ctx, input.Path, core.ObjectActionSwitch, core.ObjectActionOptions{To: input.To, Live: input.Live, InterruptSyncs: input.InterruptSyncs})
+			if err != nil {
+				return nil, ObjectActionOutput{}, err
+			}
+			return nil, result, nil
+		},
+	); err != nil {
+		return err
 	}
 	return addTool(
 		registrar,

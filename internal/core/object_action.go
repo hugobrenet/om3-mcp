@@ -19,6 +19,8 @@ const (
 	ObjectActionStart    ObjectAction = "start"
 	ObjectActionStop     ObjectAction = "stop"
 	ObjectActionRestart  ObjectAction = "restart"
+	ObjectActionSwitch   ObjectAction = "switch"
+	ObjectActionGiveback ObjectAction = "giveback"
 )
 
 // objectActionKinds are the object kinds each action accepts, as the daemon
@@ -30,13 +32,29 @@ var objectActionKinds = map[ObjectAction][]string{
 	ObjectActionStart:    {"svc"},
 	ObjectActionStop:     {"svc"},
 	ObjectActionRestart:  {"svc"},
+	ObjectActionSwitch:   {"svc"},
+	ObjectActionGiveback: {"svc"},
 }
 
 // ObjectActionOptions are the options of the actions that take some.
 type ObjectActionOptions struct {
-	// InterruptSyncs has a stop end the syncs running on the instances
-	// instead of waiting for them to end.
+	// InterruptSyncs has a stop or a switch end the syncs running on the
+	// instances it stops instead of waiting for them to end.
 	InterruptSyncs bool
+	// To is the one node a switch moves the object to. Empty, the daemon
+	// selects it.
+	To string
+	// Live has a switch migrate the object live when its resources allow it.
+	Live bool
+}
+
+// daemonSwitchRequest is the body of a switch. The daemon takes a list of
+// destinations, which it reads as a node selector: the MCP sends at most one
+// exact node.
+type daemonSwitchRequest struct {
+	Destination    []string `json:"destination,omitempty"`
+	Live           bool     `json:"live"`
+	InterruptSyncs bool     `json:"interrupt_syncs,omitempty"`
 }
 
 type ObjectActionResult struct {
@@ -68,12 +86,28 @@ func (s *Service) SubmitObjectAction(ctx context.Context, path string, action Ob
 	if !slices.Contains(kinds, reference.Kind) {
 		return ObjectActionResult{}, fmt.Errorf("the %s action applies to %s objects only", action, strings.Join(kinds, ", "))
 	}
+	if options.InterruptSyncs && action != ObjectActionStop && action != ObjectActionSwitch {
+		return ObjectActionResult{}, fmt.Errorf("interrupt_syncs applies to the stop and switch actions only")
+	}
+	if (options.To != "" || options.Live) && action != ObjectActionSwitch {
+		return ObjectActionResult{}, fmt.Errorf("to and live apply to the switch action only")
+	}
 	var query url.Values
-	if options.InterruptSyncs {
-		if action != ObjectActionStop {
-			return ObjectActionResult{}, fmt.Errorf("interrupt_syncs applies to the stop action only")
+	var body any
+	switch action {
+	case ObjectActionStop:
+		if options.InterruptSyncs {
+			query = url.Values{"interrupt_syncs": {"true"}}
 		}
-		query = url.Values{"interrupt_syncs": {"true"}}
+	case ObjectActionSwitch:
+		request := daemonSwitchRequest{Live: options.Live, InterruptSyncs: options.InterruptSyncs}
+		if options.To != "" {
+			if err := validateNodeTarget(options.To); err != nil {
+				return ObjectActionResult{}, fmt.Errorf("to: %w", err)
+			}
+			request.Destination = []string{options.To}
+		}
+		body = request
 	}
 	poster, ok := s.client.(JSONPoster)
 	if !ok {
@@ -82,7 +116,7 @@ func (s *Service) SubmitObjectAction(ctx context.Context, path string, action Ob
 
 	endpoint := fmt.Sprintf("/api/object/path/%s/%s/%s/action/%s", reference.Namespace, reference.Kind, reference.Name, action)
 	var queued daemonOrchestrationQueued
-	if err := poster.PostJSON(ctx, endpoint, query, nil, &queued); err != nil {
+	if err := poster.PostJSON(ctx, endpoint, query, body, &queued); err != nil {
 		return ObjectActionResult{}, fmt.Errorf("%s object %s: %w", action, reference.Path, err)
 	}
 	if !daemonExecutionUUIDPattern.MatchString(queued.OrchestrationID) {

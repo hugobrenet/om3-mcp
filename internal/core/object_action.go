@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 )
@@ -15,6 +16,8 @@ const (
 	ObjectActionFreeze   ObjectAction = "freeze"
 	ObjectActionUnfreeze ObjectAction = "unfreeze"
 	ObjectActionAbort    ObjectAction = "abort"
+	ObjectActionStart    ObjectAction = "start"
+	ObjectActionStop     ObjectAction = "stop"
 )
 
 // objectActionKinds are the object kinds each action accepts, as the daemon
@@ -23,6 +26,15 @@ var objectActionKinds = map[ObjectAction][]string{
 	ObjectActionFreeze:   {"svc", "vol"},
 	ObjectActionUnfreeze: {"svc", "vol"},
 	ObjectActionAbort:    {"svc", "vol", "cfg", "sec", "usr", "nscfg"},
+	ObjectActionStart:    {"svc"},
+	ObjectActionStop:     {"svc"},
+}
+
+// ObjectActionOptions are the options of the actions that take some.
+type ObjectActionOptions struct {
+	// InterruptSyncs has a stop end the syncs running on the instances
+	// instead of waiting for them to end.
+	InterruptSyncs bool
 }
 
 type ObjectActionResult struct {
@@ -39,7 +51,7 @@ type daemonOrchestrationQueued struct {
 // SubmitObjectAction submits one orchestrated action on one exact object and
 // returns as soon as the daemon queued it. It does not wait for the object to
 // reach the target state.
-func (s *Service) SubmitObjectAction(ctx context.Context, path string, action ObjectAction) (ObjectActionResult, error) {
+func (s *Service) SubmitObjectAction(ctx context.Context, path string, action ObjectAction, options ObjectActionOptions) (ObjectActionResult, error) {
 	kinds, known := objectActionKinds[action]
 	if !known {
 		return ObjectActionResult{}, fmt.Errorf("unsupported object action %q", action)
@@ -54,6 +66,13 @@ func (s *Service) SubmitObjectAction(ctx context.Context, path string, action Ob
 	if !slices.Contains(kinds, reference.Kind) {
 		return ObjectActionResult{}, fmt.Errorf("the %s action applies to %s objects only", action, strings.Join(kinds, ", "))
 	}
+	var query url.Values
+	if options.InterruptSyncs {
+		if action != ObjectActionStop {
+			return ObjectActionResult{}, fmt.Errorf("interrupt_syncs applies to the stop action only")
+		}
+		query = url.Values{"interrupt_syncs": {"true"}}
+	}
 	poster, ok := s.client.(JSONPoster)
 	if !ok {
 		return ObjectActionResult{}, fmt.Errorf("OpenSVC daemon client does not support POST requests")
@@ -61,7 +80,7 @@ func (s *Service) SubmitObjectAction(ctx context.Context, path string, action Ob
 
 	endpoint := fmt.Sprintf("/api/object/path/%s/%s/%s/action/%s", reference.Namespace, reference.Kind, reference.Name, action)
 	var queued daemonOrchestrationQueued
-	if err := poster.PostJSON(ctx, endpoint, nil, nil, &queued); err != nil {
+	if err := poster.PostJSON(ctx, endpoint, query, nil, &queued); err != nil {
 		return ObjectActionResult{}, fmt.Errorf("%s object %s: %w", action, reference.Path, err)
 	}
 	if !daemonExecutionUUIDPattern.MatchString(queued.OrchestrationID) {

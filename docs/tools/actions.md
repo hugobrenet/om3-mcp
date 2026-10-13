@@ -2,6 +2,8 @@
 domain: actions
 tools:
   - abort_object_orchestration
+  - start_object
+  - stop_object
   - freeze_object
   - unfreeze_object
 stability: experimental
@@ -44,6 +46,8 @@ To follow an action, pass its `orchestration_id` to
 | `freeze_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/freeze` | svc, vol | No | Yes |
 | `unfreeze_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/unfreeze` | svc, vol | No | Yes |
 | `abort_object_orchestration` | `POST /api/object/path/<ns>/<kind>/<name>/action/abort` | svc, vol, cfg, sec, usr, nscfg | No | Yes |
+| `start_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/start` | svc | No | Yes |
+| `stop_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/stop` | svc | Yes | Yes |
 
 - `freeze_object` stops the automatic actions of the daemon on the object on
   all its nodes, such as an ha failover or the restart of a degraded monitored
@@ -53,10 +57,23 @@ To follow an action, pass its `orchestration_id` to
 - `abort_object_orchestration` drops the pending target state of the object.
   An action already running on an instance is not interrupted: the daemon
   queues the abort and applies it when that action ends.
+- `start_object` starts the instances the placement and topology of the
+  service call for. The daemon answers 409 for a service already started, and
+  for a start it cannot run, such as a failover service in warn state or an
+  unprovisioned service, with the reason. A frozen service is started too and
+  stays frozen.
+- `stop_object` stops every running instance of the service, which makes it
+  unavailable. The stopped instances are flagged so the daemon does not
+  restart them on its own. By default the stop waits for the data syncs
+  running on the instances to end; `interrupt_syncs: true` ends them instead,
+  through the `interrupt_syncs=true` query parameter. A service already
+  stopped is accepted and left unchanged. A frozen service is stopped too and
+  stays frozen.
 
 ### Input and output
 
-The input is `path`, one exact canonical object path. The output holds
+The input is `path`, one exact canonical object path, plus the optional
+`interrupt_syncs` of `stop_object`. The output holds
 `provenance`, `object` (the canonical reference), `action` and
 `orchestration_id`. An object of another kind is refused before the daemon
 call; the daemon answers 404 for an object no node holds and 409 for an

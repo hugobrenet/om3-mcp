@@ -8,7 +8,7 @@ import (
 )
 
 func TestActionToolsAreRegisteredOnlyWhenEnabled(t *testing.T) {
-	actions := []string{"freeze_object", "unfreeze_object", "abort_object_orchestration"}
+	actions := []string{"freeze_object", "unfreeze_object", "abort_object_orchestration", "start_object", "stop_object"}
 	for _, enabled := range []bool{false, true} {
 		handler, err := newConfiguredToolsHandler(nil, nil, nil, enabled)
 		if err != nil {

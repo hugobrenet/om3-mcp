@@ -53,6 +53,12 @@ func RegisterObjectActionTools(registrar *Registrar, service *core.Service) erro
 				"The daemon refuses with 409 a service already started, and a start it cannot run, such as a failover service in warn state or an unprovisioned one, with the reason. ",
 			idempotent: true,
 		},
+		{
+			action: core.ObjectActionRestart, name: "restart_object", title: "Restart object",
+			description: "Restart one OpenSVC svc object: the daemon stops then starts each running instance, one node after the other, so the service is interrupted on each node in turn. " +
+				"Instances that are down or in standby are left as they are, and a service already stopped stays stopped; a restart still clears the stopped flag of its instances, so the daemon may then start an ha service on its own. ",
+			destructive: true,
+		},
 	} {
 		declared := declared
 		if err := addTool(

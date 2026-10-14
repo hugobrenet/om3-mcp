@@ -65,7 +65,11 @@ TLS 1.2 or later is mandatory. Configuration, public trust files and listener
 TLS material are validated before binding; startup never contacts a daemon.
 Settings and files are snapshotted once. Restart to apply changes.
 HTTP headers are bounded to 64 KiB, authenticated MCP request bodies to 1 MiB,
-and header reads to 5 seconds. Shutdown drains requests for up to 30 seconds.
+header reads to 5 seconds and the read of a whole request, its body included,
+to 10 seconds: a client sending it slowly is cut off. The processing and the
+response of a request are bounded to 5 minutes, above the longest tool, so
+that a client reading its response slowly is cut off too. Shutdown drains
+requests for up to 30 seconds. These limits apply to both listeners.
 
 ### Call limits
 

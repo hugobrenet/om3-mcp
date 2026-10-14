@@ -26,7 +26,13 @@ const (
 	serverVersion      = "v0.1.0"
 	resourceName       = "OpenSVC Daemon MCP"
 	maxHTTPHeaderBytes = 64 << 10
-	shutdownTimeout    = 30 * time.Second
+	// readTimeout bounds the reading of a whole request, its body included:
+	// a client sending it slowly (slowloris) is cut off.
+	readTimeout = 10 * time.Second
+	// writeTimeout bounds the processing and the response of a request, so
+	// that a client reading it slowly is cut off; it stays above the longest tool: a daemon request lasts up to 2 minutes (request_timeout), refresh_instance_status waits up to 120 s.
+	writeTimeout    = 5 * time.Minute
+	shutdownTimeout = 30 * time.Second
 )
 
 func main() {
@@ -95,6 +101,8 @@ func newHTTPServer(handler http.Handler) *http.Server {
 	return &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
 		IdleTimeout:       2 * time.Minute,
 		MaxHeaderBytes:    maxHTTPHeaderBytes,
 	}

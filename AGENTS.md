@@ -90,8 +90,11 @@ or authentication logic in core/tool handlers.
 - The Unix socket (`internal/auth/jwt.go`, `internal/client/delegated.go`)
   forwards the OpenID Connect access token of the user unchanged to the VIP of
   the cluster named by the required `X-OpenSVC-Cluster-ID` header; it accepts
-  no other token. Claims are checked for shape only; the daemon verifies
-  signatures and grants. Tools there take no
+  no other token. The MCP verifies it first (`internal/client/daemon_trust.go`
+  reads the OpenID issuer and client ID from the public `/api/auth/info` of
+  the daemon, cached per cluster; `mcpauth.JWTVerifier` checks the signature,
+  issuer, audience and lifetime): a refused token never reaches a daemon. The
+  daemon still decides the access and enforces its grants. Tools there take no
   `cluster_id`. `/mcp/auth/whoami` exists only on the socket. Socket access
   relies on filesystem permissions. Never fall back between listeners.
   See [token delegation](docs/delegation.md).

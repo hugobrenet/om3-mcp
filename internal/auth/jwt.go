@@ -1,8 +1,8 @@
 // Package auth authenticates MCP callers. On the HTTPS listener, OAuth access
 // JWTs intended for the MCP resource are verified locally. On the local Unix
-// socket, the OpenID Connect access tokens of the users are checked for
-// routing only and verified by the daemon of the cluster named in the request
-// header.
+// socket, the OpenID Connect access tokens of the users are verified locally
+// too, with the OpenID provider the daemon of the cluster named in the request
+// header accepts, before they reach that daemon, which decides the access.
 package auth
 
 import (
@@ -29,15 +29,27 @@ const (
 
 var errUnauthorized = errors.New("invalid OpenID Connect access token or target")
 
+// ErrNoOpenID is the error of a cluster whose daemon accepts no OpenID
+// Connect token: no token of the socket can reach it.
+var ErrNoOpenID = errors.New("the daemon of the cluster accepts no OpenID Connect token")
+
+// TrustSource gives the OpenID provider the daemon of a cluster accepts: the
+// issuer and the client ID its tokens are intended for. It returns
+// ErrNoOpenID, or an error wrapping mcpauth.ErrVerificationUnavailable when
+// the answer of the daemon is unknown.
+type TrustSource interface {
+	OpenIDTrust(ctx context.Context, clusterID string) (issuer, clientID string, err error)
+}
+
 type delegatedClaims struct {
 	PreferredUsername string `json:"preferred_username"`
 	Email             string `json:"email"`
 	jwt.RegisteredClaims
 }
 
-// Delegation describes UNVERIFIED claims of a delegated OpenID Connect access
-// token. They only predict the identity that the selected daemon must
-// confirm; they never establish an identity by themselves.
+// Delegation describes the claims of a delegated OpenID Connect access token,
+// whose signature, issuer, audience and lifetime the middleware verified.
+// The selected daemon still decides the access of that identity.
 type Delegation struct {
 	ClusterID string
 	Issuer    string
@@ -48,25 +60,31 @@ type Delegation struct {
 	Username string
 }
 
-// Delegator checks delegated tokens against the clusters of the catalogue.
+// Delegator checks delegated tokens against the clusters of the catalogue,
+// and verifies them with the OpenID provider of the selected cluster.
 type Delegator struct {
 	clusters map[string]bool
+	trust    TrustSource
+	verifier *mcpauth.JWTVerifier
 }
 
-func NewDelegator(catalog *clusterconfig.Catalog) (*Delegator, error) {
+func NewDelegator(catalog *clusterconfig.Catalog, trust TrustSource, verifier *mcpauth.JWTVerifier) (*Delegator, error) {
 	if catalog.Len() == 0 {
 		return nil, errors.New("token delegation requires a cluster catalogue")
 	}
-	d := &Delegator{clusters: make(map[string]bool)}
+	if trust == nil || verifier == nil {
+		return nil, errors.New("token delegation requires the OpenID trust of the clusters")
+	}
+	d := &Delegator{clusters: make(map[string]bool), trust: trust, verifier: verifier}
 	for _, cluster := range catalog.List() {
 		d.clusters[cluster.ID] = true
 	}
 	return d, nil
 }
 
-// Check selects the cluster from the header and predicts the identity the
-// daemon of that cluster derives from an OpenID Connect access token. The
-// daemon verifies its signature, issuer and audience.
+// Check selects the cluster from the header and reads, unverified, the
+// identity the daemon of that cluster derives from an OpenID Connect access
+// token. Verify then proves the token before any daemon request.
 func (d *Delegator) Check(raw, clusterID string) (Delegation, error) {
 	if raw == "" || len(raw) > mcpauth.MaxTokenBytes || !validTarget(clusterID) || !d.clusters[clusterID] {
 		return Delegation{}, errUnauthorized
@@ -120,8 +138,8 @@ type delegatedCredential struct {
 }
 
 // DelegationFromContext never returns credentials for an expired request.
-// Only the delegation middleware populates this request-scoped context. The
-// claims remain unverified: the daemon alone authenticates the bearer.
+// Only the delegation middleware populates this request-scoped context, with
+// a verified token; the daemon still decides its access.
 func DelegationFromContext(ctx context.Context) (Delegation, string, bool) {
 	c, ok := ctx.Value(delegationContextKey{}).(delegatedCredential)
 	if !ok || ctx.Err() != nil || !time.Now().Before(c.delegation.ExpiresAt) {
@@ -149,6 +167,17 @@ func (d *Delegator) Middleware(next http.Handler) http.Handler {
 		}
 		delegation, err := d.Check(raw, clusterID)
 		// Tokens in query strings are never an alternative authentication path.
+		if err == nil && len(values) == 1 && len(clusters) == 1 && !r.URL.Query().Has("access_token") {
+			err = d.verify(r.Context(), raw, delegation)
+		}
+		if errors.Is(err, mcpauth.ErrVerificationUnavailable) {
+			w.Header().Set("Retry-After", "30")
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"type":"about:blank","title":"Service Unavailable","status":503,"detail":"The OpenID provider of the cluster could not be read; retry later."}`))
+			return
+		}
 		if err != nil || len(values) != 1 || len(clusters) != 1 || r.URL.Query().Has("access_token") {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			w.Header().Set("Content-Type", "application/problem+json")
@@ -168,4 +197,23 @@ func (d *Delegator) Middleware(next http.Handler) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, request)
 	})
+}
+
+// verify proves the token with the OpenID provider the daemon of the selected
+// cluster accepts: signature by a key of its JWKS, issuer, audience (its
+// client ID) and lifetime. A refused token never reaches the daemon.
+func (d *Delegator) verify(ctx context.Context, raw string, delegation Delegation) error {
+	issuer, clientID, err := d.trust.OpenIDTrust(ctx, delegation.ClusterID)
+	if err != nil {
+		if errors.Is(err, mcpauth.ErrVerificationUnavailable) {
+			return err
+		}
+		return errUnauthorized
+	}
+	// A token of another issuer is refused without loading any key.
+	if delegation.Issuer != issuer {
+		return errUnauthorized
+	}
+	_, err = d.verifier.Verify(ctx, raw, issuer, clientID)
+	return err
 }

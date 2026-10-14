@@ -154,7 +154,17 @@ func newMCPHandler(cfg config.Config) (http.Handler, error) {
 // it. Tools are bound to that
 // cluster and take no cluster_id argument.
 func newDelegatedHandler(cfg config.Config) (http.Handler, error) {
-	delegator, err := auth.NewDelegator(cfg.Clusters)
+	trust, err := client.NewDaemonTrust(cfg.Clusters)
+	if err != nil {
+		return nil, err
+	}
+	// The OpenID providers of the clusters are trusted with the system roots,
+	// or with the OAuth trust bundle of the HTTPS listener when it has one.
+	verifier, err := mcpauth.NewJWTVerifier(cfg.OAuth.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("configure delegated token verification: %w", err)
+	}
+	delegator, err := auth.NewDelegator(cfg.Clusters, trust, verifier)
 	if err != nil {
 		return nil, err
 	}

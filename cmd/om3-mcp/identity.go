@@ -21,7 +21,7 @@ func serveWhoAmI(api *client.DelegatedClient) http.HandlerFunc {
 		// refuse answers a problem and records one audit line for it.
 		refuse := func(status int, outcome string, extra ...slog.Attr) {
 			writeIdentityProblem(w, status)
-			auditWhoAmI(delegation, outcome, status, started, extra...)
+			auditWhoAmI(r.Context(), delegation, outcome, status, started, extra...)
 		}
 		if !ok {
 			refuse(401, "expired")
@@ -70,7 +70,7 @@ func serveWhoAmI(api *client.DelegatedClient) http.HandlerFunc {
 			Subject   string    `json:"subject"`
 			ExpiresAt time.Time `json:"expires_at"`
 		}{delegation.ClusterID, delegation.Issuer, delegation.Subject, delegation.ExpiresAt})
-		auditWhoAmI(delegation, "ok", 200, started)
+		auditWhoAmI(r.Context(), delegation, "ok", 200, started)
 	}
 }
 

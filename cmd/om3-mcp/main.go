@@ -156,7 +156,7 @@ func newDelegatedHandler(cfg config.Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", delegator.Middleware(handler))
 	mux.Handle("GET /mcp/auth/whoami", delegator.Middleware(serveWhoAmI(api)))
-	return mux, nil
+	return withRequestID(mux), nil
 }
 
 func shutdownHTTPServer(server *http.Server, timeout time.Duration) error {

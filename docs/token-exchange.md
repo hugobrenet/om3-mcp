@@ -171,6 +171,7 @@ INFO mcp tool call tool=get_node_status cluster_id=00000000-0000-4000-8000-00000
 | `daemon_subject` | Subject of the exchanged token, to correlate with daemon logs; subject modes may differ between providers |
 | `outcome`, `detail` | `ok`, `tool_error` (exchange refusal, daemon refusal such as HTTP 403, or validation error) or `error` (protocol error); `detail` is the bounded error text already returned to the client |
 | `duration` | Total call duration, including exchange and daemon requests |
+| `request_id` | On the Unix socket, the `X-Request-ID` the AI agent sends, which its own audit lines carry; empty on HTTPS, or when absent or not 32 lowercase hexadecimal characters |
 
 On the [Unix socket](delegation.md), every `GET /mcp/auth/whoami` emits one
 `INFO` line `mcp whoami`:
@@ -187,6 +188,7 @@ INFO mcp whoami cluster_id=00000000-0000-4000-8000-000000000001 issuer=node-a su
 | `status` | The HTTP status the bridge answered |
 | `duration` | Total check duration, including the daemon request |
 | `daemon_status`, `detail`, `auth` | When relevant: the daemon HTTP status, the bounded error of a daemon failure, the strategy the daemon reported |
+| `request_id` | As for `mcp tool call` |
 
 A missing or unknown cluster, or a malformed token, is refused before the
 bridge and emits no line.

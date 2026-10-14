@@ -28,11 +28,15 @@ type mcpBearerTransport struct {
 	token     string
 	clusterID string
 	node      string
+	requestID string
 }
 
 func (t mcpBearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	clone := r.Clone(r.Context())
 	clone.Header.Set("Authorization", "Bearer "+t.token)
+	if t.requestID != "" {
+		clone.Header.Set(requestIDHeader, t.requestID)
+	}
 	clone.Header.Del(auth.ClusterIDHeader)
 	if t.clusterID != "" {
 		clone.Header.Set(auth.ClusterIDHeader, t.clusterID)
@@ -175,7 +179,7 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 
 	// Tools are bound to the header cluster and take no cluster_id argument.
 	session, err := mcp.NewClient(&mcp.Implementation{Name: "ai-agent", Version: "test"}, nil).Connect(t.Context(),
-		&mcp.StreamableClientTransport{Endpoint: "http://opensvc-mcp/mcp", HTTPClient: &http.Client{Transport: mcpBearerTransport{base: transport, token: alice, clusterID: "cluster-a"}}, DisableStandaloneSSE: true, MaxRetries: -1}, nil)
+		&mcp.StreamableClientTransport{Endpoint: "http://opensvc-mcp/mcp", HTTPClient: &http.Client{Transport: mcpBearerTransport{base: transport, token: alice, clusterID: "cluster-a", requestID: testRequestID}}, DisableStandaloneSSE: true, MaxRetries: -1}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +204,8 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 		t.Fatalf("tool call escaped its cluster binding: %s", data)
 	}
 	logs := audit.String()
-	if !strings.Contains(logs, "tool=get_node_status cluster_id=cluster-a issuer=node-a subject=alice") || !strings.Contains(logs, "exchange=delegated daemon_subject=alice outcome=ok") || strings.Contains(logs, alice) {
+	if !strings.Contains(logs, "tool=get_node_status cluster_id=cluster-a issuer=node-a subject=alice") || !strings.Contains(logs, "exchange=delegated daemon_subject=alice outcome=ok") ||
+		!strings.Contains(logs, "request_id="+testRequestID) || !strings.Contains(whoamiLogs, `request_id=""`) || strings.Contains(logs, alice) {
 		t.Fatalf("unexpected delegated audit line:\n%s", logs)
 	}
 }

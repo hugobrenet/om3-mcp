@@ -196,7 +196,7 @@ func TestOAuthExchangeMultiClusterTools(t *testing.T) {
 		{"tool=list_clusters", "cluster_id=\"\"", "subject=alice", "client_id=codex-test", "exchange=none", "outcome=ok"},
 		{"tool=get_node_status", "cluster_id=unknown", "exchange=none", "outcome=tool_error"},
 		{"tool=get_node_status", "cluster_id=cluster-b", "subject=bob", "exchange=ok", "daemon_subject=bob", "outcome=ok"},
-		{"cluster_id=cluster-a", "subject=alice", `exchange="Token exchange refused by SSO (invalid_target)."`, "daemon_subject=\"\"", "outcome=tool_error"},
+		{"cluster_id=cluster-a", "subject=alice", `exchange="token exchange refused by SSO (invalid_target)"`, "daemon_subject=\"\"", "outcome=tool_error"},
 		{"cluster_id=cluster-a", "subject=denied", "exchange=ok", "daemon_subject=denied", "outcome=tool_error", "403"},
 	} {
 		found := false

@@ -56,7 +56,7 @@ func NewExchange(catalog *clusterconfig.Catalog, profiles *auth.ExchangeProfiles
 func (c *ExchangeClient) Prepare(ctx context.Context, clusterID string) (context.Context, context.CancelFunc, error) {
 	cluster, ok := c.targets[clusterID]
 	if !ok {
-		return nil, nil, errors.New("Unknown cluster_id. Use list_clusters and specify the cluster explicitly.")
+		return nil, nil, errors.New("unknown cluster_id: use list_clusters and specify the cluster explicitly")
 	}
 	return c.profiles.Prepare(ctx, cluster.AuthProfile, cluster.Audience, cluster.ID)
 }

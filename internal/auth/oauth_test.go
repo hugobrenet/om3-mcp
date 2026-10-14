@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -297,7 +298,9 @@ func TestOAuthDiscoveryNeverFollowsRedirectsOrTokenKeyURLs(t *testing.T) {
 	if _, err := v.verify(t.Context(), raw); err != nil {
 		t.Fatal(err)
 	}
-	redirect := testutil.NewDaemon(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, destination.Server.URL, 302) }))
+	redirect := testutil.NewDaemon(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.Server.URL, http.StatusFound)
+	}))
 	other, err := NewOAuthVerifier(OAuthConfig{ResourceURL: testResource, Issuer: redirect.Server.URL, CAFile: redirect.CAFile})
 	if err != nil {
 		t.Fatal(err)
@@ -346,4 +349,38 @@ func TestOAuthIsolatesConcurrentUsers(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+func TestJWKECPublicKeyRequiresAPointOnTheCurve(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encode := func(value *big.Int, size int) string {
+		return base64.RawURLEncoding.EncodeToString(value.FillBytes(make([]byte, size)))
+	}
+	x, y := encode(key.X, 32), encode(key.Y, 32)
+	parsed, err := oauthJWK{Kty: "EC", Crv: "P-256", X: x, Y: y}.publicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := parsed.(*ecdsa.PublicKey); !ok || !got.Equal(&key.PublicKey) {
+		t.Fatalf("parsed key = %#v", parsed)
+	}
+	// A coordinate without its leading zero bytes is the same point.
+	short := base64.RawURLEncoding.EncodeToString(key.X.Bytes())
+	if _, err := (oauthJWK{Kty: "EC", Crv: "P-256", X: short, Y: y}).publicKey(); err != nil {
+		t.Fatalf("coordinate without leading zeros refused: %v", err)
+	}
+	offCurve := encode(new(big.Int).Add(key.Y, big.NewInt(1)), 32)
+	for name, jwk := range map[string]oauthJWK{
+		"point off the curve": {Kty: "EC", Crv: "P-256", X: x, Y: offCurve},
+		"oversized x":         {Kty: "EC", Crv: "P-256", X: encode(key.X, 33), Y: y},
+		"empty y":             {Kty: "EC", Crv: "P-256", X: x, Y: ""},
+		"unsupported curve":   {Kty: "EC", Crv: "secp256k1", X: x, Y: y},
+	} {
+		if _, err := jwk.publicKey(); err == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
 }

@@ -216,8 +216,9 @@ func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catal
 	}
 	// Tools require no persistent protocol session. Authentication is checked on
 	// every request; the shared service never holds a user's credentials.
-	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{
+	// Cross-origin browser requests are refused with 403, as the MCP SDK
+	// recommends, by the protection of net/http around its handler.
+	return http.NewCrossOriginProtection().Handler(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{
 		Stateless: true, JSONResponse: true,
-		CrossOriginProtection: &http.CrossOriginProtection{},
-	}), nil
+	})), nil
 }

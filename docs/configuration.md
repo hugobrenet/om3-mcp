@@ -12,7 +12,7 @@
 | OPENSVC_MCP_OAUTH_RESOURCE_URL | empty | Public HTTPS MCP URL ending in `/mcp`; expected access-token audience; required with HTTPS |
 | OPENSVC_MCP_OAUTH_RESOURCE_NAME | OpenSVC Daemon MCP | Human-readable `resource_name` in public OAuth metadata |
 | OPENSVC_MCP_OAUTH_ISSUER | empty | Exact trusted issuer for incoming MCP access JWTs; required with HTTPS |
-| OPENSVC_MCP_OAUTH_CA_FILE | empty | Optional absolute PEM trust bundle for SSO HTTPS; replaces system roots |
+| OPENSVC_MCP_OAUTH_CA_FILE | empty | Optional absolute PEM trust bundle for SSO HTTPS, also for the OpenID providers of the clusters on the Unix socket; replaces system roots |
 | OPENSVC_MCP_AUTH_CONFIG_FILE | empty | Version 1 confidential SSO profile file; required when a cluster sets `auth` |
 | OPENSVC_MCP_CLUSTER_CONFIG_FILE | empty | Cluster catalogue; required for the Unix socket and for exchanged daemon calls |
 | OPENSVC_MCP_DELEGATED_SOCKET | empty | Absolute Unix socket path, at most 103 bytes; enables the delegated listener |

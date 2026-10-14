@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,6 +20,8 @@ import (
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 	"github.com/opensvc/om3-mcp/internal/config"
 	"github.com/opensvc/om3-mcp/internal/testutil"
+	"github.com/opensvc/osvc-auth-mcp/mcpauth"
+	"github.com/opensvc/osvc-auth-mcp/mcpauthtest"
 )
 
 type mcpBearerTransport struct {
@@ -65,25 +66,33 @@ func unixTransport(path string) *http.Transport {
 	}}
 }
 
-// testIssuer is the OpenID provider of the delegated tokens of the tests.
-const testIssuer = "https://idp.example.test/"
-
 func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
-	keys := map[string]*rsa.PrivateKey{}
+	// One OpenID provider signs for both clusters, distinguished by audience.
+	provider := mcpauthtest.NewOAuthProvider(t)
+	testIssuer := provider.Issuer
 	calls := map[string]*atomic.Int32{}
 	clusters := map[string]any{}
 	var strategy atomic.Value
 	strategy.Store("jwt-openid")
 	for _, id := range []string{"cluster-a", "cluster-b"} {
-		key := testutil.NewJWTKey(t)
-		keys[id], calls[id] = key, &atomic.Int32{}
+		calls[id] = &atomic.Int32{}
 		count := calls[id]
+		audience := "client-" + strings.TrimPrefix(id, "cluster-")
 		d := testutil.NewDaemon(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/auth/info" {
+				// Public: the MCP reads the provider of the daemon without any token.
+				if r.Header.Get("Authorization") != "" {
+					t.Error("the MCP sent a token to read the daemon auth info")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"methods": []string{"openid"}, "openid": map[string]string{"issuer": testIssuer, "client_id": audience}})
+				return
+			}
 			count.Add(1)
 			raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 			var claims jwt.RegisteredClaims
-			// Each cluster's daemon verifies tokens with its own signing key.
-			if _, err := jwt.ParseWithClaims(raw, &claims, func(*jwt.Token) (any, error) { return &key.PublicKey, nil }, jwt.WithValidMethods([]string{"RS256"})); err != nil {
+			// The daemon verifies the provider signature and its own audience.
+			if _, err := jwt.ParseWithClaims(raw, &claims, func(*jwt.Token) (any, error) { return &provider.Key.PublicKey, nil }, jwt.WithValidMethods([]string{"RS256"}), jwt.WithIssuer(testIssuer), jwt.WithAudience(audience)); err != nil {
 				w.WriteHeader(401)
 				return
 			}
@@ -108,7 +117,7 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 	defer func(logger *slog.Logger) { auditLogger = logger }(auditLogger)
 	auditLogger = slog.New(slog.NewTextHandler(&audit, nil))
 	path := shortSocketPath(t)
-	handler, err := newDelegatedHandler(config.Config{Clusters: catalog, DelegatedSocket: path})
+	handler, err := newDelegatedHandler(config.Config{Clusters: catalog, DelegatedSocket: path, OAuth: mcpauth.OAuthConfig{CAFile: provider.CAFile}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,10 +133,7 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 	}
 
 	// Without preferred_username nor email, the daemon names the user by sub.
-	alice := testutil.OpenIDToken(t, keys["cluster-a"], testIssuer, "client-a", "alice", func(c jwt.MapClaims) {
-		delete(c, "preferred_username")
-		delete(c, "email")
-	})
+	alice := provider.Token(t, "client-a", "alice", nil)
 	transport := unixTransport(path)
 	t.Cleanup(transport.CloseIdleConnections)
 	whoami := func(token, clusterID string) (int, string) {
@@ -148,12 +154,18 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 	if status != 200 || !strings.Contains(body, `"cluster_id":"cluster-a"`) || !strings.Contains(body, `"subject":"alice"`) || !strings.Contains(body, `"issuer":"`+testIssuer+`"`) {
 		t.Fatalf("whoami: %d %s", status, body)
 	}
-	// The header selects the daemon that verifies the token: another cluster's
-	// daemon refuses it, so a client cannot claim a different cluster.
-	if status, _ := whoami(alice, "cluster-b"); status != 401 || calls["cluster-b"].Load() != 1 {
+	// The header selects the cluster whose provider the token is verified
+	// with: a token intended for another cluster is refused by the MCP, and
+	// never reaches that cluster's daemon.
+	if status, _ := whoami(alice, "cluster-b"); status != 401 || calls["cluster-b"].Load() != 0 {
 		t.Fatalf("token of cluster-a accepted for cluster-b: %d", status)
 	}
-	before := calls["cluster-a"].Load() + calls["cluster-b"].Load()
+	forged := mcpauthtest.NewOAuthProvider(t).Token(t, "client-a", "alice", func(c jwt.MapClaims) { c["iss"] = testIssuer })
+	before := calls["cluster-a"].Load()
+	if status, _ := whoami(forged, "cluster-a"); status != 401 || calls["cluster-a"].Load() != before {
+		t.Fatalf("forged token reached the daemon: %d", status)
+	}
+	before = calls["cluster-a"].Load() + calls["cluster-b"].Load()
 	for _, clusterID := range []string{"", "unknown"} {
 		if status, _ := whoami(alice, clusterID); status != 401 {
 			t.Fatalf("cluster %q accepted: %d", clusterID, status)
@@ -170,17 +182,16 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 	whoamiLogs := audit.String()
 	for _, want := range []string{
 		`msg="mcp whoami" cluster_id=cluster-a issuer=` + testIssuer + ` subject=alice outcome=ok status=200`,
-		`msg="mcp whoami" cluster_id=cluster-b issuer=` + testIssuer + ` subject=alice outcome=daemon_refused status=401`,
 		`outcome=identity_mismatch status=401`,
 		`auth=public`,
-		`daemon_status=401`,
 	} {
 		if !strings.Contains(whoamiLogs, want) {
 			t.Fatalf("whoami audit misses %q:\n%s", want, whoamiLogs)
 		}
 	}
-	// A missing or unknown cluster is refused before the bridge, without a line.
-	if strings.Count(whoamiLogs, `msg="mcp whoami"`) != 3 || strings.Contains(whoamiLogs, alice) {
+	// A missing or unknown cluster, or a token the MCP refuses, is refused
+	// before the bridge, without a line.
+	if strings.Count(whoamiLogs, `msg="mcp whoami"`) != 2 || strings.Contains(whoamiLogs, alice) {
 		t.Fatalf("unexpected whoami audit lines:\n%s", whoamiLogs)
 	}
 

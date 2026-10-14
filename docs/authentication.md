@@ -8,7 +8,7 @@ between them:
 | Listener | Clients | Authentication |
 |---|---|---|
 | HTTPS `/mcp` | External agents | OAuth access JWT for the MCP resource, then token exchange (this page) |
-| Local Unix socket | OpenSVC components such as the AI agent | OpenID Connect access token of the user, forwarded unchanged and verified by the selected daemon ([token delegation](delegation.md)) |
+| Local Unix socket | OpenSVC components such as the AI agent | OpenID Connect access token of the user, verified by the MCP with the OpenID provider the selected daemon publishes, then forwarded unchanged to that daemon ([token delegation](delegation.md)) |
 
 ## External-client OAuth and daemon token exchange
 

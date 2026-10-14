@@ -62,13 +62,26 @@ accepted and ignored. Tokens in query strings are refused. An optional
 [audit lines](token-exchange.md#audit-trail) when it is 32 lowercase
 hexadecimal characters; it is never an identity.
 
-The MCP checks the token shape before any daemon call, without verifying its
-signature: an asymmetric algorithm, `kid`, `aud`, `iss`, `sub` and an
-unexpired `exp`. The expected username is `preferred_username`, then `email`,
-then `sub`, as selected by the daemon.
+The MCP verifies the token before any daemon request, as the daemon itself
+does: an asymmetric algorithm, `kid`, `iss`, `sub`, an unexpired `exp`, and a
+signature by a key of the OpenID provider the daemon of the selected cluster
+accepts, for its client ID as audience. The expected username is
+`preferred_username`, then `email`, then `sub`, as selected by the daemon.
 
-A missing header, an unknown cluster or a malformed token returns 401 without
-contacting a daemon.
+The MCP learns that provider from the public `GET /api/auth/info` of the
+daemon, which names its OpenID issuer and client ID: no trust is configured
+in the MCP. It reads it, without any token, the first time a token of the
+cluster needs it, then keeps it 15 minutes; concurrent tokens share one read,
+and a failed read is retried after 10 seconds at the earliest, the last answer
+serving meanwhile. The keys of the issuer are discovered and cached as on the
+HTTPS listener, with the system roots or `OPENSVC_MCP_OAUTH_CA_FILE`. However
+many tokens arrive, the daemon is read at most once per cluster and period.
+
+A missing header, an unknown cluster, a malformed token, or a token the
+provider of the cluster did not sign for that cluster returns 401 without
+reaching the daemon. A daemon that accepts no OpenID token accepts no token of
+the socket. When the provider of the cluster cannot be read, or its keys
+loaded, the socket returns 503 with `Retry-After`.
 
 ## Routes
 

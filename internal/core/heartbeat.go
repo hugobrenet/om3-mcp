@@ -110,6 +110,9 @@ func heartbeatFacts(value *clusterHeartbeat) *HeartbeatFacts {
 }
 
 func heartbeatMessage(value clusterHeartbeatLastMessage) HeartbeatLastMessage {
+	// The fields are copied, not converted, so that the raw daemon shape and
+	// the tool result stay independent types.
+	//lint:ignore S1016 a conversion would tie the result to the daemon shape
 	return HeartbeatLastMessage{From: value.From, PatchLength: value.PatchLength, Type: value.Type}
 }
 

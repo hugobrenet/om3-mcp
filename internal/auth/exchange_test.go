@@ -140,7 +140,9 @@ func TestExchangeRefusalsAreBoundedAndNeverExposeSSOData(t *testing.T) {
 	var redirected atomic.Int32
 	trap := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { redirected.Add(1) }))
 	defer trap.Close()
-	p.TokenHandler = func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, trap.URL, 307) }
+	p.TokenHandler = func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, trap.URL, http.StatusTemporaryRedirect)
+	}
 	if _, _, err := profiles.Prepare(ctx, "test-sso", "daemon-a", "cluster-a"); err == nil || redirected.Load() != 0 {
 		t.Fatal("token exchange followed redirect")
 	}

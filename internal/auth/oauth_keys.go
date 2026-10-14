@@ -191,15 +191,24 @@ func (k oauthJWK) publicKey() (crypto.PublicKey, error) {
 		default:
 			return nil, errors.New("unsupported EC curve")
 		}
-		x, err := decode(k.X)
-		if err != nil {
-			return nil, err
+		// The coordinates form an uncompressed SEC 1 point, which the
+		// standard parser rejects unless it is on the curve and not the point
+		// at infinity.
+		size := (curve.Params().BitSize + 7) / 8
+		point := make([]byte, 1+2*size)
+		point[0] = 4
+		for i, value := range []string{k.X, k.Y} {
+			coordinate, err := base64.RawURLEncoding.DecodeString(value)
+			if err != nil || len(coordinate) == 0 || len(coordinate) > size {
+				return nil, errors.New("invalid EC point")
+			}
+			copy(point[1+(i+1)*size-len(coordinate):1+(i+1)*size], coordinate)
 		}
-		y, err := decode(k.Y)
-		if err != nil || !curve.IsOnCurve(x, y) {
+		key, err := ecdsa.ParseUncompressedPublicKey(curve, point)
+		if err != nil {
 			return nil, errors.New("invalid EC point")
 		}
-		return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
+		return key, nil
 	default:
 		return nil, errors.New("unsupported signing key")
 	}

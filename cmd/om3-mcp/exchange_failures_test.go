@@ -150,7 +150,7 @@ func TestOAuthExchangeFailureIsolation(t *testing.T) {
 		got := call("list_clusters", map[string]any{"query": "same-name"})
 		check(t, got, false, "cluster-a")
 		check(t, got, false, "cluster-b")
-		check(t, call("get_node_status", args("same-name", "shared-node")), true, "Unknown cluster_id")
+		check(t, call("get_node_status", args("same-name", "shared-node")), true, "unknown cluster_id")
 		if exchanges.Load() != 0 || calls[0].Load() != 0 || calls[1].Load() != 0 {
 			t.Fatal("discovery or unknown ID contacted an upstream service")
 		}
@@ -197,7 +197,7 @@ func TestOAuthExchangeFailureIsolation(t *testing.T) {
 			t.Fatal("catalogue contacted unavailable token endpoint")
 		}
 		for _, id := range []string{"cluster-a", "cluster-b"} {
-			check(t, call("get_node_status", args(id, "shared-node")), true, "Token exchange failed at the SSO")
+			check(t, call("get_node_status", args(id, "shared-node")), true, "token exchange failed at the SSO")
 		}
 		if calls[0].Load() != beforeA || calls[1].Load() != beforeB {
 			t.Fatal("daemon contacted despite failed exchange")

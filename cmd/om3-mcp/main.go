@@ -18,11 +18,13 @@ import (
 	"github.com/opensvc/om3-mcp/internal/config"
 	"github.com/opensvc/om3-mcp/internal/core"
 	"github.com/opensvc/om3-mcp/internal/tools"
+	"github.com/opensvc/osvc-auth-mcp/mcpauth"
 )
 
 const (
 	serverName         = "om3-mcp"
 	serverVersion      = "v0.1.0"
+	resourceName       = "OpenSVC Daemon MCP"
 	maxHTTPHeaderBytes = 64 << 10
 	shutdownTimeout    = 30 * time.Second
 )
@@ -109,9 +111,17 @@ func warnInsecureDaemonTLS(catalog *clusterconfig.Catalog, logger *log.Logger) {
 
 // newMCPHandler serves the HTTPS listener. OAuth authenticates the external
 // client locally; exchange profiles enable per-call daemon credentials and
+// delegationHeaders select the cluster of a delegated token on the Unix
+// socket. The HTTPS listener removes them: an external client chooses its
+// cluster through tool arguments only.
+var delegationHeaders = []string{auth.ClusterIDHeader, auth.NodeHeader}
+
 // catalogue-bound VIP routing for clusters configured with auth.
 func newMCPHandler(cfg config.Config) (http.Handler, error) {
-	verifier, err := auth.NewOAuthVerifier(cfg.OAuth)
+	if cfg.OAuth.ResourceName == "" {
+		cfg.OAuth.ResourceName = resourceName
+	}
+	verifier, err := mcpauth.NewOAuthVerifier(cfg.OAuth)
 	if err != nil {
 		return nil, fmt.Errorf("configure MCP OAuth: %w", err)
 	}
@@ -132,7 +142,7 @@ func newMCPHandler(cfg config.Config) (http.Handler, error) {
 	mux.HandleFunc("GET /health", getHealth)
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", verifier.Metadata)
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource", verifier.Metadata)
-	mux.Handle("/mcp", verifier.Middleware(handler))
+	mux.Handle("/mcp", verifier.Middleware(handler, delegationHeaders...))
 	return mux, nil
 }
 

@@ -11,17 +11,18 @@ import (
 
 	"github.com/opensvc/om3-mcp/internal/auth"
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
+	"github.com/opensvc/osvc-auth-mcp/mcpauth"
 )
 
 // ExchangeClient binds each call to one configured VIP and one exchanged token.
 // It shares connection pools, never a current cluster or user credentials.
 type ExchangeClient struct {
-	profiles *auth.ExchangeProfiles
+	profiles *mcpauth.ExchangeProfiles
 	targets  map[string]clusterconfig.Cluster
 	clients  map[string]*Client
 }
 
-func NewExchange(catalog *clusterconfig.Catalog, profiles *auth.ExchangeProfiles) (*ExchangeClient, error) {
+func NewExchange(catalog *clusterconfig.Catalog, profiles *mcpauth.ExchangeProfiles) (*ExchangeClient, error) {
 	if catalog.Len() == 0 || profiles == nil {
 		return nil, errors.New("token exchange requires clusters with auth and auth profiles")
 	}
@@ -62,7 +63,7 @@ func (c *ExchangeClient) Prepare(ctx context.Context, clusterID string) (context
 }
 
 func (c *ExchangeClient) selected(ctx context.Context) (*Client, error) {
-	id, _, ok := auth.ExchangedFromContext(ctx)
+	id, _, ok := mcpauth.ExchangedFromContext(ctx)
 	if !ok {
 		return nil, errors.New("daemon request requires an unexpired exchanged token")
 	}
@@ -79,7 +80,7 @@ type exchangedTransport struct {
 }
 
 func (t *exchangedTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	id, token, ok := auth.ExchangedFromContext(r.Context())
+	id, token, ok := mcpauth.ExchangedFromContext(r.Context())
 	if !ok || id != t.clusterID {
 		return nil, errors.New("daemon request does not match its token exchange")
 	}

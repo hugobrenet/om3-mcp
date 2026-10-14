@@ -10,13 +10,14 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/opensvc/om3-mcp/internal/auth"
 	"github.com/opensvc/om3-mcp/internal/config"
 	"github.com/opensvc/om3-mcp/internal/testutil"
+	"github.com/opensvc/osvc-auth-mcp/mcpauth"
+	"github.com/opensvc/osvc-auth-mcp/mcpauthtest"
 )
 
-func testOAuthConfig() auth.OAuthConfig {
-	return auth.OAuthConfig{ResourceURL: "https://mcp.example.test/mcp", Issuer: "https://sso.example.test/issuer/"}
+func testOAuthConfig() mcpauth.OAuthConfig {
+	return mcpauth.OAuthConfig{ResourceURL: "https://mcp.example.test/mcp", Issuer: "https://sso.example.test/issuer/"}
 }
 
 func TestOAuthHTTPSDiscoveryInitializationAndToolBoundary(t *testing.T) {
@@ -26,7 +27,7 @@ func TestOAuthHTTPSDiscoveryInitializationAndToolBoundary(t *testing.T) {
 			name = "compiled_entrypoint"
 		}
 		t.Run(name, func(t *testing.T) {
-			p := testutil.NewOAuthProvider(t)
+			p := mcpauthtest.NewOAuthProvider(t)
 			cert, key, roots := writeListenerCertificate(t)
 			transport := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}}
 			t.Cleanup(transport.CloseIdleConnections)
@@ -37,7 +38,7 @@ func TestOAuthHTTPSDiscoveryInitializationAndToolBoundary(t *testing.T) {
 				origin = startHTTPSBinary(t, client, cert, key, "", "OPENSVC_MCP_OAUTH_ISSUER="+p.Issuer, "OPENSVC_MCP_OAUTH_CA_FILE="+p.CAFile)
 				resource = origin + "/mcp"
 			} else {
-				handler, err := newMCPHandler(config.Config{OAuth: auth.OAuthConfig{ResourceURL: resource, Issuer: p.Issuer, CAFile: p.CAFile}})
+				handler, err := newMCPHandler(config.Config{OAuth: mcpauth.OAuthConfig{ResourceURL: resource, Issuer: p.Issuer, CAFile: p.CAFile}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -144,5 +145,33 @@ func TestOAuthHTTPSDiscoveryInitializationAndToolBoundary(t *testing.T) {
 				t.Errorf("unexpected JWKS fetch count %d", p.KeyCalls.Load())
 			}
 		})
+	}
+}
+
+func TestOAuthHTTPSRemovesDelegationHeaders(t *testing.T) {
+	p := mcpauthtest.NewOAuthProvider(t)
+	resource := testOAuthConfig().ResourceURL
+	verifier, err := mcpauth.NewOAuthVerifier(mcpauth.OAuthConfig{ResourceURL: resource, Issuer: p.Issuer, CAFile: p.CAFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	handler := verifier.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		for _, name := range delegationHeaders {
+			if r.Header.Get(name) != "" {
+				t.Errorf("%s reached the MCP handler", name)
+			}
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}), delegationHeaders...)
+	request := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	request.Header.Set("Authorization", "Bearer "+p.Token(t, resource, "alice", nil))
+	request.Header.Set("X-OpenSVC-Cluster-ID", "untrusted-cluster")
+	request.Header.Set("X-OpenSVC-Node", "untrusted-node")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent || !called {
+		t.Fatalf("status=%d called=%v", response.Code, called)
 	}
 }

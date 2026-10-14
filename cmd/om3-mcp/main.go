@@ -109,14 +109,15 @@ func warnInsecureDaemonTLS(catalog *clusterconfig.Catalog, logger *log.Logger) {
 	}
 }
 
-// newMCPHandler serves the HTTPS listener. OAuth authenticates the external
-// client locally; exchange profiles enable per-call daemon credentials and
 // delegationHeaders select the cluster of a delegated token on the Unix
 // socket. The HTTPS listener removes them: an external client chooses its
 // cluster through tool arguments only.
 var delegationHeaders = []string{auth.ClusterIDHeader, auth.NodeHeader}
 
-// catalogue-bound VIP routing for clusters configured with auth.
+// newMCPHandler serves the HTTPS listener. OAuth authenticates the external
+// client locally; the tool calls of each identity are limited; exchange
+// profiles enable per-call daemon credentials and catalogue-bound VIP routing
+// for clusters configured with auth.
 func newMCPHandler(cfg config.Config) (http.Handler, error) {
 	if cfg.OAuth.ResourceName == "" {
 		cfg.OAuth.ResourceName = resourceName
@@ -125,15 +126,16 @@ func newMCPHandler(cfg config.Config) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("configure MCP OAuth: %w", err)
 	}
+	limiter := mcpauth.NewCallLimiter(cfg.MaxConcurrentCalls, cfg.MaxCallsPerMinute)
 	var handler http.Handler
 	if catalog := cfg.Clusters.WithAuth(); cfg.Exchange != nil && catalog.Len() > 0 {
 		api, e := client.NewExchange(catalog, cfg.Exchange)
 		if e != nil {
 			return nil, e
 		}
-		handler, err = newConfiguredToolsHandler(api, catalog, api, cfg.Actions)
+		handler, err = newConfiguredToolsHandler(api, catalog, api, cfg.Actions, limiter)
 	} else {
-		handler, err = newConfiguredToolsHandler(nil, nil, nil, cfg.Actions)
+		handler, err = newConfiguredToolsHandler(nil, nil, nil, cfg.Actions, limiter)
 	}
 	if err != nil {
 		return nil, err
@@ -159,7 +161,7 @@ func newDelegatedHandler(cfg config.Config) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	handler, err := newConfiguredToolsHandler(api, nil, nil, cfg.Actions)
+	handler, err := newConfiguredToolsHandler(api, nil, nil, cfg.Actions, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -182,15 +184,23 @@ func shutdownHTTPServer(server *http.Server, timeout time.Duration) error {
 	return nil
 }
 
-func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catalog, router tools.ClusterRouter, actions bool) (http.Handler, error) {
+// newConfiguredToolsHandler serves the daemon tools. Its middlewares, from
+// the outermost: the audit line of each call, the limits of the identity
+// (HTTPS only, limiter nil on the socket), then the block of calls without
+// exchange configuration.
+func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catalog, router tools.ClusterRouter, actions bool, limiter *mcpauth.CallLimiter) (http.Handler, error) {
 	service := core.New(api)
 	server := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: serverVersion}, nil)
 	registrar, err := tools.NewRegistrar(server)
 	if err != nil {
 		return nil, err
 	}
+	var middlewares []mcp.Middleware
 	if api != nil {
-		server.AddReceivingMiddleware(auditToolCalls)
+		middlewares = append(middlewares, auditToolCalls)
+	}
+	if limiter != nil {
+		middlewares = append(middlewares, limitToolCalls(limiter))
 	}
 	if router != nil {
 		registrar.SetClusterRouter(router)
@@ -215,7 +225,7 @@ func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catal
 	if api == nil {
 		// Without exchange configuration, tools remain discoverable but blocked.
 		// A protocol-level guard also covers active probes and future tools.
-		server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		middlewares = append(middlewares, func(next mcp.MethodHandler) mcp.MethodHandler {
 			return func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
 				if method == "tools/call" {
 					return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "Daemon calls require token exchange configuration and clusters configured with auth."}}}, nil
@@ -224,6 +234,7 @@ func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catal
 			}
 		})
 	}
+	server.AddReceivingMiddleware(middlewares...)
 	// Tools require no persistent protocol session. Authentication is checked on
 	// every request; the shared service never holds a user's credentials.
 	// Cross-origin browser requests are refused with 403, as the MCP SDK
@@ -231,4 +242,22 @@ func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catal
 	return http.NewCrossOriginProtection().Handler(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{
 		Stateless: true, JSONResponse: true,
 	})), nil
+}
+
+// limitToolCalls refuses the tool calls of an identity beyond its limits,
+// before any token exchange or daemon request. The audit records them.
+func limitToolCalls(limiter *mcpauth.CallLimiter) mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
+			if method != "tools/call" {
+				return next(ctx, method, request)
+			}
+			release, err := limiter.Acquire(ctx)
+			if err != nil {
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, nil
+			}
+			defer release()
+			return next(ctx, method, request)
+		}
+	}
 }

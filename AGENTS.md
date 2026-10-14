@@ -106,6 +106,9 @@ or authentication logic in core/tool handlers.
   and call outcomes); keep it free of tokens, secrets and tool results. Confidential client secrets are snapshotted from protected
   files at startup; only public keys and discovery metadata are cached. Bound
   each call by incoming and exchanged token expiry; never rewrite SSO grants.
+- The tool calls of each HTTPS identity are limited (`mcpauth.CallLimiter`,
+  `limitToolCalls`), inside the audit and before any exchange. Network-level
+  limits belong to the infrastructure in front of the MCP.
 - No embedded authorization server or refresh-token storage. External clients
   handle login and renewal. SSO refusal stops calls with safe errors, without
   privileged account fallback. The daemon validates outgoing signatures, issuer

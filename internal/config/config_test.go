@@ -10,7 +10,7 @@ import (
 
 func clearListenerEnvironment(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_CLUSTER_CONFIG_FILE", "OPENSVC_MCP_OAUTH_RESOURCE_URL", "OPENSVC_MCP_OAUTH_RESOURCE_NAME", "OPENSVC_MCP_OAUTH_ISSUER", "OPENSVC_MCP_OAUTH_CA_FILE", "OPENSVC_MCP_AUTH_CONFIG_FILE", "OPENSVC_MCP_DELEGATED_SOCKET"} {
+	for _, name := range []string{"OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_CLUSTER_CONFIG_FILE", "OPENSVC_MCP_OAUTH_RESOURCE_URL", "OPENSVC_MCP_OAUTH_RESOURCE_NAME", "OPENSVC_MCP_OAUTH_ISSUER", "OPENSVC_MCP_OAUTH_CA_FILE", "OPENSVC_MCP_AUTH_CONFIG_FILE", "OPENSVC_MCP_DELEGATED_SOCKET", "OPENSVC_MCP_MAX_CONCURRENT_CALLS", "OPENSVC_MCP_MAX_CALLS_PER_MINUTE"} {
 		t.Setenv(name, "")
 	}
 	t.Setenv("OPENSVC_MCP_OAUTH_RESOURCE_URL", "https://mcp.example.test/mcp")
@@ -231,4 +231,50 @@ func TestLoadActions(t *testing.T) {
 			t.Fatalf("OPENSVC_MCP_ACTIONS=%q accepted: %v", value, err)
 		}
 	}
+}
+
+func TestLoadCallLimits(t *testing.T) {
+	https := func(t *testing.T) {
+		clearListenerEnvironment(t)
+		t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
+		t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
+	}
+	https(t)
+	cfg, err := Load()
+	if err != nil || cfg.MaxConcurrentCalls != 10 || cfg.MaxCallsPerMinute != 120 {
+		t.Fatalf("default limits: %d %d %v", cfg.MaxConcurrentCalls, cfg.MaxCallsPerMinute, err)
+	}
+	t.Setenv("OPENSVC_MCP_MAX_CONCURRENT_CALLS", "0")
+	t.Setenv("OPENSVC_MCP_MAX_CALLS_PER_MINUTE", "600")
+	if cfg, err = Load(); err != nil || cfg.MaxConcurrentCalls != 0 || cfg.MaxCallsPerMinute != 600 {
+		t.Fatalf("configured limits: %d %d %v", cfg.MaxConcurrentCalls, cfg.MaxCallsPerMinute, err)
+	}
+	for _, tc := range []struct{ name, value string }{
+		{"OPENSVC_MCP_MAX_CONCURRENT_CALLS", "-1"},
+		{"OPENSVC_MCP_MAX_CONCURRENT_CALLS", "1001"},
+		{"OPENSVC_MCP_MAX_CALLS_PER_MINUTE", "many"},
+		{"OPENSVC_MCP_MAX_CALLS_PER_MINUTE", "100001"},
+	} {
+		t.Run(tc.name+"="+tc.value, func(t *testing.T) {
+			https(t)
+			t.Setenv(tc.name, tc.value)
+			if _, err := Load(); err == nil {
+				t.Fatal("invalid limit accepted")
+			}
+		})
+	}
+	t.Run("without HTTPS", func(t *testing.T) {
+		clearListenerEnvironment(t)
+		t.Setenv("OPENSVC_MCP_OAUTH_RESOURCE_URL", "")
+		t.Setenv("OPENSVC_MCP_OAUTH_ISSUER", "")
+		t.Setenv("OPENSVC_MCP_DELEGATED_SOCKET", "/run/opensvc-mcp/delegated.sock")
+		t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster"}))
+		if _, err := Load(); err != nil {
+			t.Fatalf("socket configuration refused: %v", err)
+		}
+		t.Setenv("OPENSVC_MCP_MAX_CALLS_PER_MINUTE", "60")
+		if _, err := Load(); err == nil {
+			t.Fatal("limit accepted without the HTTPS listener")
+		}
+	})
 }

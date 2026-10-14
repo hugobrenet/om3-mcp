@@ -8,7 +8,7 @@ import (
 )
 
 func TestToolsHandlerRefusesCrossOriginBrowserRequests(t *testing.T) {
-	handler, err := newConfiguredToolsHandler(nil, nil, nil, false)
+	handler, err := newConfiguredToolsHandler(nil, nil, nil, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

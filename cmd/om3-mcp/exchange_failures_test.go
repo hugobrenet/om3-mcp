@@ -28,6 +28,7 @@ func TestOAuthExchangeFailureIsolation(t *testing.T) {
 	incoming := p.Token(t, resource, "alice", nil)
 	// Another MCP token of the same user, with no cached exchange.
 	renewed := p.Token(t, resource, "alice", func(c jwt.MapClaims) { c["jti"] = "renewed" })
+	recovered := p.Token(t, resource, "alice", func(c jwt.MapClaims) { c["jti"] = "recovered" })
 	outgoing := map[string]string{
 		"daemon-a": p.Token(t, "daemon-a", "alice", nil),
 		"daemon-b": p.Token(t, "daemon-b", "alice", nil),
@@ -41,7 +42,7 @@ func TestOAuthExchangeFailureIsolation(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if r.Form.Get("subject_token") != incoming && r.Form.Get("subject_token") != renewed {
+		if subject := r.Form.Get("subject_token"); subject != incoming && subject != renewed && subject != recovered {
 			t.Error("exchange received a different caller token")
 		}
 		if ssoUnavailable.Load() {
@@ -145,7 +146,7 @@ func TestOAuthExchangeFailureIsolation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, secret := range []string{incoming, renewed, outgoing["daemon-a"], outgoing["daemon-b"], "test-secret&+", "private-SSO-failure-details"} {
+		for _, secret := range []string{incoming, renewed, recovered, outgoing["daemon-a"], outgoing["daemon-b"], "test-secret&+", "private-SSO-failure-details"} {
 			if strings.Contains(string(data), secret) {
 				t.Fatal("credential or SSO failure details appeared in tool output")
 			}
@@ -213,7 +214,13 @@ func TestOAuthExchangeFailureIsolation(t *testing.T) {
 			t.Fatal("daemon contacted despite failed exchange")
 		}
 		ssoUnavailable.Store(false)
-		check(t, callAs(other, "get_node_status", args("cluster-b", "shared-node")), false, "healthy-b")
+		// The failure is remembered five seconds: a client looping on it does
+		// not reach the SSO again; another MCP token is served at once.
+		check(t, callAs(other, "get_node_status", args("cluster-b", "shared-node")), true, "token exchange failed at the SSO")
+		if exchanges.Load() != beforeExchange+2 {
+			t.Fatal("a remembered exchange failure reached the SSO again")
+		}
+		check(t, callAs(connect(recovered), "get_node_status", args("cluster-b", "shared-node")), false, "healthy-b")
 	})
 	t.Run("closed daemon connection leaves other cluster usable", func(t *testing.T) {
 		daemons[1].Server.Close()

@@ -192,7 +192,7 @@ INFO mcp whoami cluster_id=00000000-0000-4000-8000-000000000001 issuer=node-a su
 |---|---|
 | `cluster_id` | Cluster selected by the `X-OpenSVC-Cluster-ID` header |
 | `issuer`, `subject` | Unverified claims of the delegated token, which the daemon verifies |
-| `outcome` | `ok`; `daemon_refused` (the daemon answered 401 or 403); `daemon_failed` (any other daemon failure, answered 502); `identity_mismatch` (the daemon authenticated another strategy or username than predicted); `expired`; `bad_request` |
+| `outcome` | `ok`; `daemon_refused` (the daemon answered 401 or 403); `daemon_failed` (any other daemon failure, answered 502); `identity_mismatch` (the daemon authenticated another method than OpenID or another username than predicted); `expired`; `bad_request` |
 | `status` | The HTTP status the bridge answered |
 | `duration` | Total check duration, including the daemon request |
 | `daemon_status`, `detail`, `auth` | When relevant: the daemon HTTP status, the bounded error of a daemon failure, the strategy the daemon reported |

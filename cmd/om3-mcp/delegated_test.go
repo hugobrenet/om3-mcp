@@ -65,12 +65,15 @@ func unixTransport(path string) *http.Transport {
 	}}
 }
 
+// testIssuer is the OpenID provider of the delegated tokens of the tests.
+const testIssuer = "https://idp.example.test/"
+
 func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 	keys := map[string]*rsa.PrivateKey{}
 	calls := map[string]*atomic.Int32{}
 	clusters := map[string]any{}
 	var strategy atomic.Value
-	strategy.Store("jwt")
+	strategy.Store("jwt-openid")
 	for _, id := range []string{"cluster-a", "cluster-b"} {
 		key := testutil.NewJWTKey(t)
 		keys[id], calls[id] = key, &atomic.Int32{}
@@ -120,7 +123,11 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 		t.Fatalf("socket permissions: %v %v", info, err)
 	}
 
-	alice := testutil.AccessToken(t, keys["cluster-a"], "node-a", "alice", nil)
+	// Without preferred_username nor email, the daemon names the user by sub.
+	alice := testutil.OpenIDToken(t, keys["cluster-a"], testIssuer, "client-a", "alice", func(c jwt.MapClaims) {
+		delete(c, "preferred_username")
+		delete(c, "email")
+	})
 	transport := unixTransport(path)
 	t.Cleanup(transport.CloseIdleConnections)
 	whoami := func(token, clusterID string) (int, string) {
@@ -138,7 +145,7 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 		return response.StatusCode, string(body)
 	}
 	status, body := whoami(alice, "cluster-a")
-	if status != 200 || !strings.Contains(body, `"cluster_id":"cluster-a"`) || !strings.Contains(body, `"subject":"alice"`) || !strings.Contains(body, `"issuer":"node-a"`) {
+	if status != 200 || !strings.Contains(body, `"cluster_id":"cluster-a"`) || !strings.Contains(body, `"subject":"alice"`) || !strings.Contains(body, `"issuer":"`+testIssuer+`"`) {
 		t.Fatalf("whoami: %d %s", status, body)
 	}
 	// The header selects the daemon that verifies the token: another cluster's
@@ -159,11 +166,11 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 	if status, _ := whoami(alice, "cluster-a"); status != 401 {
 		t.Fatal("unexpected daemon authentication strategy accepted")
 	}
-	strategy.Store("jwt")
+	strategy.Store("jwt-openid")
 	whoamiLogs := audit.String()
 	for _, want := range []string{
-		`msg="mcp whoami" cluster_id=cluster-a issuer=node-a subject=alice outcome=ok status=200`,
-		`msg="mcp whoami" cluster_id=cluster-b issuer=node-a subject=alice outcome=daemon_refused status=401`,
+		`msg="mcp whoami" cluster_id=cluster-a issuer=` + testIssuer + ` subject=alice outcome=ok status=200`,
+		`msg="mcp whoami" cluster_id=cluster-b issuer=` + testIssuer + ` subject=alice outcome=daemon_refused status=401`,
 		`outcome=identity_mismatch status=401`,
 		`auth=public`,
 		`daemon_status=401`,
@@ -204,7 +211,7 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 		t.Fatalf("tool call escaped its cluster binding: %s", data)
 	}
 	logs := audit.String()
-	if !strings.Contains(logs, "tool=get_node_status cluster_id=cluster-a issuer=node-a subject=alice") || !strings.Contains(logs, "exchange=delegated daemon_subject=alice outcome=ok") ||
+	if !strings.Contains(logs, "tool=get_node_status cluster_id=cluster-a issuer="+testIssuer+" subject=alice") || !strings.Contains(logs, "exchange=delegated daemon_subject=alice outcome=ok") ||
 		!strings.Contains(logs, "request_id="+testRequestID) || !strings.Contains(whoamiLogs, `request_id=""`) || strings.Contains(logs, alice) {
 		t.Fatalf("unexpected delegated audit line:\n%s", logs)
 	}

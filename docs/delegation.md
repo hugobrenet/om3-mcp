@@ -3,16 +3,19 @@
 [Back to README](../README.md) · [Configuration](configuration.md) · [Authentication](authentication.md)
 
 OpenSVC components such as the AI agent used by the webapp reach the MCP
-through a local Unix socket. They forward a daemon-issued token unchanged, with
-the ID of the cluster that issued it. The daemon of that cluster verifies the
-token and enforces its grants. No SSO is involved.
+through a local Unix socket. They forward the OpenID Connect access token of
+the user unchanged, with the ID of the cluster it is intended for: the webapp
+obtains it by signing in with the OpenID provider the daemons of the cluster
+trust. The daemon of that cluster verifies the token and enforces its grants.
+Only OpenID Connect access tokens are accepted.
 
 ```text
 webapp ── HTTPS ──> AI agent ── Unix socket ──> MCP ── HTTPS ──> cluster VIP daemon
 ```
 
 The socket is a separate listener with its own routes. The HTTPS listener never
-accepts daemon-issued tokens, and the socket never accepts OAuth tokens.
+accepts delegated tokens, and the socket never accepts the OAuth tokens of the
+MCP resource.
 
 ## Installation
 
@@ -47,26 +50,22 @@ removed on shutdown.
 Every request carries:
 
 ```http
-Authorization: Bearer <daemon-issued access token>
+Authorization: Bearer <OpenID Connect access token>
 X-OpenSVC-Cluster-ID: <cluster_id from the catalogue>
 ```
 
 Both are required. The header selects the catalogue entry, and therefore the
-VIP that receives the token. It is not trusted as an identity: a token issued
-by another cluster is refused by the selected daemon. `X-OpenSVC-Node` is
+VIP that receives the token. It is not trusted as an identity: a token
+intended for another cluster is refused by the selected daemon. `X-OpenSVC-Node` is
 accepted and ignored. Tokens in query strings are refused. An optional
 `X-Request-ID`, the request ID of the AI agent, is kept in the
 [audit lines](token-exchange.md#audit-trail) when it is 32 lowercase
 hexadecimal characters; it is never an identity.
 
 The MCP checks the token shape before any daemon call, without verifying its
-signature:
-
-- **native token** (`token_use` claim): RS256, `token_use=access`, `iss`,
-  `sub` and an unexpired `exp`;
-- **OpenID token**: an asymmetric algorithm, `kid`, `aud`, `iss`, `sub` and an
-  unexpired `exp`. The expected username is `preferred_username`, then
-  `email`, then `sub`, as selected by the daemon.
+signature: an asymmetric algorithm, `kid`, `aud`, `iss`, `sub` and an
+unexpired `exp`. The expected username is `preferred_username`, then `email`,
+then `sub`, as selected by the daemon.
 
 A missing header, an unknown cluster or a malformed token returns 401 without
 contacting a daemon.
@@ -76,8 +75,8 @@ contacting a daemon.
 ### `GET /mcp/auth/whoami`
 
 Proves the token by relaying it to the selected daemon's
-`GET /api/auth/whoami`. The daemon must authenticate it with the expected
-strategy (`jwt` or `jwt-openid`) and username. The response is:
+`GET /api/auth/whoami`. The daemon must authenticate it as an OpenID Connect
+token (`jwt-openid`) with the expected username. The response is:
 
 ```json
 {

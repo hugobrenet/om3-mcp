@@ -11,9 +11,14 @@ import (
 	"github.com/opensvc/om3-mcp/internal/client"
 )
 
+// daemonOpenIDAuth is the authentication the daemon reports for an OpenID
+// Connect access token.
+const daemonOpenIDAuth = "jwt-openid"
+
 // serveWhoAmI is a narrow identity bridge, not an MCP tool or token issuer.
-// It is served only on the delegated Unix socket, and proves native/OpenID
-// authentication by asking the daemon of the cluster named by the header.
+// It is served only on the delegated Unix socket, and proves the OpenID
+// Connect authentication of the token by asking the daemon of the cluster
+// named by the header.
 func serveWhoAmI(api *client.DelegatedClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
@@ -52,10 +57,10 @@ func serveWhoAmI(api *client.DelegatedClient) http.HandlerFunc {
 			refuse(502, "daemon_failed", extra...)
 			return
 		}
-		// A public/basic response or a different JWT strategy cannot authenticate
-		// this profile. OpenID names use preferred_username, email, then sub;
-		// the daemon verifies those signed claims, issuer and audience itself.
-		if identity.Auth != delegation.Strategy || identity.Name == "" || identity.Name != delegation.Username {
+		// Another authentication than OpenID cannot authenticate this token.
+		// OpenID names use preferred_username, email, then sub; the daemon
+		// verifies those signed claims, issuer and audience itself.
+		if identity.Auth != daemonOpenIDAuth || identity.Name == "" || identity.Name != delegation.Username {
 			refuse(401, "identity_mismatch", slog.String("auth", auditValue(identity.Auth)))
 			return
 		}

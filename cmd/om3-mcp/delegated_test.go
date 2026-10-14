@@ -156,6 +156,22 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 		t.Fatal("unexpected daemon authentication strategy accepted")
 	}
 	strategy.Store("jwt")
+	whoamiLogs := audit.String()
+	for _, want := range []string{
+		`msg="mcp whoami" cluster_id=cluster-a issuer=node-a subject=alice outcome=ok status=200`,
+		`msg="mcp whoami" cluster_id=cluster-b issuer=node-a subject=alice outcome=daemon_refused status=401`,
+		`outcome=identity_mismatch status=401`,
+		`auth=public`,
+		`daemon_status=401`,
+	} {
+		if !strings.Contains(whoamiLogs, want) {
+			t.Fatalf("whoami audit misses %q:\n%s", want, whoamiLogs)
+		}
+	}
+	// A missing or unknown cluster is refused before the bridge, without a line.
+	if strings.Count(whoamiLogs, `msg="mcp whoami"`) != 3 || strings.Contains(whoamiLogs, alice) {
+		t.Fatalf("unexpected whoami audit lines:\n%s", whoamiLogs)
+	}
 
 	// Tools are bound to the header cluster and take no cluster_id argument.
 	session, err := mcp.NewClient(&mcp.Implementation{Name: "ai-agent", Version: "test"}, nil).Connect(t.Context(),

@@ -106,3 +106,5 @@ each request to one cluster. Each request is authenticated again.
 - Each tool call emits the [audit line](token-exchange.md#audit-trail) with
   `exchange=delegated`. Its `issuer` and `subject` come from the token claims,
   verified by the daemon on each call; a refused call may log unverified claims.
+- Each `GET /mcp/auth/whoami` emits one `mcp whoami`
+  [audit line](token-exchange.md#audit-trail) with its outcome.

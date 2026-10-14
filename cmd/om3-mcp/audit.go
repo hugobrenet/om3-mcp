@@ -75,6 +75,21 @@ func auditToolCalls(next mcp.MethodHandler) mcp.MethodHandler {
 	}
 }
 
+// auditWhoAmI records one identity check of the whoami bridge on the Unix
+// socket: the unverified claims of the token, the cluster whose daemon checked
+// it, what the bridge answered and why.
+func auditWhoAmI(delegation auth.Delegation, outcome string, status int, started time.Time, extra ...slog.Attr) {
+	attrs := []slog.Attr{
+		slog.String("cluster_id", auditValue(delegation.ClusterID)),
+		slog.String("issuer", delegation.Issuer),
+		slog.String("subject", delegation.Subject),
+		slog.String("outcome", outcome),
+		slog.Int("status", status),
+		slog.Duration("duration", time.Since(started).Round(time.Millisecond)),
+	}
+	auditLogger.LogAttrs(context.Background(), slog.LevelInfo, "mcp whoami", append(attrs, extra...)...)
+}
+
 func auditValue(s string) string {
 	if len(s) > maxAuditValueBytes {
 		return s[:maxAuditValueBytes] + "..."

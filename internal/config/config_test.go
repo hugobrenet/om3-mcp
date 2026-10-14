@@ -278,3 +278,18 @@ func TestLoadCallLimits(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadDelegatedSocketRequiresTheProviderOfEveryCluster(t *testing.T) {
+	clearListenerEnvironment(t)
+	t.Setenv("OPENSVC_MCP_OAUTH_RESOURCE_URL", "")
+	t.Setenv("OPENSVC_MCP_OAUTH_ISSUER", "")
+	t.Setenv("OPENSVC_MCP_DELEGATED_SOCKET", "/run/opensvc-mcp/delegated.sock")
+	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", testutil.WriteCatalog(t, map[string]any{
+		"a": map[string]any{"name": "a", "cluster_id": "cluster-a", "endpoint": "https://192.0.2.20:1215", "request_timeout": "2s",
+			"delegation": map[string]string{"issuer": "https://idp.example.test/", "audience": "om3-a"}},
+		"b": map[string]any{"name": "b", "cluster_id": "cluster-b", "endpoint": "https://192.0.2.21:1215", "request_timeout": "2s"},
+	}))
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "cluster b") || !strings.Contains(err.Error(), "delegation.issuer") {
+		t.Fatalf("cluster without provider accepted on the socket: %v", err)
+	}
+}

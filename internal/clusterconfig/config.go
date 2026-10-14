@@ -30,8 +30,7 @@ const (
 )
 
 // Cluster is a copy of one validated target: a cluster ID and the HTTPS
-// origin of its VIP. Public HTTPS trust is snapshotted at startup. Daemon JWT
-// signatures are verified by the daemon itself.
+// origin of its VIP. Public HTTPS trust is snapshotted at startup.
 type Cluster struct {
 	Ref            string
 	Name           string
@@ -45,6 +44,11 @@ type Cluster struct {
 	// for a cluster reachable only through the delegated Unix socket.
 	AuthProfile string
 	Audience    string
+	// DelegatedIssuer and DelegatedAudience are the OpenID provider of the
+	// daemon: the issuer and the client ID of the tokens of the Unix socket,
+	// verified before they reach the daemon. Required with the socket.
+	DelegatedIssuer   string
+	DelegatedAudience string
 }
 
 // Catalog is immutable after Load. Accessors return independent copies.
@@ -131,6 +135,10 @@ type definition struct {
 		Profile  text `yaml:"profile"`
 		Audience text `yaml:"audience"`
 	} `yaml:"auth"`
+	Delegation *struct {
+		Issuer   text `yaml:"issuer"`
+		Audience text `yaml:"audience"`
+	} `yaml:"delegation"`
 	TLS struct {
 		CAFile   text    `yaml:"ca_file"`
 		Insecure boolean `yaml:"insecure"`
@@ -205,6 +213,20 @@ func validate(ref string, d definition) (Cluster, error) {
 			return Cluster{}, fmt.Errorf("auth: profile and audience are required when auth is set")
 		}
 		c.AuthProfile, c.Audience = string(d.Auth.Profile), string(d.Auth.Audience)
+	}
+	if d.Delegation != nil {
+		c.DelegatedIssuer, c.DelegatedAudience = string(d.Delegation.Issuer), string(d.Delegation.Audience)
+		if c.DelegatedAudience == "" {
+			// The client ID the daemon trusts is also the audience of the
+			// exchanged tokens.
+			c.DelegatedAudience = c.Audience
+		}
+		if !validIssuer(c.DelegatedIssuer) {
+			return Cluster{}, fmt.Errorf("delegation.issuer: provide the HTTPS issuer of the OpenID provider of the daemon, without credentials, query or fragment")
+		}
+		if !validText(c.DelegatedAudience, 256) {
+			return Cluster{}, fmt.Errorf("delegation.audience: provide the client ID of the daemon, required without auth.audience")
+		}
 	}
 	timeout, err := time.ParseDuration(string(d.RequestTimeout))
 	if err != nil || timeout < time.Second || timeout > 2*time.Minute {
@@ -349,4 +371,11 @@ func validateCA(data []byte) error {
 		return fmt.Errorf("must contain at least one PEM CA certificate")
 	}
 	return nil
+}
+
+// validIssuer accepts the exact issuer of an OpenID provider: an absolute
+// HTTPS URL without credentials, query or fragment.
+func validIssuer(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && raw == strings.TrimSpace(raw) && u.Scheme == "https" && u.Host != "" && u.User == nil && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && !strings.Contains(raw, "#")
 }

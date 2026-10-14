@@ -103,6 +103,14 @@ func Load() (Config, error) {
 	if cfg.DelegatedSocket != "" && cfg.Clusters == nil {
 		return Config{}, fmt.Errorf("OPENSVC_MCP_DELEGATED_SOCKET requires OPENSVC_MCP_CLUSTER_CONFIG_FILE")
 	}
+	if cfg.DelegatedSocket != "" {
+		// No token of the socket reaches a daemon unverified.
+		for _, c := range cfg.Clusters.List() {
+			if c.DelegatedIssuer == "" {
+				return Config{}, fmt.Errorf("cluster %s: OPENSVC_MCP_DELEGATED_SOCKET requires delegation.issuer, the issuer of the OpenID provider of the daemon", c.Ref)
+			}
+		}
+	}
 	if exchangeFile != "" {
 		if cfg.Clusters == nil {
 			return Config{}, fmt.Errorf("OPENSVC_MCP_AUTH_CONFIG_FILE requires OPENSVC_MCP_CLUSTER_CONFIG_FILE")

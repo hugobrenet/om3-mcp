@@ -121,6 +121,8 @@ clusters:
     auth:
       profile: customer-sso
       audience: opensvc-cluster-a
+    delegation:
+      issuer: https://sso.example.com/application/o/opensvc-cluster-a/
     tls:
       ca_file: /etc/opensvc-mcp/trust/cluster-a-tls-ca.pem
     request_timeout: 20s
@@ -136,6 +138,13 @@ clusters:
   `audience` the daemon token audience requested by token exchange. A cluster
   without `auth` is reachable only through the Unix socket, and is not listed
   to external agents.
+- `delegation`: the OpenID provider of the daemon, required for every cluster
+  when the Unix socket is enabled. `issuer` is its exact HTTPS issuer and
+  `audience` its client ID, by default `auth.audience`, required without
+  `auth`. The tokens of the socket are verified for them before they reach
+  the daemon; see [token delegation](delegation.md). Both follow the OpenID
+  configuration of the daemon, which its public `GET /api/auth/info` shows
+  (`openid.issuer`, `openid.client_id`).
 - `tls.ca_file`: optional absolute public CA bundle path for daemon TLS.
   Omit `tls` for the system CA roots, for example with Let's Encrypt.
   An explicit bundle replaces, rather than extends, system roots.

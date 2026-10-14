@@ -20,7 +20,8 @@ MCP resource.
 ## Installation
 
 1. Write the catalogue, see [configuration](configuration.md#cluster-catalogue-and-exchange-profiles).
-   The `auth` block is not needed for the socket.
+   Every cluster needs its `delegation` provider for the socket; the `auth`
+   block is not needed.
 2. Set `OPENSVC_MCP_CLUSTER_CONFIG_FILE` and `OPENSVC_MCP_DELEGATED_SOCKET`, for
    example `/run/opensvc-mcp/delegated.sock`.
 3. Run the MCP and the AI agent on the same host, typically as two resources of
@@ -64,24 +65,22 @@ hexadecimal characters; it is never an identity.
 
 The MCP verifies the token before any daemon request, as the daemon itself
 does: an asymmetric algorithm, `kid`, `iss`, `sub`, an unexpired `exp`, and a
-signature by a key of the OpenID provider the daemon of the selected cluster
-accepts, for its client ID as audience. The expected username is
+signature by a key of the OpenID provider the catalogue names for the selected
+cluster (`delegation.issuer`), for the client ID of the daemon as audience
+(`delegation.audience`, by default `auth.audience`). The expected username is
 `preferred_username`, then `email`, then `sub`, as selected by the daemon.
 
-The MCP learns that provider from the public `GET /api/auth/info` of the
-daemon, which names its OpenID issuer and client ID: no trust is configured
-in the MCP. It reads it, without any token, the first time a token of the
-cluster needs it, then keeps it 15 minutes; concurrent tokens share one read,
-and a failed read is retried after 10 seconds at the earliest, the last answer
-serving meanwhile. The keys of the issuer are discovered and cached as on the
-HTTPS listener, with the system roots or `OPENSVC_MCP_OAUTH_CA_FILE`. However
-many tokens arrive, the daemon is read at most once per cluster and period.
+Both values follow the OpenID configuration of the daemon, which its public
+`GET /api/auth/info` shows (`openid.issuer`, `openid.client_id`): when the
+daemon changes them, update the catalogue, the MCP refusing the tokens of the
+cluster meanwhile. The keys of the issuer are discovered and cached 5 minutes
+as on the HTTPS listener, with the system roots or `OPENSVC_MCP_OAUTH_CA_FILE`;
+an unknown key ID reloads them at most every 30 seconds.
 
 A missing header, an unknown cluster, a malformed token, or a token the
 provider of the cluster did not sign for that cluster returns 401 without
-reaching the daemon. A daemon that accepts no OpenID token accepts no token of
-the socket. When the provider of the cluster cannot be read, or its keys
-loaded, the socket returns 503 with `Retry-After`.
+reaching the daemon. When the keys of the provider cannot be loaded, the socket
+returns 503 with `Retry-After`.
 
 ## Routes
 

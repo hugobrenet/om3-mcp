@@ -10,22 +10,20 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
+	"github.com/opensvc/osvc-auth-mcp/mcpauth"
 )
 
 const (
-	maxTokenBytes   = 32 << 10
 	maxMCPBodyBytes = 1 << 20
 	// ClusterIDHeader selects the cluster whose daemon verifies a delegated
 	// token. It is never trusted as an identity on its own.
 	ClusterIDHeader = "X-OpenSVC-Cluster-ID"
-	// nodeHeader is accepted from OpenSVC clients but routing uses the cluster
+	// NodeHeader is accepted from OpenSVC clients but routing uses the cluster
 	// VIP; it is removed so that it never reaches a daemon.
-	nodeHeader     = "X-OpenSVC-Node"
+	NodeHeader     = "X-OpenSVC-Node"
 	NativeStrategy = "jwt"
 	OpenIDStrategy = "jwt-openid"
 )
@@ -70,7 +68,7 @@ func NewDelegator(catalog *clusterconfig.Catalog) (*Delegator, error) {
 // Check selects the cluster from the header and predicts the daemon identity.
 // Native tokens are marked by token_use; others follow the OpenID profile.
 func (d *Delegator) Check(raw, clusterID string) (Delegation, error) {
-	if raw == "" || len(raw) > maxTokenBytes || !validTarget(clusterID) || !d.clusters[clusterID] {
+	if raw == "" || len(raw) > mcpauth.MaxTokenBytes || !validTarget(clusterID) || !d.clusters[clusterID] {
 		return Delegation{}, errUnauthorized
 	}
 	var parsed delegatedClaims
@@ -82,7 +80,7 @@ func (d *Delegator) Check(raw, clusterID string) (Delegation, error) {
 	if err := jwt.NewValidator(jwt.WithExpirationRequired()).Validate(&parsed); err != nil {
 		return Delegation{}, errUnauthorized
 	}
-	if !validClaimText(parsed.Subject) || !validClaimText(parsed.Issuer) || parsed.ExpiresAt == nil {
+	if !mcpauth.ValidClaimText(parsed.Subject) || !mcpauth.ValidClaimText(parsed.Issuer) || parsed.ExpiresAt == nil {
 		return Delegation{}, errUnauthorized
 	}
 	strategy, username := NativeStrategy, parsed.Subject
@@ -92,15 +90,15 @@ func (d *Delegator) Check(raw, clusterID string) (Delegation, error) {
 			return Delegation{}, errUnauthorized
 		}
 	} else {
-		if len(parsed.Audience) == 0 || !openIDSigningMethod(token.Method.Alg()) {
+		if len(parsed.Audience) == 0 || !mcpauth.OpenIDSigningMethod(token.Method.Alg()) {
 			return Delegation{}, errUnauthorized
 		}
 		kid, ok := token.Header["kid"].(string)
-		if !ok || !validClaimText(kid) {
+		if !ok || !mcpauth.ValidClaimText(kid) {
 			return Delegation{}, errUnauthorized
 		}
 		for _, audience := range parsed.Audience {
-			if !validClaimText(audience) {
+			if !mcpauth.ValidClaimText(audience) {
 				return Delegation{}, errUnauthorized
 			}
 		}
@@ -111,7 +109,7 @@ func (d *Delegator) Check(raw, clusterID string) (Delegation, error) {
 		} else if parsed.Email != "" {
 			username = parsed.Email
 		}
-		if !validClaimText(username) {
+		if !mcpauth.ValidClaimText(username) {
 			return Delegation{}, errUnauthorized
 		}
 		strategy = OpenIDStrategy
@@ -119,21 +117,8 @@ func (d *Delegator) Check(raw, clusterID string) (Delegation, error) {
 	return Delegation{ClusterID: clusterID, Issuer: parsed.Issuer, Subject: parsed.Subject, ExpiresAt: parsed.ExpiresAt.Time, Strategy: strategy, Username: username}, nil
 }
 
-func openIDSigningMethod(algorithm string) bool {
-	switch algorithm {
-	case "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512":
-		return true
-	default:
-		return false
-	}
-}
-
-func validClaimText(s string) bool {
-	return len(s) > 0 && len(s) <= 256 && strings.TrimSpace(s) == s && utf8.ValidString(s) && !strings.ContainsFunc(s, func(r rune) bool { return unicode.IsControl(r) || unicode.In(r, unicode.Cf) })
-}
-
 func validTarget(value string) bool {
-	return validClaimText(value) && !strings.Contains(value, ",")
+	return mcpauth.ValidClaimText(value) && !strings.Contains(value, ",")
 }
 
 type delegationContextKey struct{}
@@ -186,7 +171,7 @@ func (d *Delegator) Middleware(next http.Handler) http.Handler {
 		request := r.Clone(ctx)
 		request.Header.Del("Authorization")
 		request.Header.Del(ClusterIDHeader)
-		request.Header.Del(nodeHeader)
+		request.Header.Del(NodeHeader)
 		request.Body = http.MaxBytesReader(w, request.Body, maxMCPBodyBytes)
 		w.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, request)

@@ -17,7 +17,9 @@ direction, one tool per action, and keep destructive data operations
 unless explicitly decided.
 
 Module and binary: `github.com/opensvc/om3-mcp` and `om3-mcp`.
-Use Go, the standard library and `github.com/modelcontextprotocol/go-sdk`.
+Use Go, the standard library, `github.com/modelcontextprotocol/go-sdk` and
+`github.com/opensvc/osvc-auth-mcp`, the OAuth and token exchange library
+shared with `oc3-mcp`.
 
 ## Before editing
 
@@ -39,8 +41,10 @@ Use Go, the standard library and `github.com/modelcontextprotocol/go-sdk`.
 - `internal/config`: process environment and startup validation.
 - `internal/clusterconfig`: cluster-to-VIP catalogue with optional
   exchange settings; immutable TLS trust loaded at startup.
-- `internal/auth`: OAuth metadata, signature verification and private request
-  identity, confidential RFC 8693 exchange, and delegated daemon token checks.
+- `internal/auth`: delegated daemon token checks of the Unix socket. OAuth
+  metadata and verification, the private request identity and the
+  confidential RFC 8693 exchange come from `osvc-auth-mcp` (`mcpauth`); change
+  them there, for both MCP servers, never by copying the code back here.
 - `internal/client`: catalogue-bound daemon routing, HTTP transport, response
   bounds and normalized API errors. Share immutable clients and connection
   pools, never caller credentials.
@@ -69,7 +73,8 @@ or authentication logic in core/tool handlers.
 ## Authentication and trust
 
 - The HTTPS `/mcp` endpoint is an OAuth resource server. Validate issuer,
-  audience, signature and expiry locally using `internal/auth/oauth*.go`.
+  audience, signature and expiry locally using `mcpauth.OAuthVerifier`. It
+  removes the delegation headers (`delegationHeaders`) from HTTPS requests.
   No business scopes or MCP-local grant policy are applied in V1.
 - Public resource metadata comes only from configuration, never Host or
   forwarding headers. Discovery and JWKS requests use HTTPS, no proxies or

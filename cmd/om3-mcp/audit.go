@@ -8,6 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/opensvc/om3-mcp/internal/auth"
+	"github.com/opensvc/osvc-auth-mcp/mcpauth"
 )
 
 const maxAuditValueBytes = 256
@@ -24,8 +25,8 @@ func auditToolCalls(next mcp.MethodHandler) mcp.MethodHandler {
 		if method != "tools/call" || !ok || call.Params == nil {
 			return next(ctx, method, request)
 		}
-		identity, _, _ := auth.OAuthFromContext(ctx)
-		ctx, trace := auth.WithCallTrace(ctx)
+		identity, _, _ := mcpauth.OAuthFromContext(ctx)
+		ctx, trace := mcpauth.WithCallTrace(ctx)
 		start := time.Now()
 		result, err := next(ctx, method, request)
 
@@ -33,7 +34,7 @@ func auditToolCalls(next mcp.MethodHandler) mcp.MethodHandler {
 			ClusterID string `json:"cluster_id"`
 		}
 		_ = json.Unmarshal(call.Params.Arguments, &target)
-		exchange, daemonSubject := trace.Exchange, trace.DaemonSubject
+		exchange, daemonSubject := trace.Exchange, trace.TargetSubject
 		if exchange == "" {
 			exchange = "none"
 		}

@@ -19,15 +19,3 @@ func WriteYAML(t testing.TB, doc any) string {
 	}
 	return path
 }
-
-func WriteExchangeProfiles(t testing.TB, p *OAuthProvider, method string) string {
-	t.Helper()
-	secret := filepath.Join(t.TempDir(), "secret")
-	if err := os.WriteFile(secret, []byte("test-secret&+\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	return WriteYAML(t, map[string]any{"version": 1, "profiles": map[string]any{"test-sso": map[string]any{
-		"issuer": p.Issuer, "client_id": "test-exchange", "client_secret_file": secret, "token_endpoint_auth_method": method,
-		"scopes": []string{"openid", "profile"}, "request_timeout": "2s", "tls": map[string]string{"ca_file": p.CAFile},
-	}}})
-}

@@ -16,6 +16,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 	"github.com/opensvc/om3-mcp/internal/testutil"
+	"github.com/opensvc/osvc-auth-mcp/mcpauth"
 )
 
 func testDelegator(t *testing.T) *Delegator {
@@ -63,7 +64,7 @@ func TestDelegatedNativeClaimsWithoutSignature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, raw := range map[string]string{"empty": "", "malformed": "not-a-token", "oversized": strings.Repeat("x", maxTokenBytes+1), "wrong algorithm": hmac} {
+	for name, raw := range map[string]string{"empty": "", "malformed": "not-a-token", "oversized": strings.Repeat("x", mcpauth.MaxTokenBytes+1), "wrong algorithm": hmac} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := d.Check(raw, "cluster-a"); err != errUnauthorized {
 				t.Fatalf("got %v", err)
@@ -186,7 +187,7 @@ func TestDelegationMiddlewareRequestScopedCredentialAndExpiry(t *testing.T) {
 		if !ok || !deadline.Equal(delegation.ExpiresAt) {
 			t.Fatal("token expiry not propagated")
 		}
-		if r.Header.Get("Authorization") != "" || r.Header.Get(ClusterIDHeader) != "" || r.Header.Get(nodeHeader) != "" {
+		if r.Header.Get("Authorization") != "" || r.Header.Get(ClusterIDHeader) != "" || r.Header.Get(NodeHeader) != "" {
 			t.Fatal("credentials or targets remain in handler headers")
 		}
 		w.WriteHeader(204)
@@ -194,7 +195,7 @@ func TestDelegationMiddlewareRequestScopedCredentialAndExpiry(t *testing.T) {
 	request := httptest.NewRequest("POST", "/mcp", nil)
 	request.Header.Set("Authorization", "Bearer "+raw)
 	request.Header.Set(ClusterIDHeader, "cluster-a")
-	request.Header.Set(nodeHeader, "ignored-node")
+	request.Header.Set(NodeHeader, "ignored-node")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != 204 || calls != 1 {

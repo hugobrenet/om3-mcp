@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/opensvc/om3-mcp/internal/auth"
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
+	"github.com/opensvc/osvc-auth-mcp/mcpauth"
 )
 
 const (
@@ -26,8 +26,8 @@ type Config struct {
 	ListenAddress string
 	TLSCertFile   string
 	TLSKeyFile    string
-	OAuth         auth.OAuthConfig
-	Exchange      *auth.ExchangeProfiles
+	OAuth         mcpauth.OAuthConfig
+	Exchange      *mcpauth.ExchangeProfiles
 	// DelegatedSocket enables the Unix socket listener. It requires a catalogue.
 	DelegatedSocket   string
 	Clusters          *clusterconfig.Catalog
@@ -45,7 +45,7 @@ func Load() (Config, error) {
 	cfg.TLSCertFile = strings.TrimSpace(os.Getenv("OPENSVC_MCP_TLS_CERT_FILE"))
 	cfg.TLSKeyFile = strings.TrimSpace(os.Getenv("OPENSVC_MCP_TLS_KEY_FILE"))
 	listenAddress := strings.TrimSpace(os.Getenv("OPENSVC_MCP_LISTEN_ADDR"))
-	oauth := auth.OAuthConfig{
+	oauth := mcpauth.OAuthConfig{
 		ResourceURL:  strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_RESOURCE_URL")),
 		ResourceName: strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_RESOURCE_NAME")),
 		Issuer:       strings.TrimSpace(os.Getenv("OPENSVC_MCP_OAUTH_ISSUER")),
@@ -66,7 +66,7 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("OPENSVC_MCP_OAUTH configuration: %w", err)
 		}
 		cfg.ListenAddress, cfg.OAuth = listenAddress, oauth
-	} else if listenAddress != "" || oauth != (auth.OAuthConfig{}) || exchangeFile != "" {
+	} else if listenAddress != "" || oauth != (mcpauth.OAuthConfig{}) || exchangeFile != "" {
 		return Config{}, fmt.Errorf("OPENSVC_MCP_LISTEN_ADDR, OPENSVC_MCP_OAUTH_* and OPENSVC_MCP_AUTH_CONFIG_FILE require the HTTPS listener (OPENSVC_MCP_TLS_CERT_FILE and OPENSVC_MCP_TLS_KEY_FILE)")
 	}
 	if socket := strings.TrimSpace(os.Getenv("OPENSVC_MCP_DELEGATED_SOCKET")); socket != "" {
@@ -95,7 +95,7 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("OPENSVC_MCP_AUTH_CONFIG_FILE requires OPENSVC_MCP_CLUSTER_CONFIG_FILE")
 		}
 		var err error
-		cfg.Exchange, err = auth.LoadExchangeProfiles(exchangeFile)
+		cfg.Exchange, err = mcpauth.LoadExchangeProfiles(exchangeFile)
 		if err != nil {
 			return Config{}, fmt.Errorf("OPENSVC_MCP_AUTH_CONFIG_FILE: %w", err)
 		}

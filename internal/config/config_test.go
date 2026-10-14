@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/opensvc/om3-mcp/internal/testutil"
+	"github.com/opensvc/osvc-auth-mcp/mcpauthtest"
 )
 
 func clearListenerEnvironment(t *testing.T) {
@@ -44,8 +45,8 @@ func TestLoadExchangeProfilesForClustersWithAuth(t *testing.T) {
 	clearListenerEnvironment(t)
 	t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
 	t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
-	p := testutil.NewOAuthProvider(t)
-	profiles := testutil.WriteExchangeProfiles(t, p, "client_secret_basic")
+	p := mcpauthtest.NewOAuthProvider(t)
+	profiles := mcpauthtest.WriteExchangeProfiles(t, p, "client_secret_basic")
 	entry := map[string]any{"name": "cluster-a", "cluster_id": "cluster-a", "endpoint": "https://cluster-a.test:1215", "request_timeout": "20s", "auth": map[string]string{"profile": "test-sso", "audience": "daemon-a"}}
 	catalog := testutil.WriteYAML(t, map[string]any{"clusters": map[string]any{"cluster-a": entry}})
 	t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", catalog)

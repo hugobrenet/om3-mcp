@@ -16,10 +16,12 @@ import (
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 	"github.com/opensvc/om3-mcp/internal/config"
 	"github.com/opensvc/om3-mcp/internal/testutil"
+	"github.com/opensvc/osvc-auth-mcp/mcpauth"
+	"github.com/opensvc/osvc-auth-mcp/mcpauthtest"
 )
 
 func TestOAuthExchangeMultiClusterTools(t *testing.T) {
-	p := testutil.NewOAuthProvider(t)
+	p := mcpauthtest.NewOAuthProvider(t)
 	resource := "https://mcp.example.test/mcp"
 	p.Metadata["token_endpoint"] = p.Server.URL + "/token"
 	var exchanges, daemonCalls atomic.Int32
@@ -74,14 +76,14 @@ func TestOAuthExchangeMultiClusterTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	profiles, err := auth.LoadExchangeProfiles(testutil.WriteExchangeProfiles(t, p, "client_secret_basic"))
+	profiles, err := mcpauth.LoadExchangeProfiles(mcpauthtest.WriteExchangeProfiles(t, p, "client_secret_basic"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var audit syncBuffer
 	defer func(logger *slog.Logger) { auditLogger = logger }(auditLogger)
 	auditLogger = slog.New(slog.NewTextHandler(&audit, nil))
-	h, err := newMCPHandler(config.Config{Clusters: catalog, Exchange: profiles, OAuth: auth.OAuthConfig{ResourceURL: resource, Issuer: p.Issuer, CAFile: p.CAFile}})
+	h, err := newMCPHandler(config.Config{Clusters: catalog, Exchange: profiles, OAuth: mcpauth.OAuthConfig{ResourceURL: resource, Issuer: p.Issuer, CAFile: p.CAFile}})
 	if err != nil {
 		t.Fatal(err)
 	}

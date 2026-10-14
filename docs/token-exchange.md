@@ -123,10 +123,17 @@ stays bounded by its own deadline. A failed discovery is reused for five seconds
 before a new attempt, so an SSO outage does not multiply discovery requests. A
 caller's own cancellation is not cached as an SSO failure.
 
-There is no exchanged token cache or refresh-token storage. One tool call can
-make several API requests with its own exchanged token. Its context expires at
-the earliest of the parent request deadline, incoming JWT expiry, outgoing JWT
-expiry and `expires_in`.
+An exchanged token is kept in the memory of the MCP process, never on disk,
+and reused by the next tool calls of the same MCP token for the same cluster:
+for at most one minute, and never within 30 seconds of its expiry. The cache
+key is a hash of the MCP token and the target, never the MCP token itself.
+Concurrent calls share one exchange; failures are not cached. When the target
+refuses the token (HTTP 401 or 403), it is forgotten and the next call
+exchanges again. A claim change in the SSO therefore applies within a minute.
+
+There is no refresh-token storage. One tool call can make several API requests
+with its exchanged token. Its context expires at the earliest of the parent
+request deadline, incoming JWT expiry, outgoing JWT expiry and `expires_in`.
 
 The SSO response is bounded, and must return a Bearer access JWT for the selected
 audience with a valid lifetime. Returning the incoming token or a token still

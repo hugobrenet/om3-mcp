@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 	"github.com/opensvc/om3-mcp/internal/config"
@@ -25,6 +26,8 @@ func TestOAuthExchangeFailureIsolation(t *testing.T) {
 	resource := "https://mcp.example.test/mcp"
 	p.Metadata["token_endpoint"] = p.Server.URL + "/token"
 	incoming := p.Token(t, resource, "alice", nil)
+	// Another MCP token of the same user, with no cached exchange.
+	renewed := p.Token(t, resource, "alice", func(c jwt.MapClaims) { c["jti"] = "renewed" })
 	outgoing := map[string]string{
 		"daemon-a": p.Token(t, "daemon-a", "alice", nil),
 		"daemon-b": p.Token(t, "daemon-b", "alice", nil),
@@ -38,7 +41,7 @@ func TestOAuthExchangeFailureIsolation(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if r.Form.Get("subject_token") != incoming {
+		if r.Form.Get("subject_token") != incoming && r.Form.Get("subject_token") != renewed {
 			t.Error("exchange received a different caller token")
 		}
 		if ssoUnavailable.Load() {
@@ -111,23 +114,28 @@ func TestOAuthExchangeFailureIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := testutil.NewDaemon(t, h)
-	session, err := mcp.NewClient(&mcp.Implementation{Name: "failure-test", Version: "1"}, nil).Connect(t.Context(),
-		&mcp.StreamableClientTransport{Endpoint: server.Server.URL + "/mcp", DisableStandaloneSSE: true,
-			HTTPClient: &http.Client{Transport: mcpBearerTransport{base: server.Server.Client().Transport, token: incoming}}}, nil)
-	if err != nil {
-		t.Fatal(err)
+	connect := func(token string) *mcp.ClientSession {
+		session, err := mcp.NewClient(&mcp.Implementation{Name: "failure-test", Version: "1"}, nil).Connect(t.Context(),
+			&mcp.StreamableClientTransport{Endpoint: server.Server.URL + "/mcp", DisableStandaloneSSE: true,
+				HTTPClient: &http.Client{Transport: mcpBearerTransport{base: server.Server.Client().Transport, token: token}}}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = session.Close() })
+		return session
 	}
-	t.Cleanup(func() { _ = session.Close() })
+	session := connect(incoming)
 	type outcome struct {
 		result *mcp.CallToolResult
 		err    error
 	}
-	call := func(name string, args map[string]any) outcome {
+	callAs := func(session *mcp.ClientSession, name string, args map[string]any) outcome {
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
 		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 		return outcome{result, err}
 	}
+	call := func(name string, args map[string]any) outcome { return callAs(session, name, args) }
 	check := func(t *testing.T, got outcome, wantError bool, text string) {
 		t.Helper()
 		if got.err != nil || got.result == nil {
@@ -137,7 +145,7 @@ func TestOAuthExchangeFailureIsolation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, secret := range []string{incoming, outgoing["daemon-a"], outgoing["daemon-b"], "test-secret&+", "private-SSO-failure-details"} {
+		for _, secret := range []string{incoming, renewed, outgoing["daemon-a"], outgoing["daemon-b"], "test-secret&+", "private-SSO-failure-details"} {
 			if strings.Contains(string(data), secret) {
 				t.Fatal("credential or SSO failure details appeared in tool output")
 			}
@@ -185,26 +193,27 @@ func TestOAuthExchangeFailureIsolation(t *testing.T) {
 				}
 			}
 			check(t, got, true, want)
-			if calls[0].Load() != beforeA+1 || calls[1].Load() != beforeB+1 || exchanges.Load() != beforeExchange+2 {
+			// At most one exchange per call: the cached exchanges are reused.
+			if calls[0].Load() != beforeA+1 || calls[1].Load() != beforeB+1 || exchanges.Load() > beforeExchange+2 {
 				t.Fatal("failure triggered fallback, a followed redirect, or unexpected retries")
 			}
 		})
 	}
 	t.Run("SSO token endpoint outage and recovery", func(t *testing.T) {
-		beforeA, beforeB, beforeExchange := calls[0].Load(), calls[1].Load(), exchanges.Load()
+		other := connect(renewed)
 		ssoUnavailable.Store(true)
 		check(t, call("list_clusters", nil), false, "cluster-a")
-		if exchanges.Load() != beforeExchange {
-			t.Fatal("catalogue contacted unavailable token endpoint")
-		}
+		// The cached exchange of the first MCP token still serves its calls.
+		check(t, call("get_node_status", args("cluster-a", "shared-node")), false, "healthy-a")
+		beforeA, beforeB, beforeExchange := calls[0].Load(), calls[1].Load(), exchanges.Load()
 		for _, id := range []string{"cluster-a", "cluster-b"} {
-			check(t, call("get_node_status", args(id, "shared-node")), true, "token exchange failed at the SSO")
+			check(t, callAs(other, "get_node_status", args(id, "shared-node")), true, "token exchange failed at the SSO")
 		}
-		if calls[0].Load() != beforeA || calls[1].Load() != beforeB {
+		if calls[0].Load() != beforeA || calls[1].Load() != beforeB || exchanges.Load() != beforeExchange+2 {
 			t.Fatal("daemon contacted despite failed exchange")
 		}
 		ssoUnavailable.Store(false)
-		check(t, call("get_node_status", args("cluster-b", "shared-node")), false, "healthy-b")
+		check(t, callAs(other, "get_node_status", args("cluster-b", "shared-node")), false, "healthy-b")
 	})
 	t.Run("closed daemon connection leaves other cluster usable", func(t *testing.T) {
 		daemons[1].Server.Close()

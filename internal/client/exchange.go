@@ -91,7 +91,13 @@ func (t *exchangedTransport) RoundTrip(r *http.Request) (*http.Response, error) 
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Del(auth.ClusterIDHeader)
 	request.Header.Del("X-OpenSVC-Node")
-	return t.base.RoundTrip(request)
+	response, err := t.base.RoundTrip(request)
+	if err == nil && (response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
+		// A refused exchanged token is not reused: the next tool call
+		// exchanges again.
+		mcpauth.ForgetExchanged(r.Context())
+	}
+	return response, err
 }
 
 func (c *ExchangeClient) GetJSON(ctx context.Context, path string, query url.Values, output any) error {

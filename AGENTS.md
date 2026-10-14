@@ -82,7 +82,9 @@ or authentication logic in core/tool handlers.
 - OAuth identity and tokens use a private context separate from `Delegation`.
   Never pass an incoming MCP token directly to a daemon.
 - For clusters with `auth` and exchange profiles, the registrar adds required
-  `cluster_id` to all daemon tool schemas and prepares one exchange per call.
+  `cluster_id` to all daemon tool schemas and prepares the exchanged token of
+  each call, reused from the `mcpauth` cache for the same MCP token and
+  cluster.
   `list_clusters` is local discovery of those clusters, without grants
   filtering. Missing exchange configuration keeps daemon calls blocked.
 - The Unix socket (`internal/auth/jwt.go`, `internal/client/delegated.go`)
@@ -97,7 +99,9 @@ or authentication logic in core/tool handlers.
 - SSO TLS uses system roots or an explicit PEM bundle. Daemon TLS settings
   retain their existing semantics and do not change SSO TLS verification.
 - User tokens are never stored in sessions, shared clients, logs, tool data or
-  persistent storage. The `cmd/om3-mcp/audit.go` middleware logs one
+  persistent storage; exchanged tokens stay at most one minute in the
+  in-memory cache of `mcpauth`, which the daemon transport clears on HTTP 401
+  or 403. The `cmd/om3-mcp/audit.go` middleware logs one
   credential-free line per tool call (identity, client, cluster, tool, exchange
   and call outcomes); keep it free of tokens, secrets and tool results. Confidential client secrets are snapshotted from protected
   files at startup; only public keys and discovery metadata are cached. Bound

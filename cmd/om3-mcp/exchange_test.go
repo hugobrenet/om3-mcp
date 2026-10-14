@@ -164,11 +164,13 @@ func TestOAuthExchangeMultiClusterTools(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	if exchanges.Load() != 8 || daemonCalls.Load() != 8 {
+	// One exchange per MCP token and cluster, reused by the other calls.
+	if exchanges.Load() != 4 || daemonCalls.Load() != 8 {
 		t.Fatalf("unexpected exchange/request counts: %d/%d", exchanges.Load(), daemonCalls.Load())
 	}
 	fail.Store(true)
-	res, err := a.CallTool(t.Context(), &mcp.CallToolParams{Name: "get_node_status", Arguments: map[string]any{"cluster_id": "cluster-a", "node": "shared-node"}})
+	carol := connect("carol")
+	res, err := carol.CallTool(t.Context(), &mcp.CallToolParams{Name: "get_node_status", Arguments: map[string]any{"cluster_id": "cluster-a", "node": "shared-node"}})
 	if err != nil || !res.IsError || daemonCalls.Load() != 8 {
 		t.Fatal("SSO refusal did not stop daemon call")
 	}
@@ -186,6 +188,11 @@ func TestOAuthExchangeMultiClusterTools(t *testing.T) {
 	if !strings.Contains(string(data), "403") {
 		t.Fatal("daemon refusal not reported")
 	}
+	// The refused exchange is forgotten: the next call exchanges again.
+	before := exchanges.Load()
+	if res, err = denied.CallTool(t.Context(), &mcp.CallToolParams{Name: "get_node_status", Arguments: map[string]any{"cluster_id": "cluster-a", "node": "shared-node"}}); err != nil || !res.IsError || exchanges.Load() != before+1 {
+		t.Fatalf("refused exchange reused: %d exchanges", exchanges.Load()-before)
+	}
 
 	// One credential-free audit line per tool call.
 	logs := audit.String()
@@ -198,7 +205,7 @@ func TestOAuthExchangeMultiClusterTools(t *testing.T) {
 		{"tool=list_clusters", "cluster_id=\"\"", "subject=alice", "client_id=codex-test", "exchange=none", "outcome=ok"},
 		{"tool=get_node_status", "cluster_id=unknown", "exchange=none", "outcome=tool_error"},
 		{"tool=get_node_status", "cluster_id=cluster-b", "subject=bob", "exchange=ok", "daemon_subject=bob", "outcome=ok"},
-		{"cluster_id=cluster-a", "subject=alice", `exchange="token exchange refused by SSO (invalid_target)"`, "daemon_subject=\"\"", "outcome=tool_error"},
+		{"cluster_id=cluster-a", "subject=carol", `exchange="token exchange refused by SSO (invalid_target)"`, "daemon_subject=\"\"", "outcome=tool_error"},
 		{"cluster_id=cluster-a", "subject=denied", "exchange=ok", "daemon_subject=denied", "outcome=tool_error", "403"},
 	} {
 		found := false
@@ -213,8 +220,8 @@ func TestOAuthExchangeMultiClusterTools(t *testing.T) {
 			t.Errorf("missing audit line with %v in:\n%s", want, logs)
 		}
 	}
-	if n := strings.Count(logs, "msg=\"mcp tool call\""); n != 14 {
-		t.Errorf("expected 14 audited tool calls, got %d", n)
+	if n := strings.Count(logs, "msg=\"mcp tool call\""); n != 15 {
+		t.Errorf("expected 15 audited tool calls, got %d", n)
 	}
 }
 

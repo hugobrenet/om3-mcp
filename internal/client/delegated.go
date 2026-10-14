@@ -26,9 +26,19 @@ func NewDelegated(catalog *clusterconfig.Catalog) (*DelegatedClient, error) {
 	}
 	c := &DelegatedClient{clients: make(map[string]*Client)}
 	for _, cluster := range catalog.List() {
-		base, err := clusterTransport(cluster)
-		if err != nil {
-			return nil, err
+		var roots *x509.CertPool
+		if len(cluster.CAPEM) > 0 {
+			roots = x509.NewCertPool()
+			if !roots.AppendCertsFromPEM(cluster.CAPEM) {
+				return nil, errors.New("invalid daemon TLS trust")
+			}
+		}
+		base := &http.Transport{
+			// Explicit per-cluster demo option. HTTPS and origin binding remain
+			// required, but the peer is NOT authenticated when this is true.
+			TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, InsecureSkipVerify: cluster.TLSInsecure},
+			TLSHandshakeTimeout: cluster.RequestTimeout, IdleConnTimeout: 90 * time.Second, MaxIdleConns: 2, MaxIdleConnsPerHost: 2,
+			// Proxy is intentionally nil: delegated credentials travel directly.
 		}
 		httpClient := &http.Client{
 			Transport:     &delegatedTransport{base: base, clusterID: cluster.ID, origin: cluster.Endpoint},
@@ -129,22 +139,4 @@ func (c *DelegatedClient) GetNoContent(ctx context.Context, path string, query u
 		return err
 	}
 	return api.GetNoContent(ctx, path, query)
-}
-
-// clusterTransport reaches the VIP of a cluster with its TLS trust, directly:
-// Proxy is intentionally nil, delegated credentials travel directly.
-func clusterTransport(cluster clusterconfig.Cluster) (*http.Transport, error) {
-	var roots *x509.CertPool
-	if len(cluster.CAPEM) > 0 {
-		roots = x509.NewCertPool()
-		if !roots.AppendCertsFromPEM(cluster.CAPEM) {
-			return nil, errors.New("invalid daemon TLS trust")
-		}
-	}
-	return &http.Transport{
-		// Explicit per-cluster demo option. HTTPS and origin binding remain
-		// required, but the peer is NOT authenticated when this is true.
-		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, InsecureSkipVerify: cluster.TLSInsecure},
-		TLSHandshakeTimeout: cluster.RequestTimeout, IdleConnTimeout: 90 * time.Second, MaxIdleConns: 2, MaxIdleConnsPerHost: 2,
-	}, nil
 }

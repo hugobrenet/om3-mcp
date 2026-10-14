@@ -79,15 +79,6 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 		count := calls[id]
 		audience := "client-" + strings.TrimPrefix(id, "cluster-")
 		d := testutil.NewDaemon(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/api/auth/info" {
-				// Public: the MCP reads the provider of the daemon without any token.
-				if r.Header.Get("Authorization") != "" {
-					t.Error("the MCP sent a token to read the daemon auth info")
-				}
-				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(map[string]any{"methods": []string{"openid"}, "openid": map[string]string{"issuer": testIssuer, "client_id": audience}})
-				return
-			}
 			count.Add(1)
 			raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 			var claims jwt.RegisteredClaims
@@ -107,7 +98,8 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 			fmt.Fprintf(w, `{"cluster":{"config":{"id":%q,"name":%q,"nodes":["shared-node"]},"node":{"shared-node":{"status":{"agent":%q}}}}}`, id, id, claims.Subject+"-"+id)
 		}))
 		// No auth block: the cluster is reachable through the socket only.
-		clusters[id] = map[string]any{"name": id, "cluster_id": id, "endpoint": d.Server.URL, "request_timeout": "2s", "tls": map[string]string{"ca_file": d.CAFile}}
+		clusters[id] = map[string]any{"name": id, "cluster_id": id, "endpoint": d.Server.URL, "request_timeout": "2s", "tls": map[string]string{"ca_file": d.CAFile},
+			"delegation": map[string]string{"issuer": testIssuer, "audience": audience}}
 	}
 	catalog, err := clusterconfig.Load(testutil.WriteCatalog(t, clusters))
 	if err != nil {

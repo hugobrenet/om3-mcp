@@ -20,53 +20,32 @@ import (
 	"github.com/opensvc/osvc-auth-mcp/mcpauthtest"
 )
 
-// stubTrust is the OpenID provider of the daemons of the tests: one issuer,
-// a client ID per cluster.
-type stubTrust struct {
-	issuer  string
-	clients map[string]string
-	err     error
-}
-
-func (s stubTrust) OpenIDTrust(_ context.Context, clusterID string) (string, string, error) {
-	if s.err != nil {
-		return "", "", s.err
-	}
-	client, ok := s.clients[clusterID]
-	if !ok {
-		return "", "", ErrNoOpenID
-	}
-	return s.issuer, client, nil
-}
-
 func testDelegator(t *testing.T) *Delegator {
 	t.Helper()
-	d, _ := testDelegatorWith(t, nil)
+	d, _ := testDelegatorWith(t)
 	return d
 }
 
-// testDelegatorWith returns a delegator trusting a test provider for
-// cluster-a (client-a) and cluster-b (client-b), unless trust replaces it.
-func testDelegatorWith(t *testing.T, trust TrustSource) (*Delegator, *mcpauthtest.OAuthProvider) {
+// testDelegatorWith returns a delegator whose catalogue names a test provider
+// for cluster-a (client-a) and cluster-b (client-b).
+func testDelegatorWith(t *testing.T) (*Delegator, *mcpauthtest.OAuthProvider) {
 	t.Helper()
 	p := mcpauthtest.NewOAuthProvider(t)
-	if trust == nil {
-		trust = stubTrust{issuer: p.Issuer, clients: map[string]string{"cluster-a": "client-a", "cluster-b": "client-b"}}
-	}
 	verifier, err := mcpauth.NewJWTVerifier(p.CAFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := func(id, endpoint string) map[string]any {
-		return map[string]any{"name": "Same display name", "cluster_id": id, "endpoint": endpoint, "request_timeout": "2s"}
+	definition := func(id, endpoint, audience string) map[string]any {
+		return map[string]any{"name": "Same display name", "cluster_id": id, "endpoint": endpoint, "request_timeout": "2s",
+			"delegation": map[string]string{"issuer": p.Issuer, "audience": audience}}
 	}
 	catalog, err := clusterconfig.Load(testutil.WriteCatalog(t, map[string]any{
-		"a": definition("cluster-a", "https://192.0.2.20:1215"), "b": definition("cluster-b", "https://192.0.2.21:1215"),
+		"a": definition("cluster-a", "https://192.0.2.20:1215", "client-a"), "b": definition("cluster-b", "https://192.0.2.21:1215", "client-b"),
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	delegator, err := NewDelegator(catalog, trust, verifier)
+	delegator, err := NewDelegator(catalog, verifier)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +83,7 @@ func TestDelegatedTargetAndShapeWithoutSignature(t *testing.T) {
 			}
 		})
 	}
-	if _, err := NewDelegator(nil, stubTrust{}, &mcpauth.JWTVerifier{}); err == nil {
+	if _, err := NewDelegator(nil, &mcpauth.JWTVerifier{}); err == nil {
 		t.Fatal("empty catalogue accepted")
 	}
 }
@@ -190,7 +169,7 @@ func TestDelegatedOpenIDAlgorithmsAndKeyID(t *testing.T) {
 }
 
 func TestDelegationMiddlewareRequestScopedCredentialAndExpiry(t *testing.T) {
-	d, p := testDelegatorWith(t, nil)
+	d, p := testDelegatorWith(t)
 	raw := p.Token(t, "client-a", "alice", nil)
 	var saved context.Context
 	var calls int
@@ -257,7 +236,7 @@ func TestDelegationMiddlewareRequestScopedCredentialAndExpiry(t *testing.T) {
 }
 
 func TestDelegationMiddlewareBoundsBody(t *testing.T) {
-	d, p := testDelegatorWith(t, nil)
+	d, p := testDelegatorWith(t)
 	request := httptest.NewRequest("POST", "/mcp", strings.NewReader(strings.Repeat("x", maxMCPBodyBytes+1)))
 	request.Header.Set("Authorization", "Bearer "+p.Token(t, "client-a", "alice", nil))
 	request.Header.Set(ClusterIDHeader, "cluster-a")
@@ -287,7 +266,7 @@ func TestDelegationMiddlewareVerifiesBeforeTheDaemon(t *testing.T) {
 		handler.ServeHTTP(response, request)
 		return response.Code, called
 	}
-	d, p := testDelegatorWith(t, nil)
+	d, p := testDelegatorWith(t)
 	if code, called := serve(d, p.Token(t, "client-a", "alice", nil), "cluster-a"); code != 204 || !called {
 		t.Fatalf("valid token refused: %d", code)
 	}
@@ -309,20 +288,8 @@ func TestDelegationMiddlewareVerifiesBeforeTheDaemon(t *testing.T) {
 	if other.KeyCalls.Load() != 0 {
 		t.Fatal("the keys of an untrusted issuer were fetched")
 	}
-	t.Run("daemon without OpenID", func(t *testing.T) {
-		d, p := testDelegatorWith(t, stubTrust{issuer: "unused", clients: map[string]string{}})
-		if code, called := serve(d, p.Token(t, "client-a", "alice", nil), "cluster-a"); code != 401 || called {
-			t.Fatalf("token admitted for a daemon without OpenID: %d", code)
-		}
-	})
-	t.Run("daemon OpenID configuration unknown", func(t *testing.T) {
-		d, p := testDelegatorWith(t, stubTrust{err: mcpauth.ErrVerificationUnavailable})
-		if code, called := serve(d, p.Token(t, "client-a", "alice", nil), "cluster-a"); code != 503 || called {
-			t.Fatalf("unverifiable token admitted: %d", code)
-		}
-	})
 	t.Run("provider keys unavailable", func(t *testing.T) {
-		d, p := testDelegatorWith(t, nil)
+		d, p := testDelegatorWith(t)
 		p.Status = 503
 		if code, called := serve(d, p.Token(t, "client-a", "alice", nil), "cluster-a"); code != 503 || called {
 			t.Fatalf("unverifiable token admitted: %d", code)

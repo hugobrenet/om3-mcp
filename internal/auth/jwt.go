@@ -1,8 +1,8 @@
 // Package auth authenticates MCP callers. On the HTTPS listener, OAuth access
 // JWTs intended for the MCP resource are verified locally. On the local Unix
 // socket, the OpenID Connect access tokens of the users are verified locally
-// too, with the OpenID provider the daemon of the cluster named in the request
-// header accepts, before they reach that daemon, which decides the access.
+// too, with the OpenID provider the catalogue names for the cluster of the
+// request header, before they reach its daemon, which decides the access.
 package auth
 
 import (
@@ -29,17 +29,14 @@ const (
 
 var errUnauthorized = errors.New("invalid OpenID Connect access token or target")
 
-// ErrNoOpenID is the error of a cluster whose daemon accepts no OpenID
-// Connect token: no token of the socket can reach it.
-var ErrNoOpenID = errors.New("the daemon of the cluster accepts no OpenID Connect token")
-
-// TrustSource gives the OpenID provider the daemon of a cluster accepts: the
-// issuer and the client ID its tokens are intended for. It returns
-// ErrNoOpenID, or an error wrapping mcpauth.ErrVerificationUnavailable when
-// the answer of the daemon is unknown.
-type TrustSource interface {
-	OpenIDTrust(ctx context.Context, clusterID string) (issuer, clientID string, err error)
+// TokenVerifier verifies an access token for an issuer and an audience, as
+// mcpauth.JWTVerifier does.
+type TokenVerifier interface {
+	Verify(ctx context.Context, raw, issuer, audience string) (mcpauth.VerifiedClaims, error)
 }
+
+// provider is the OpenID provider of the daemon of a cluster.
+type provider struct{ issuer, audience string }
 
 type delegatedClaims struct {
 	PreferredUsername string `json:"preferred_username"`
@@ -61,23 +58,27 @@ type Delegation struct {
 }
 
 // Delegator checks delegated tokens against the clusters of the catalogue,
-// and verifies them with the OpenID provider of the selected cluster.
+// and verifies them with the OpenID provider the catalogue names for the
+// selected cluster.
 type Delegator struct {
-	clusters map[string]bool
-	trust    TrustSource
-	verifier *mcpauth.JWTVerifier
+	clusters  map[string]bool
+	providers map[string]provider
+	verifier  TokenVerifier
 }
 
-func NewDelegator(catalog *clusterconfig.Catalog, trust TrustSource, verifier *mcpauth.JWTVerifier) (*Delegator, error) {
+func NewDelegator(catalog *clusterconfig.Catalog, verifier TokenVerifier) (*Delegator, error) {
 	if catalog.Len() == 0 {
 		return nil, errors.New("token delegation requires a cluster catalogue")
 	}
-	if trust == nil || verifier == nil {
-		return nil, errors.New("token delegation requires the OpenID trust of the clusters")
+	if verifier == nil {
+		return nil, errors.New("token delegation requires a token verifier")
 	}
-	d := &Delegator{clusters: make(map[string]bool), trust: trust, verifier: verifier}
+	d := &Delegator{clusters: make(map[string]bool), providers: make(map[string]provider), verifier: verifier}
 	for _, cluster := range catalog.List() {
 		d.clusters[cluster.ID] = true
+		if cluster.DelegatedIssuer != "" {
+			d.providers[cluster.ID] = provider{issuer: cluster.DelegatedIssuer, audience: cluster.DelegatedAudience}
+		}
 	}
 	return d, nil
 }
@@ -175,7 +176,7 @@ func (d *Delegator) Middleware(next http.Handler) http.Handler {
 			w.Header().Set("Content-Type", "application/problem+json")
 			w.Header().Set("Cache-Control", "no-store")
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte(`{"type":"about:blank","title":"Service Unavailable","status":503,"detail":"The OpenID provider of the cluster could not be read; retry later."}`))
+			_, _ = w.Write([]byte(`{"type":"about:blank","title":"Service Unavailable","status":503,"detail":"The keys of the OpenID provider of the cluster could not be loaded; retry later."}`))
 			return
 		}
 		if err != nil || len(values) != 1 || len(clusters) != 1 || r.URL.Query().Has("access_token") {
@@ -199,21 +200,16 @@ func (d *Delegator) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// verify proves the token with the OpenID provider the daemon of the selected
-// cluster accepts: signature by a key of its JWKS, issuer, audience (its
-// client ID) and lifetime. A refused token never reaches the daemon.
+// verify proves the token with the OpenID provider of the selected cluster:
+// signature by a key of its JWKS, issuer, audience (the client ID of the
+// daemon) and lifetime. A refused token never reaches the daemon. The
+// configuration requires a provider for every cluster of the socket.
 func (d *Delegator) verify(ctx context.Context, raw string, delegation Delegation) error {
-	issuer, clientID, err := d.trust.OpenIDTrust(ctx, delegation.ClusterID)
-	if err != nil {
-		if errors.Is(err, mcpauth.ErrVerificationUnavailable) {
-			return err
-		}
-		return errUnauthorized
-	}
+	p, ok := d.providers[delegation.ClusterID]
 	// A token of another issuer is refused without loading any key.
-	if delegation.Issuer != issuer {
+	if !ok || delegation.Issuer != p.issuer {
 		return errUnauthorized
 	}
-	_, err = d.verifier.Verify(ctx, raw, issuer, clientID)
+	_, err := d.verifier.Verify(ctx, raw, p.issuer, p.audience)
 	return err
 }

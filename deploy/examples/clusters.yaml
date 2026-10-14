@@ -10,6 +10,11 @@ clusters:
     auth:
       profile: customer-sso
       audience: opensvc-cluster-a
+    # Required with the delegated Unix socket: the OpenID provider of the
+    # daemon, as its GET /api/auth/info shows. The audience defaults to
+    # auth.audience; set delegation.audience for a cluster without auth.
+    delegation:
+      issuer: https://sso.example.com/application/o/opensvc-cluster-a/
     request_timeout: 20s
     # Omit tls for system roots. For a private CA:
     # tls:

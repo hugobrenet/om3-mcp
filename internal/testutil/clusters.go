@@ -54,6 +54,8 @@ func WriteClusters(t testing.TB, names map[string]string) string {
 			"name": names[ref], "cluster_id": fmt.Sprintf("00000000-0000-4000-8000-%012d", i+1),
 			"endpoint": fmt.Sprintf("https://192.0.2.%d:1215", 20+i%200),
 			"tls":      map[string]string{"ca_file": ca}, "request_timeout": "20s",
+			// The OpenID provider of the daemon, required with the socket.
+			"delegation": map[string]string{"issuer": "https://idp.example.test/", "audience": "client-" + ref},
 		}
 	}
 	return WriteCatalog(t, clusters)

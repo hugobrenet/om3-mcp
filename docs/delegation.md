@@ -54,7 +54,10 @@ X-OpenSVC-Cluster-ID: <cluster_id from the catalogue>
 Both are required. The header selects the catalogue entry, and therefore the
 VIP that receives the token. It is not trusted as an identity: a token issued
 by another cluster is refused by the selected daemon. `X-OpenSVC-Node` is
-accepted and ignored. Tokens in query strings are refused.
+accepted and ignored. Tokens in query strings are refused. An optional
+`X-Request-ID`, the request ID of the AI agent, is kept in the
+[audit lines](token-exchange.md#audit-trail) when it is 32 lowercase
+hexadecimal characters; it is never an identity.
 
 The MCP checks the token shape before any daemon call, without verifying its
 signature:

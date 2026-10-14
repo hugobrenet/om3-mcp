@@ -127,7 +127,8 @@ An exchanged token is kept in the memory of the MCP process, never on disk,
 and reused by the next tool calls of the same MCP token for the same cluster:
 for at most one minute, and never within 30 seconds of its expiry. The cache
 key is a hash of the MCP token and the target, never the MCP token itself.
-Concurrent calls share one exchange; failures are not cached. When the target
+Concurrent calls share one exchange. A failed exchange is returned again for
+five seconds without contacting the SSO. When the target
 refuses the token (HTTP 401 or 403), it is forgotten and the next call
 exchanges again. A claim change in the SSO therefore applies within a minute.
 

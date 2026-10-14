@@ -175,3 +175,34 @@ func TestOAuthHTTPSRemovesDelegationHeaders(t *testing.T) {
 		t.Fatalf("status=%d called=%v", response.Code, called)
 	}
 }
+
+func TestOAuthHTTPSLimitsTheToolCallsOfAnIdentity(t *testing.T) {
+	p := mcpauthtest.NewOAuthProvider(t)
+	resource := testOAuthConfig().ResourceURL
+	handler, err := newMCPHandler(config.Config{OAuth: mcpauth.OAuthConfig{ResourceURL: resource, Issuer: p.Issuer, CAFile: p.CAFile}, MaxCallsPerMinute: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client := &http.Client{Transport: mcpBearerTransport{base: http.DefaultTransport, token: p.Token(t, resource, "alice", nil)}}
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(t.Context(), &mcp.StreamableClientTransport{Endpoint: server.URL + "/mcp", HTTPClient: client, DisableStandaloneSSE: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	call := func() string {
+		result, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "get_node_status", Arguments: map[string]any{"node": "node-a"}})
+		if err != nil || !result.IsError {
+			t.Fatalf("unexpected result: %v %+v", err, result)
+		}
+		text, _ := result.Content[0].(*mcp.TextContent)
+		return text.Text
+	}
+	if text := call(); !strings.Contains(text, "token exchange configuration") {
+		t.Fatalf("first call not admitted: %s", text)
+	}
+	if text := call(); !strings.Contains(text, "tool call limited") || !strings.Contains(text, "retry in") {
+		t.Fatalf("call beyond the rate admitted: %s", text)
+	}
+}

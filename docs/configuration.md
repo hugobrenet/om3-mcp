@@ -16,6 +16,8 @@
 | OPENSVC_MCP_AUTH_CONFIG_FILE | empty | Version 1 confidential SSO profile file; required when a cluster sets `auth` |
 | OPENSVC_MCP_CLUSTER_CONFIG_FILE | empty | Cluster catalogue; required for the Unix socket and for exchanged daemon calls |
 | OPENSVC_MCP_DELEGATED_SOCKET | empty | Absolute Unix socket path, at most 103 bytes; enables the delegated listener |
+| OPENSVC_MCP_MAX_CONCURRENT_CALLS | 10 | Tool calls in progress of one identity on HTTPS; 0 disables the limit. See [call limits](#call-limits) |
+| OPENSVC_MCP_MAX_CALLS_PER_MINUTE | 120 | Tool calls per minute of one identity on HTTPS, with a burst of 30; 0 disables the limit |
 | OPENSVC_MCP_ACTIONS | disabled | `enabled` registers the [action tools](tools/actions.md), which change the cluster state, on both listeners; `disabled` leaves them out |
 
 The MCP has two optional listeners; configure at least one:
@@ -64,6 +66,27 @@ TLS material are validated before binding; startup never contacts a daemon.
 Settings and files are snapshotted once. Restart to apply changes.
 HTTP headers are bounded to 64 KiB, authenticated MCP request bodies to 1 MiB,
 and header reads to 5 seconds. Shutdown drains requests for up to 30 seconds.
+
+### Call limits
+
+The tool calls of each identity on HTTPS (token issuer and subject) are
+limited: `OPENSVC_MCP_MAX_CONCURRENT_CALLS` calls in progress and
+`OPENSVC_MCP_MAX_CALLS_PER_MINUTE` calls per minute, with a burst of 30 calls
+for an idle identity. A call beyond a limit fails at once, before any token
+exchange or daemon request, with a tool error that tells the client when to retry;
+the audit line records it as `outcome=tool_error`. The limits protect the SSO
+and the daemons from an authenticated client that loops, such as an agent repeating
+a call. They are not a network protection: limits per address, before
+authentication or for all clients belong to the reverse proxy, gateway or
+firewall in front of the MCP, where every request otherwise carries the address
+of the proxy. The Unix socket is not limited.
+
+The limits are per identity: more users do not share them, but an identity
+shared by several people or an automation does. The tools of this MCP target
+one cluster and one node, so an LLM question makes a few calls; questions over
+the whole fleet belong to oc3-mcp. Raise the limits for an identity whose
+legitimate use exceeds them, and size the SSO and the daemons for the total
+load of all users, which the limits do not bound.
 
 ## Health check
 

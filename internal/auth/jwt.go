@@ -1,7 +1,8 @@
 // Package auth authenticates MCP callers. On the HTTPS listener, OAuth access
 // JWTs intended for the MCP resource are verified locally. On the local Unix
-// socket, delegated OpenSVC daemon tokens are checked for routing only and
-// verified by the daemon of the cluster named in the request header.
+// socket, the OpenID Connect access tokens of the users are checked for
+// routing only and verified by the daemon of the cluster named in the request
+// header.
 package auth
 
 import (
@@ -23,30 +24,28 @@ const (
 	ClusterIDHeader = "X-OpenSVC-Cluster-ID"
 	// NodeHeader is accepted from OpenSVC clients but routing uses the cluster
 	// VIP; it is removed so that it never reaches a daemon.
-	NodeHeader     = "X-OpenSVC-Node"
-	NativeStrategy = "jwt"
-	OpenIDStrategy = "jwt-openid"
+	NodeHeader = "X-OpenSVC-Node"
 )
 
-var errUnauthorized = errors.New("invalid OpenSVC access token or target")
+var errUnauthorized = errors.New("invalid OpenID Connect access token or target")
 
 type delegatedClaims struct {
-	TokenUse          string `json:"token_use"`
 	PreferredUsername string `json:"preferred_username"`
 	Email             string `json:"email"`
 	jwt.RegisteredClaims
 }
 
-// Delegation describes UNVERIFIED claims of a delegated daemon token. They
-// only predict the identity that the selected daemon must confirm; they never
-// establish an identity by themselves.
+// Delegation describes UNVERIFIED claims of a delegated OpenID Connect access
+// token. They only predict the identity that the selected daemon must
+// confirm; they never establish an identity by themselves.
 type Delegation struct {
 	ClusterID string
 	Issuer    string
 	Subject   string
 	ExpiresAt time.Time
-	Strategy  string
-	Username  string
+	// Username is the name the daemon derives from the token:
+	// preferred_username, else email, else sub.
+	Username string
 }
 
 // Delegator checks delegated tokens against the clusters of the catalogue.
@@ -65,8 +64,9 @@ func NewDelegator(catalog *clusterconfig.Catalog) (*Delegator, error) {
 	return d, nil
 }
 
-// Check selects the cluster from the header and predicts the daemon identity.
-// Native tokens are marked by token_use; others follow the OpenID profile.
+// Check selects the cluster from the header and predicts the identity the
+// daemon of that cluster derives from an OpenID Connect access token. The
+// daemon verifies its signature, issuer and audience.
 func (d *Delegator) Check(raw, clusterID string) (Delegation, error) {
 	if raw == "" || len(raw) > mcpauth.MaxTokenBytes || !validTarget(clusterID) || !d.clusters[clusterID] {
 		return Delegation{}, errUnauthorized
@@ -83,38 +83,30 @@ func (d *Delegator) Check(raw, clusterID string) (Delegation, error) {
 	if !mcpauth.ValidClaimText(parsed.Subject) || !mcpauth.ValidClaimText(parsed.Issuer) || parsed.ExpiresAt == nil {
 		return Delegation{}, errUnauthorized
 	}
-	strategy, username := NativeStrategy, parsed.Subject
-	if parsed.TokenUse != "" {
-		// An incomplete native token must not fall back to the OpenID profile.
-		if token.Method != jwt.SigningMethodRS256 || parsed.TokenUse != "access" {
-			return Delegation{}, errUnauthorized
-		}
-	} else {
-		if len(parsed.Audience) == 0 || !mcpauth.OpenIDSigningMethod(token.Method.Alg()) {
-			return Delegation{}, errUnauthorized
-		}
-		kid, ok := token.Header["kid"].(string)
-		if !ok || !mcpauth.ValidClaimText(kid) {
-			return Delegation{}, errUnauthorized
-		}
-		for _, audience := range parsed.Audience {
-			if !mcpauth.ValidClaimText(audience) {
-				return Delegation{}, errUnauthorized
-			}
-		}
-		// Match the daemon's OpenID username selection. Subject remains the
-		// opaque JWT sub for the agent's conversation ownership.
-		if parsed.PreferredUsername != "" {
-			username = parsed.PreferredUsername
-		} else if parsed.Email != "" {
-			username = parsed.Email
-		}
-		if !mcpauth.ValidClaimText(username) {
-			return Delegation{}, errUnauthorized
-		}
-		strategy = OpenIDStrategy
+	if len(parsed.Audience) == 0 || !mcpauth.OpenIDSigningMethod(token.Method.Alg()) {
+		return Delegation{}, errUnauthorized
 	}
-	return Delegation{ClusterID: clusterID, Issuer: parsed.Issuer, Subject: parsed.Subject, ExpiresAt: parsed.ExpiresAt.Time, Strategy: strategy, Username: username}, nil
+	kid, ok := token.Header["kid"].(string)
+	if !ok || !mcpauth.ValidClaimText(kid) {
+		return Delegation{}, errUnauthorized
+	}
+	for _, audience := range parsed.Audience {
+		if !mcpauth.ValidClaimText(audience) {
+			return Delegation{}, errUnauthorized
+		}
+	}
+	// Match the daemon's OpenID username selection. Subject remains the
+	// opaque JWT sub for the agent's conversation ownership.
+	username := parsed.Subject
+	if parsed.PreferredUsername != "" {
+		username = parsed.PreferredUsername
+	} else if parsed.Email != "" {
+		username = parsed.Email
+	}
+	if !mcpauth.ValidClaimText(username) {
+		return Delegation{}, errUnauthorized
+	}
+	return Delegation{ClusterID: clusterID, Issuer: parsed.Issuer, Subject: parsed.Subject, ExpiresAt: parsed.ExpiresAt.Time, Username: username}, nil
 }
 
 func validTarget(value string) bool {
@@ -162,7 +154,7 @@ func (d *Delegator) Middleware(next http.Handler) http.Handler {
 			w.Header().Set("Content-Type", "application/problem+json")
 			w.Header().Set("Cache-Control", "no-store")
 			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"type":"about:blank","title":"Unauthorized","status":401,"detail":"An OpenSVC access JWT and a configured X-OpenSVC-Cluster-ID are required."}`))
+			_, _ = w.Write([]byte(`{"type":"about:blank","title":"Unauthorized","status":401,"detail":"An OpenID Connect access token and a configured X-OpenSVC-Cluster-ID are required."}`))
 			return
 		}
 		ctx, cancel := context.WithDeadline(r.Context(), delegation.ExpiresAt)

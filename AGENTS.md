@@ -88,9 +88,10 @@ or authentication logic in core/tool handlers.
   `list_clusters` is local discovery of those clusters, without grants
   filtering. Missing exchange configuration keeps daemon calls blocked.
 - The Unix socket (`internal/auth/jwt.go`, `internal/client/delegated.go`)
-  forwards a daemon-issued token unchanged to the VIP of the cluster named by
-  the required `X-OpenSVC-Cluster-ID` header. Claims are checked for shape
-  only; the daemon verifies signatures and grants. Tools there take no
+  forwards the OpenID Connect access token of the user unchanged to the VIP of
+  the cluster named by the required `X-OpenSVC-Cluster-ID` header; it accepts
+  no other token. Claims are checked for shape only; the daemon verifies
+  signatures and grants. Tools there take no
   `cluster_id`. `/mcp/auth/whoami` exists only on the socket. Socket access
   relies on filesystem permissions. Never fall back between listeners.
   See [token delegation](docs/delegation.md).

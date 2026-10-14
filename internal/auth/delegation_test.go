@@ -37,22 +37,23 @@ func testDelegator(t *testing.T) *Delegator {
 	return delegator
 }
 
-func TestDelegatedNativeClaimsWithoutSignature(t *testing.T) {
+func TestDelegatedTargetAndShapeWithoutSignature(t *testing.T) {
 	d := testDelegator(t)
 	key := testutil.NewJWTKey(t)
-	raw := testutil.AccessToken(t, key, "node-a", "alice", nil)
+	const issuer = "https://idp.example.test/application/cluster/"
+	raw := testutil.OpenIDToken(t, key, issuer, "client-a", "opaque-sub", nil)
 	for _, cluster := range []string{"cluster-a", "cluster-b"} {
 		delegation, err := d.Check(raw, cluster)
-		if err != nil || delegation.ClusterID != cluster || delegation.Issuer != "node-a" || delegation.Subject != "alice" || delegation.Username != "alice" || delegation.Strategy != NativeStrategy {
+		if err != nil || delegation.ClusterID != cluster || delegation.Issuer != issuer || delegation.Subject != "opaque-sub" {
 			t.Fatalf("cluster=%s delegation=%+v err=%v", cluster, delegation, err)
 		}
 	}
 	// The selected daemon verifies the signature; no key is checked here.
-	if _, err := d.Check(testutil.AccessToken(t, testutil.NewJWTKey(t), "node-a", "alice", nil), "cluster-a"); err != nil {
+	if _, err := d.Check(testutil.OpenIDToken(t, testutil.NewJWTKey(t), issuer, "client-a", "opaque-sub", nil), "cluster-a"); err != nil {
 		t.Fatal("signature was checked locally instead of delegated to the daemon")
 	}
 	// A legacy cluster claim never selects or overrides the target.
-	if delegation, err := d.Check(testutil.AccessToken(t, key, "node-a", "alice", func(c jwt.MapClaims) { c["cluster_id"] = "cluster-b" }), "cluster-a"); err != nil || delegation.ClusterID != "cluster-a" {
+	if delegation, err := d.Check(testutil.OpenIDToken(t, key, issuer, "client-a", "opaque-sub", func(c jwt.MapClaims) { c["cluster_id"] = "cluster-b" }), "cluster-a"); err != nil || delegation.ClusterID != "cluster-a" {
 		t.Fatalf("claim overrode the header: %+v %v", delegation, err)
 	}
 	for _, cluster := range []string{"", "unknown", " cluster-a ", "cluster-a,cluster-b", "cluster-a\n", strings.Repeat("x", 257)} {
@@ -60,27 +61,9 @@ func TestDelegatedNativeClaimsWithoutSignature(t *testing.T) {
 			t.Fatalf("invalid cluster %q accepted: %v", cluster, err)
 		}
 	}
-	hmac, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"iss": "node-a", "sub": "alice", "exp": time.Now().Add(time.Hour).Unix(), "token_use": "access"}).SignedString([]byte("not-a-trusted-key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name, raw := range map[string]string{"empty": "", "malformed": "not-a-token", "oversized": strings.Repeat("x", mcpauth.MaxTokenBytes+1), "wrong algorithm": hmac} {
+	for name, raw := range map[string]string{"empty": "", "malformed": "not-a-token", "oversized": strings.Repeat("x", mcpauth.MaxTokenBytes+1)} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := d.Check(raw, "cluster-a"); err != errUnauthorized {
-				t.Fatalf("got %v", err)
-			}
-		})
-	}
-	for name, change := range map[string]func(jwt.MapClaims){
-		"no issuer":     func(c jwt.MapClaims) { delete(c, "iss") },
-		"no subject":    func(c jwt.MapClaims) { delete(c, "sub") },
-		"no expiry":     func(c jwt.MapClaims) { delete(c, "exp") },
-		"expired":       func(c jwt.MapClaims) { c["exp"] = time.Now().Add(-time.Second).Unix() },
-		"not yet valid": func(c jwt.MapClaims) { c["nbf"] = time.Now().Add(time.Hour).Unix() },
-		"refresh":       func(c jwt.MapClaims) { c["token_use"] = "refresh" },
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := d.Check(testutil.AccessToken(t, key, "node-a", "alice", change), "cluster-a"); err != errUnauthorized {
 				t.Fatalf("got %v", err)
 			}
 		})
@@ -96,7 +79,7 @@ func TestDelegatedOpenIDClaims(t *testing.T) {
 	const issuer = "https://idp.example.test/application/cluster/"
 	raw := testutil.OpenIDToken(t, key, issuer, "client-a", "opaque-sub", nil)
 	delegation, err := d.Check(raw, "cluster-b")
-	if err != nil || delegation.ClusterID != "cluster-b" || delegation.Issuer != issuer || delegation.Subject != "opaque-sub" || delegation.Username != "alice" || delegation.Strategy != OpenIDStrategy {
+	if err != nil || delegation.ClusterID != "cluster-b" || delegation.Issuer != issuer || delegation.Subject != "opaque-sub" || delegation.Username != "alice" {
 		t.Fatalf("delegation=%+v err=%v", delegation, err)
 	}
 	for name, change := range map[string]func(jwt.MapClaims){
@@ -110,7 +93,6 @@ func TestDelegatedOpenIDClaims(t *testing.T) {
 		"expired":                 func(c jwt.MapClaims) { c["exp"] = time.Now().Add(-time.Second).Unix() },
 		"not yet valid":           func(c jwt.MapClaims) { c["nbf"] = time.Now().Add(time.Hour).Unix() },
 		"bad username":            func(c jwt.MapClaims) { c["preferred_username"] = " padded " },
-		"refresh marker":          func(c jwt.MapClaims) { c["token_use"] = "refresh" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := d.Check(testutil.OpenIDToken(t, key, issuer, "client-a", "opaque-sub", change), "cluster-a"); err != errUnauthorized {
@@ -173,7 +155,7 @@ func TestDelegatedOpenIDAlgorithmsAndKeyID(t *testing.T) {
 
 func TestDelegationMiddlewareRequestScopedCredentialAndExpiry(t *testing.T) {
 	d := testDelegator(t)
-	raw := testutil.AccessToken(t, testutil.NewJWTKey(t), "node-a", "alice", nil)
+	raw := testutil.OpenIDToken(t, testutil.NewJWTKey(t), "https://idp.example.test/", "client-a", "alice", nil)
 	var saved context.Context
 	var calls int
 	handler := d.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -241,7 +223,7 @@ func TestDelegationMiddlewareRequestScopedCredentialAndExpiry(t *testing.T) {
 func TestDelegationMiddlewareBoundsBody(t *testing.T) {
 	d := testDelegator(t)
 	request := httptest.NewRequest("POST", "/mcp", strings.NewReader(strings.Repeat("x", maxMCPBodyBytes+1)))
-	request.Header.Set("Authorization", "Bearer "+testutil.AccessToken(t, testutil.NewJWTKey(t), "node-a", "alice", nil))
+	request.Header.Set("Authorization", "Bearer "+testutil.OpenIDToken(t, testutil.NewJWTKey(t), "https://idp.example.test/", "client-a", "alice", nil))
 	request.Header.Set(ClusterIDHeader, "cluster-a")
 	d.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, err := io.ReadAll(r.Body)

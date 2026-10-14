@@ -149,8 +149,9 @@ func newMCPHandler(cfg config.Config) (http.Handler, error) {
 }
 
 // newDelegatedHandler serves the local Unix socket. OpenSVC components such
-// as the AI agent forward a daemon-issued token unchanged; the daemon of the
-// cluster named by X-OpenSVC-Cluster-ID verifies it. Tools are bound to that
+// as the AI agent forward the OpenID Connect access token of the user
+// unchanged; the daemon of the cluster named by X-OpenSVC-Cluster-ID verifies
+// it. Tools are bound to that
 // cluster and take no cluster_id argument.
 func newDelegatedHandler(cfg config.Config) (http.Handler, error) {
 	delegator, err := auth.NewDelegator(cfg.Clusters)

@@ -8,7 +8,7 @@ between them:
 | Listener | Clients | Authentication |
 |---|---|---|
 | HTTPS `/mcp` | External agents | OAuth access JWT for the MCP resource, then token exchange (this page) |
-| Local Unix socket | OpenSVC components such as the AI agent | Daemon-issued token forwarded unchanged and verified by the selected daemon ([token delegation](delegation.md)) |
+| Local Unix socket | OpenSVC components such as the AI agent | OpenID Connect access token of the user, forwarded unchanged and verified by the selected daemon ([token delegation](delegation.md)) |
 
 ## External-client OAuth and daemon token exchange
 
@@ -24,7 +24,7 @@ Before the tool executes, the MCP exchanges the incoming token for a daemon
 access token and binds it to the configured VIP for the call lifetime.
 See [token exchange](token-exchange.md) for configuration.
 Without exchange configuration, daemon calls return an explicit tool error.
-The HTTPS listener never accepts daemon-issued tokens and does not serve the
+The HTTPS listener never accepts delegated tokens and does not serve the
 `/mcp/auth/whoami` identity bridge, which exists only on the Unix socket.
 
 ## Resource discovery and login

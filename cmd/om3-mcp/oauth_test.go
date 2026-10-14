@@ -80,7 +80,7 @@ func TestOAuthHTTPSDiscoveryInitializationAndToolBoundary(t *testing.T) {
 			if p.MetadataCalls.Load() != 0 {
 				t.Fatal("public discovery contacted SSO")
 			}
-			for _, token := range []string{"", testutil.AccessToken(t, p.Key, "node-a", "alice", nil), p.Token(t, "om3-dev5", "alice", nil)} {
+			for _, token := range []string{"", testutil.OpenIDToken(t, p.Key, "https://idp.example.test/", "om3-dev5", "alice", nil), p.Token(t, "om3-dev5", "alice", nil)} {
 				r, _ := http.NewRequest("POST", origin+"/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
 				if token != "" {
 					r.Header.Set("Authorization", "Bearer "+token)

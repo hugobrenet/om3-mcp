@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -15,13 +16,19 @@ import (
 // authentication by asking the daemon of the cluster named by the header.
 func serveWhoAmI(api *client.DelegatedClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
 		delegation, _, ok := auth.DelegationFromContext(r.Context())
+		// refuse answers a problem and records one audit line for it.
+		refuse := func(status int, outcome string, extra ...slog.Attr) {
+			writeIdentityProblem(w, status)
+			auditWhoAmI(delegation, outcome, status, started, extra...)
+		}
 		if !ok {
-			writeIdentityProblem(w, 401)
+			refuse(401, "expired")
 			return
 		}
 		if r.URL.RawQuery != "" || r.ContentLength != 0 {
-			writeIdentityProblem(w, 400)
+			refuse(400, "bad_request")
 			return
 		}
 		var identity struct {
@@ -30,26 +37,30 @@ func serveWhoAmI(api *client.DelegatedClient) http.HandlerFunc {
 		}
 		if err := api.GetJSON(r.Context(), "/api/auth/whoami", nil, &identity); err != nil {
 			if !time.Now().Before(delegation.ExpiresAt) {
-				writeIdentityProblem(w, 401)
+				refuse(401, "expired")
 				return
 			}
 			var apiError *client.APIError
 			if errors.As(err, &apiError) && (apiError.StatusCode == 401 || apiError.StatusCode == 403) {
-				writeIdentityProblem(w, apiError.StatusCode)
+				refuse(apiError.StatusCode, "daemon_refused", slog.Int("daemon_status", apiError.StatusCode))
 				return
 			}
-			writeIdentityProblem(w, 502)
+			extra := []slog.Attr{slog.String("detail", auditValue(err.Error()))}
+			if errors.As(err, &apiError) {
+				extra = append(extra, slog.Int("daemon_status", apiError.StatusCode))
+			}
+			refuse(502, "daemon_failed", extra...)
 			return
 		}
 		// A public/basic response or a different JWT strategy cannot authenticate
 		// this profile. OpenID names use preferred_username, email, then sub;
 		// the daemon verifies those signed claims, issuer and audience itself.
 		if identity.Auth != delegation.Strategy || identity.Name == "" || identity.Name != delegation.Username {
-			writeIdentityProblem(w, 401)
+			refuse(401, "identity_mismatch", slog.String("auth", auditValue(identity.Auth)))
 			return
 		}
 		if _, _, ok := auth.DelegationFromContext(r.Context()); !ok {
-			writeIdentityProblem(w, 401)
+			refuse(401, "expired")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -59,6 +70,7 @@ func serveWhoAmI(api *client.DelegatedClient) http.HandlerFunc {
 			Subject   string    `json:"subject"`
 			ExpiresAt time.Time `json:"expires_at"`
 		}{delegation.ClusterID, delegation.Issuer, delegation.Subject, delegation.ExpiresAt})
+		auditWhoAmI(delegation, "ok", 200, started)
 	}
 }
 

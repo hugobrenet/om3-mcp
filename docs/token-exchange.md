@@ -172,6 +172,25 @@ INFO mcp tool call tool=get_node_status cluster_id=00000000-0000-4000-8000-00000
 | `outcome`, `detail` | `ok`, `tool_error` (exchange refusal, daemon refusal such as HTTP 403, or validation error) or `error` (protocol error); `detail` is the bounded error text already returned to the client |
 | `duration` | Total call duration, including exchange and daemon requests |
 
+On the [Unix socket](delegation.md), every `GET /mcp/auth/whoami` emits one
+`INFO` line `mcp whoami`:
+
+```text
+INFO mcp whoami cluster_id=00000000-0000-4000-8000-000000000001 issuer=node-a subject=<sub> outcome=daemon_refused status=401 duration=12ms daemon_status=401
+```
+
+| Field | Meaning |
+|---|---|
+| `cluster_id` | Cluster selected by the `X-OpenSVC-Cluster-ID` header |
+| `issuer`, `subject` | Unverified claims of the delegated token, which the daemon verifies |
+| `outcome` | `ok`; `daemon_refused` (the daemon answered 401 or 403); `daemon_failed` (any other daemon failure, answered 502); `identity_mismatch` (the daemon authenticated another strategy or username than predicted); `expired`; `bad_request` |
+| `status` | The HTTP status the bridge answered |
+| `duration` | Total check duration, including the daemon request |
+| `daemon_status`, `detail`, `auth` | When relevant: the daemon HTTP status, the bounded error of a daemon failure, the strategy the daemon reported |
+
+A missing or unknown cluster, or a malformed token, is refused before the
+bridge and emits no line.
+
 Tokens, secrets, raw arguments other than `cluster_id`, and tool results are
 never logged. Values come from verified claims or are quoted by the structured
 logger. Retention and shipping of these logs belong to the deployment.

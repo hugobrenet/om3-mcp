@@ -20,7 +20,6 @@ import (
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 	"github.com/opensvc/om3-mcp/internal/config"
 	"github.com/opensvc/om3-mcp/internal/testutil"
-	"github.com/opensvc/osvc-auth-mcp/mcpauth"
 	"github.com/opensvc/osvc-auth-mcp/mcpauthtest"
 )
 
@@ -109,7 +108,9 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 	defer func(logger *slog.Logger) { auditLogger = logger }(auditLogger)
 	auditLogger = slog.New(slog.NewTextHandler(&audit, nil))
 	path := shortSocketPath(t)
-	handler, err := newDelegatedHandler(config.Config{Clusters: catalog, DelegatedSocket: path, OAuth: mcpauth.OAuthConfig{CAFile: provider.CAFile}})
+	// A socket-only configuration: the provider is trusted with the delegated
+	// CA bundle, the OAuth one of the HTTPS listener being unavailable.
+	handler, err := newDelegatedHandler(config.Config{Clusters: catalog, DelegatedSocket: path, DelegatedCAFile: provider.CAFile})
 	if err != nil {
 		t.Fatal(err)
 	}

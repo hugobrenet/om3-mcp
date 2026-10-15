@@ -10,7 +10,7 @@ import (
 
 func clearListenerEnvironment(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_CLUSTER_CONFIG_FILE", "OPENSVC_MCP_OAUTH_RESOURCE_URL", "OPENSVC_MCP_OAUTH_RESOURCE_NAME", "OPENSVC_MCP_OAUTH_ISSUER", "OPENSVC_MCP_OAUTH_CA_FILE", "OPENSVC_MCP_AUTH_CONFIG_FILE", "OPENSVC_MCP_DELEGATED_SOCKET", "OPENSVC_MCP_MAX_CONCURRENT_CALLS", "OPENSVC_MCP_MAX_CALLS_PER_MINUTE"} {
+	for _, name := range []string{"OPENSVC_MCP_LISTEN_ADDR", "OPENSVC_MCP_TLS_CERT_FILE", "OPENSVC_MCP_TLS_KEY_FILE", "OPENSVC_MCP_CLUSTER_CONFIG_FILE", "OPENSVC_MCP_OAUTH_RESOURCE_URL", "OPENSVC_MCP_OAUTH_RESOURCE_NAME", "OPENSVC_MCP_OAUTH_ISSUER", "OPENSVC_MCP_OAUTH_CA_FILE", "OPENSVC_MCP_AUTH_CONFIG_FILE", "OPENSVC_MCP_DELEGATED_SOCKET", "OPENSVC_MCP_MAX_CONCURRENT_CALLS", "OPENSVC_MCP_MAX_CALLS_PER_MINUTE", "OPENSVC_MCP_DELEGATED_CA_FILE"} {
 		t.Setenv(name, "")
 	}
 	t.Setenv("OPENSVC_MCP_OAUTH_RESOURCE_URL", "https://mcp.example.test/mcp")
@@ -292,4 +292,36 @@ func TestLoadDelegatedSocketRequiresTheProviderOfEveryCluster(t *testing.T) {
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "cluster b") || !strings.Contains(err.Error(), "delegation.issuer") {
 		t.Fatalf("cluster without provider accepted on the socket: %v", err)
 	}
+}
+
+func TestLoadDelegatedCAFile(t *testing.T) {
+	socket := func(t *testing.T) {
+		clearListenerEnvironment(t)
+		t.Setenv("OPENSVC_MCP_OAUTH_RESOURCE_URL", "")
+		t.Setenv("OPENSVC_MCP_OAUTH_ISSUER", "")
+		t.Setenv("OPENSVC_MCP_DELEGATED_SOCKET", "/run/opensvc-mcp/delegated.sock")
+		t.Setenv("OPENSVC_MCP_CLUSTER_CONFIG_FILE", testutil.WriteClusters(t, map[string]string{"cluster-a": "Example cluster"}))
+	}
+	// A socket-only configuration trusts a private CA for the OpenID providers.
+	socket(t)
+	t.Setenv("OPENSVC_MCP_DELEGATED_CA_FILE", "/etc/opensvc-mcp/sso-ca.pem")
+	if cfg, err := Load(); err != nil || cfg.HTTPSEnabled() || cfg.DelegatedCAFile != "/etc/opensvc-mcp/sso-ca.pem" {
+		t.Fatalf("socket-only CA refused: %+v %v", cfg, err)
+	}
+	t.Run("relative", func(t *testing.T) {
+		socket(t)
+		t.Setenv("OPENSVC_MCP_DELEGATED_CA_FILE", "sso-ca.pem")
+		if _, err := Load(); err == nil {
+			t.Fatal("relative CA path accepted")
+		}
+	})
+	t.Run("without the socket", func(t *testing.T) {
+		clearListenerEnvironment(t)
+		t.Setenv("OPENSVC_MCP_TLS_CERT_FILE", "/tmp/server.crt")
+		t.Setenv("OPENSVC_MCP_TLS_KEY_FILE", "/tmp/server.key")
+		t.Setenv("OPENSVC_MCP_DELEGATED_CA_FILE", "/etc/opensvc-mcp/sso-ca.pem")
+		if _, err := Load(); err == nil {
+			t.Fatal("CA accepted without the socket")
+		}
+	})
 }

@@ -74,7 +74,7 @@ Both values follow the OpenID configuration of the daemon, which its public
 `GET /api/auth/info` shows (`openid.issuer`, `openid.client_id`): when the
 daemon changes them, update the catalogue, the MCP refusing the tokens of the
 cluster meanwhile. The keys of the issuer are discovered and cached 5 minutes
-as on the HTTPS listener, with the system roots or `OPENSVC_MCP_OAUTH_CA_FILE`;
+as on the HTTPS listener, with `OPENSVC_MCP_DELEGATED_CA_FILE` or the system roots;
 an unknown key ID reloads them at most every 30 seconds.
 
 A missing header, an unknown cluster, a malformed token, or a token the

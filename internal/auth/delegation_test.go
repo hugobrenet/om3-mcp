@@ -296,3 +296,22 @@ func TestDelegationMiddlewareVerifiesBeforeTheDaemon(t *testing.T) {
 		}
 	})
 }
+
+// TestDelegationToleratesTheClockSkewOfTheProvider: a token issued by a
+// provider whose clock is a little ahead reaches the daemon.
+func TestDelegationToleratesTheClockSkewOfTheProvider(t *testing.T) {
+	d, p := testDelegatorWith(t)
+	ahead := func(c jwt.MapClaims) {
+		c["iat"] = time.Now().Add(20 * time.Second).Unix()
+		c["nbf"] = time.Now().Add(20 * time.Second).Unix()
+	}
+	called := false
+	handler := d.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true }))
+	request := httptest.NewRequest("GET", "/mcp/auth/whoami", nil)
+	request.Header.Set("Authorization", "Bearer "+p.Token(t, "client-a", "alice", ahead))
+	request.Header.Set(ClusterIDHeader, "cluster-a")
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+	if !called {
+		t.Fatal("token of a provider 20 s ahead refused")
+	}
+}

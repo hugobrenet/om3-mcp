@@ -354,8 +354,9 @@ resource, resource-info, or schedule tools for larger inventories.
 
 #### Errors
 
-Missing, invalid or expired native OpenSVC JWTs return HTTP `401`. With a valid
-native OpenSVC JWT, daemon errors become tool results with
+Missing, invalid or expired access tokens (OAuth on HTTPS, OpenID Connect on
+the socket) return HTTP `401`. With a valid token, daemon errors become tool
+results with
 `isError=true`, preserving the daemon HTTP status and bounded RFC 7807 detail.
 Examples include invalid object kinds or names (`400`), namespace access
 denied (`403`), and a missing object/node cache entry (`404`). These tool

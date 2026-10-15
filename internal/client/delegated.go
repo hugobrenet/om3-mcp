@@ -13,8 +13,9 @@ import (
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 )
 
-// DelegatedClient forwards a delegated daemon token unchanged to the VIP of
-// the cluster selected by the request header. It shares connection pools,
+// DelegatedClient forwards the user's OpenID Connect access token, verified
+// by the delegation middleware, unchanged to the VIP of the cluster selected
+// by the request header. It shares connection pools,
 // never a current cluster or user credentials.
 type DelegatedClient struct {
 	clients map[string]*Client

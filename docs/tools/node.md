@@ -103,7 +103,7 @@ Output:
 
 | Condition | Result |
 |---|---|
-| Missing, invalid or expired native OpenSVC JWT | MCP HTTP `401` |
+| Missing, invalid or expired access token (OAuth on HTTPS, OpenID Connect on the socket) | MCP HTTP `401` |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | Oversized or non-exact non-empty `node` | Tool error before the daemon request |
 | Node or node configuration file missing | Tool error containing daemon HTTP `404` |
@@ -349,7 +349,7 @@ representative:
 
 | Condition | Result |
 |---|---|
-| Missing, invalid or expired native OpenSVC JWT | MCP HTTP `401` |
+| Missing, invalid or expired access token (OAuth on HTTPS, OpenID Connect on the socket) | MCP HTTP `401` |
 | Insufficient daemon grants | Tool error containing daemon HTTP `403` |
 | Empty, oversized, or non-exact `node` | Tool error before the daemon request |
 | Configured node with no published data | Tool error naming the node |
@@ -488,7 +488,7 @@ Representative output:
 
 | Condition | Result |
 |---|---|
-| Missing, invalid or expired native OpenSVC JWT | MCP HTTP `401` |
+| Missing, invalid or expired access token (OAuth on HTTPS, OpenID Connect on the socket) | MCP HTTP `401` |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | System cache not yet populated | Tool error preserving daemon HTTP `404` and `Load system cache` detail |
 | Invalid node, filters, page size, or cursor | Tool validation error before the daemon request |
@@ -605,7 +605,7 @@ Representative output:
 
 | Condition | Result |
 |---|---|
-| Missing, invalid or expired native OpenSVC JWT | MCP HTTP `401` |
+| Missing, invalid or expired access token (OAuth on HTTPS, OpenID Connect on the socket) | MCP HTTP `401` |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | System cache not yet populated | Tool error preserving daemon HTTP `404` and `Load system cache` detail |
 | Invalid node, filters, page size, or cursor | Tool validation error before the daemon request |
@@ -727,7 +727,7 @@ Representative output:
 
 | Condition | Result |
 |---|---|
-| Missing, invalid or expired native OpenSVC JWT | MCP HTTP `401` |
+| Missing, invalid or expired access token (OAuth on HTTPS, OpenID Connect on the socket) | MCP HTTP `401` |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | Package cache not yet populated | Tool error preserving daemon HTTP `404` and `Load package cache` detail |
 | Invalid node, filters, page size, or cursor | Tool validation error before the daemon request |
@@ -821,7 +821,7 @@ The MCP does not translate these markers into availability or health verdicts.
 
 | Condition | Result |
 |---|---|
-| Missing, invalid or expired native OpenSVC JWT | MCP HTTP `401` |
+| Missing, invalid or expired access token (OAuth on HTTPS, OpenID Connect on the socket) | MCP HTTP `401` |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | Oversized or non-exact non-empty `node` | Tool error before the daemon request |
 | Invalid page size or cursor | Tool validation error |
@@ -916,7 +916,7 @@ Representative driver registry output:
 
 | Condition | Result |
 |---|---|
-| Missing, invalid or expired native OpenSVC JWT | MCP HTTP `401` |
+| Missing, invalid or expired access token (OAuth on HTTPS, OpenID Connect on the socket) | MCP HTTP `401` |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | Oversized or non-exact non-empty `node` | Tool error before the daemon request |
 | Invalid page size or cursor | Tool validation error |
@@ -939,7 +939,7 @@ GET /api/node/name/{node}/metrics
 Accept: text/plain
 ```
 
-OpenSVC proxies the read to the named node when necessary. The daemon authorizes requests using the request-scoped delegated OpenSVC JWT. The request does not probe resources or
+OpenSVC proxies the read to the named node when necessary. The daemon authorizes requests using the request-scoped token of the caller. The request does not probe resources or
 change daemon state.
 
 The endpoint exports metrics of the OpenSVC daemon process, including its Go
@@ -1019,7 +1019,7 @@ Abbreviated output:
 
 | Condition | Result |
 |---|---|
-| Missing, invalid or expired native OpenSVC JWT | MCP HTTP `401` |
+| Missing, invalid or expired access token (OAuth on HTTPS, OpenID Connect on the socket) | MCP HTTP `401` |
 | Daemon refuses the OpenSVC JWT | Tool error preserving the daemon status and bounded problem detail |
 | Invalid node, filter, page size, or cursor | Tool validation error |
 | Cursor no longer present with the same filters | Explicit stale-cursor tool error |
@@ -1108,7 +1108,7 @@ Output:
 
 | Condition | Result |
 |---|---|
-| Missing, invalid or expired native OpenSVC JWT | MCP HTTP `401` |
+| Missing, invalid or expired access token (OAuth on HTTPS, OpenID Connect on the socket) | MCP HTTP `401` |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | Empty, oversized, or non-exact `node` | Tool validation error before the daemon request |
 | Node has no status data | Tool error containing daemon HTTP `404` |

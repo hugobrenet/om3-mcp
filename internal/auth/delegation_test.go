@@ -52,7 +52,7 @@ func testDelegatorWith(t *testing.T) (*Delegator, *mcpauthtest.OAuthProvider) {
 	return delegator, p
 }
 
-func TestDelegatedTargetAndShapeWithoutSignature(t *testing.T) {
+func TestDelegatedCheckPrechecksTargetAndShape(t *testing.T) {
 	d := testDelegator(t)
 	key := testutil.NewJWTKey(t)
 	const issuer = "https://idp.example.test/application/cluster/"
@@ -63,9 +63,9 @@ func TestDelegatedTargetAndShapeWithoutSignature(t *testing.T) {
 			t.Fatalf("cluster=%s delegation=%+v err=%v", cluster, delegation, err)
 		}
 	}
-	// The selected daemon verifies the signature; no key is checked here.
+	// Check is a pre-check: verify proves the signature after it.
 	if _, err := d.Check(testutil.OpenIDToken(t, testutil.NewJWTKey(t), issuer, "client-a", "opaque-sub", nil), "cluster-a"); err != nil {
-		t.Fatal("signature was checked locally instead of delegated to the daemon")
+		t.Fatal("the pre-check verified the signature, which verify does after it")
 	}
 	// A legacy cluster claim never selects or overrides the target.
 	if delegation, err := d.Check(testutil.OpenIDToken(t, key, issuer, "client-a", "opaque-sub", func(c jwt.MapClaims) { c["cluster_id"] = "cluster-b" }), "cluster-a"); err != nil || delegation.ClusterID != "cluster-a" {

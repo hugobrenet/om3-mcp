@@ -32,7 +32,8 @@ GET /api/auth/whoami
 Any authenticated caller may read its own identity; no grant is needed. On the
 HTTPS listener, the caller is the identity of the daemon token the MCP
 obtained by exchange, which may differ from the SSO identity. On the Unix
-socket, it is the identity of the forwarded daemon token.
+socket, it is the identity of the user's OpenID Connect access token,
+forwarded unchanged.
 
 #### Input and output
 

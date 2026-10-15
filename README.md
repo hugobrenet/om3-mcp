@@ -18,10 +18,11 @@ The MCP has two listeners, each with one authentication model:
   those clusters. Without exchange configuration, daemon calls remain blocked.
   MCP-audience tokens are never forwarded directly to a daemon.
 - **Local Unix socket** for OpenSVC components such as the AI agent used by
-  the webapp: the OpenID Connect access token of the user and an
-  `X-OpenSVC-Cluster-ID` header are forwarded unchanged to the cluster VIP,
-  whose daemon verifies them. The
-  socket also serves the `whoami` identity bridge.
+  the webapp: the OpenID Connect access token of the user comes with an
+  `X-OpenSVC-Cluster-ID` header. The MCP verifies it first with the OpenID
+  provider the catalogue names for that cluster, then forwards it unchanged to
+  the cluster VIP, whose daemon enforces its grants. The socket also serves
+  the `whoami` identity bridge.
 
 See the [tool documentation](docs/tools/README.md) for inputs, outputs and usage.
 
@@ -31,8 +32,8 @@ See the [tool documentation](docs/tools/README.md) for inputs, outputs and usage
 - For HTTPS: an OAuth/OIDC issuer publishing discovery metadata and public
   signing keys, access JWTs containing the configured MCP resource URL in their
   audience, and a server certificate and private key.
-- For the Unix socket: a cluster catalogue and a socket directory shared with
-  the agent account.
+- For the Unix socket: a cluster catalogue with `delegation.issuer` for every
+  cluster, and a socket directory shared with the agent account.
 
 A cluster catalogue is required for daemon calls, plus a confidential client
 secret for token exchange. HTTPS discovery alone needs neither.

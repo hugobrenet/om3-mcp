@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -204,5 +205,48 @@ func TestOAuthHTTPSLimitsTheToolCallsOfAnIdentity(t *testing.T) {
 	}
 	if text := call(); !strings.Contains(text, "tool call limited") || !strings.Contains(text, "retry in") {
 		t.Fatalf("call beyond the rate admitted: %s", text)
+	}
+}
+
+func TestOAuthHTTPSAuditsBlockedAndLimitedCalls(t *testing.T) {
+	p := mcpauthtest.NewOAuthProvider(t)
+	resource := testOAuthConfig().ResourceURL
+	var audit syncBuffer
+	defer func(logger *slog.Logger) { auditLogger = logger }(auditLogger)
+	auditLogger = slog.New(slog.NewTextHandler(&audit, nil))
+	handler, err := newMCPHandler(config.Config{OAuth: mcpauth.OAuthConfig{ResourceURL: resource, Issuer: p.Issuer, CAFile: p.CAFile}, MaxCallsPerMinute: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client := &http.Client{Transport: mcpBearerTransport{base: http.DefaultTransport, token: p.Token(t, resource, "alice", nil)}}
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(t.Context(), &mcp.StreamableClientTransport{Endpoint: server.URL + "/mcp", HTTPClient: client, DisableStandaloneSSE: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	for range 2 {
+		result, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "get_node_status", Arguments: map[string]any{"node": "node-a"}})
+		if err != nil || !result.IsError {
+			t.Fatalf("unexpected result: %v %+v", err, result)
+		}
+	}
+	logs := audit.String()
+	for _, detail := range []string{"token exchange configuration", "tool call limited"} {
+		n := 0
+		for _, line := range strings.Split(logs, "\n") {
+			if strings.Contains(line, `msg="mcp tool call"`) && strings.Contains(line, " tool=get_node_status") &&
+				strings.Contains(line, " subject=alice") && strings.Contains(line, " exchange=none") &&
+				strings.Contains(line, " outcome=tool_error") && strings.Contains(line, detail) {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("%d audit lines for %q in:\n%s", n, detail, logs)
+		}
+	}
+	if n := strings.Count(logs, `msg="mcp tool call"`); n != 2 {
+		t.Errorf("expected 2 audited tool calls, got %d", n)
 	}
 }

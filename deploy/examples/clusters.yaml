@@ -11,7 +11,8 @@ clusters:
       profile: customer-sso
       audience: opensvc-cluster-a
     # Required with the delegated Unix socket: the OpenID provider of the
-    # daemon, as its GET /api/auth/info shows. The audience defaults to
+    # daemon. Copy it from the daemon's GET /api/auth/info (openid.issuer,
+    # openid.client_id); the MCP never queries it. The audience defaults to
     # auth.audience; set delegation.audience for a cluster without auth.
     delegation:
       issuer: https://sso.example.com/application/o/opensvc-cluster-a/

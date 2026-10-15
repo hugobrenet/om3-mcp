@@ -420,7 +420,7 @@ unbounded response.
 
 | Condition | Result |
 |---|---|
-| Missing, invalid or expired native OpenSVC JWT | MCP HTTP `401` |
+| Missing, invalid or expired access token (OAuth on HTTPS, OpenID Connect on the socket) | MCP HTTP `401` |
 | Invisible or unauthorized object | Tool error from the daemon; commonly HTTP `403` or an empty selection |
 | Invalid selector, path, limit, cursor, or keyword filter | Tool validation or daemon error |
 | Conflicting definition `driver` and `section` filters | Tool validation error before calling the daemon |

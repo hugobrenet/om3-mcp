@@ -99,7 +99,7 @@ Output:
 
 | Condition | Result |
 |---|---|
-| Missing, invalid or expired native OpenSVC JWT | MCP HTTP `401` |
+| Missing, invalid or expired access token (OAuth on HTTPS, OpenID Connect on the socket) | MCP HTTP `401` |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | Cluster configuration file missing | Tool error containing daemon HTTP `404` |
 | Response above 1 MiB | Tool error before any content is returned |
@@ -298,7 +298,7 @@ output schema and implementation always return their complete typed shapes.
 
 | Condition | Result |
 |---|---|
-| Missing, invalid or expired native OpenSVC JWT | MCP HTTP `401` |
+| Missing, invalid or expired access token (OAuth on HTTPS, OpenID Connect on the socket) | MCP HTTP `401` |
 | Insufficient daemon grants | Tool error containing daemon HTTP `403` |
 | Invalid page limit or oversized cursor | Tool error before the daemon request |
 | Daemon unavailable or malformed status | Tool error; no partial snapshot |

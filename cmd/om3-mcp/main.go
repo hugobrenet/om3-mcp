@@ -30,7 +30,9 @@ const (
 	// a client sending it slowly (slowloris) is cut off.
 	readTimeout = 10 * time.Second
 	// writeTimeout bounds the processing and the response of a request, so
-	// that a client reading it slowly is cut off; it stays above the longest tool: a daemon request lasts up to 2 minutes (request_timeout), refresh_instance_status waits up to 120 s.
+	// that a client reading it slowly is cut off. It stays above the longest
+	// tool: a daemon request lasts up to 2 minutes (request_timeout) and
+	// refresh_instance_status waits up to 120 s.
 	writeTimeout    = 5 * time.Minute
 	shutdownTimeout = 30 * time.Second
 )
@@ -158,9 +160,9 @@ func newMCPHandler(cfg config.Config) (http.Handler, error) {
 
 // newDelegatedHandler serves the local Unix socket. OpenSVC components such
 // as the AI agent forward the OpenID Connect access token of the user
-// unchanged; the daemon of the cluster named by X-OpenSVC-Cluster-ID verifies
-// it. Tools are bound to that
-// cluster and take no cluster_id argument.
+// unchanged. The MCP verifies it against the OpenID provider of the cluster
+// named by X-OpenSVC-Cluster-ID, then that cluster's daemon enforces its
+// grants. Tools are bound to that cluster and take no cluster_id argument.
 func newDelegatedHandler(cfg config.Config) (http.Handler, error) {
 	// The OpenID providers of the clusters are trusted with the system roots,
 	// or with the OAuth trust bundle of the HTTPS listener when it has one.
@@ -206,7 +208,7 @@ func shutdownHTTPServer(server *http.Server, timeout time.Duration) error {
 // newConfiguredToolsHandler serves the daemon tools. Its middlewares, from
 // the outermost: the audit line of each call, the limits of the identity
 // (HTTPS only, limiter nil on the socket), then the block of calls without
-// exchange configuration.
+// exchange configuration (api nil, HTTPS only).
 func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catalog, router tools.ClusterRouter, actions bool, limiter *mcpauth.CallLimiter) (http.Handler, error) {
 	service := core.New(api)
 	server := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: serverVersion}, nil)
@@ -214,10 +216,8 @@ func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catal
 	if err != nil {
 		return nil, err
 	}
-	var middlewares []mcp.Middleware
-	if api != nil {
-		middlewares = append(middlewares, auditToolCalls)
-	}
+	// Every call is audited, even when it is limited or blocked.
+	middlewares := []mcp.Middleware{auditToolCalls}
 	if limiter != nil {
 		middlewares = append(middlewares, limitToolCalls(limiter))
 	}

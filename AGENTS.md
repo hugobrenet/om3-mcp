@@ -41,7 +41,8 @@ shared with `oc3-mcp`.
 - `internal/config`: process environment and startup validation.
 - `internal/clusterconfig`: cluster-to-VIP catalogue with optional
   exchange settings; immutable TLS trust loaded at startup.
-- `internal/auth`: delegated daemon token checks of the Unix socket. OAuth
+- `internal/auth`: local verification of the delegated OpenID Connect tokens
+  of the Unix socket. OAuth
   metadata and verification, the private request identity and the
   confidential RFC 8693 exchange come from `osvc-auth-mcp` (`mcpauth`); change
   them there, for both MCP servers, never by copying the code back here.

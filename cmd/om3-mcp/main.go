@@ -164,7 +164,11 @@ func newMCPHandler(cfg config.Config) (http.Handler, error) {
 func newDelegatedHandler(cfg config.Config) (http.Handler, error) {
 	// The OpenID providers of the clusters are trusted with the system roots,
 	// or with the OAuth trust bundle of the HTTPS listener when it has one.
-	verifier, err := mcpauth.NewJWTVerifier(cfg.OAuth.CAFile)
+	caFile := cfg.DelegatedCAFile
+	if caFile == "" {
+		caFile = cfg.OAuth.CAFile
+	}
+	verifier, err := mcpauth.NewJWTVerifier(caFile)
 	if err != nil {
 		return nil, fmt.Errorf("configure delegated token verification: %w", err)
 	}

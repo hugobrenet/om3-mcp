@@ -33,7 +33,11 @@ type Config struct {
 	MaxConcurrentCalls int
 	MaxCallsPerMinute  int
 	// DelegatedSocket enables the Unix socket listener. It requires a catalogue.
-	DelegatedSocket   string
+	DelegatedSocket string
+	// DelegatedCAFile is the PEM trust bundle for the OpenID providers of the
+	// tokens of the socket, replacing the system roots; empty for the OAuth
+	// bundle of the HTTPS listener, if any, else the system roots.
+	DelegatedCAFile   string
 	Clusters          *clusterconfig.Catalog
 	ClusterConfigFile string
 	// Actions registers the tools that change the cluster state, on both
@@ -88,6 +92,15 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("OPENSVC_MCP_DELEGATED_SOCKET must be an absolute socket path of at most %d bytes", maxUnixSocketPathBytes)
 		}
 		cfg.DelegatedSocket = path
+	}
+	if caFile := strings.TrimSpace(os.Getenv("OPENSVC_MCP_DELEGATED_CA_FILE")); caFile != "" {
+		if cfg.DelegatedSocket == "" {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_DELEGATED_CA_FILE requires OPENSVC_MCP_DELEGATED_SOCKET")
+		}
+		if !filepath.IsAbs(caFile) {
+			return Config{}, fmt.Errorf("OPENSVC_MCP_DELEGATED_CA_FILE must be an absolute file path")
+		}
+		cfg.DelegatedCAFile = caFile
 	}
 	if !cfg.HTTPSEnabled() && cfg.DelegatedSocket == "" {
 		return Config{}, fmt.Errorf("configure the HTTPS listener (OPENSVC_MCP_TLS_CERT_FILE and OPENSVC_MCP_TLS_KEY_FILE), OPENSVC_MCP_DELEGATED_SOCKET, or both")

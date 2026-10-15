@@ -96,7 +96,7 @@ func (d *Delegator) Check(raw, clusterID string) (Delegation, error) {
 	if err != nil || token == nil {
 		return Delegation{}, errUnauthorized
 	}
-	if err := jwt.NewValidator(jwt.WithExpirationRequired()).Validate(&parsed); err != nil {
+	if err := mcpauth.ValidateLifetime(&parsed); err != nil {
 		return Delegation{}, errUnauthorized
 	}
 	if !mcpauth.ValidClaimText(parsed.Subject) || !mcpauth.ValidClaimText(parsed.Issuer) || parsed.ExpiresAt == nil {

@@ -65,7 +65,7 @@ func unixTransport(path string) *http.Transport {
 	}}
 }
 
-func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
+func TestDelegatedSocketVerifiesLocallyThenAtTheSelectedClusterDaemon(t *testing.T) {
 	// One OpenID provider signs for both clusters, distinguished by audience.
 	provider := mcpauthtest.NewOAuthProvider(t)
 	testIssuer := provider.Issuer
@@ -81,7 +81,7 @@ func TestDelegatedSocketVerifiesAtTheSelectedClusterDaemon(t *testing.T) {
 			count.Add(1)
 			raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 			var claims jwt.RegisteredClaims
-			// The daemon verifies the provider signature and its own audience.
+			// The daemon verifies again the provider signature and its audience.
 			if _, err := jwt.ParseWithClaims(raw, &claims, func(*jwt.Token) (any, error) { return &provider.Key.PublicKey, nil }, jwt.WithValidMethods([]string{"RS256"}), jwt.WithIssuer(testIssuer), jwt.WithAudience(audience)); err != nil {
 				w.WriteHeader(401)
 				return

@@ -185,21 +185,22 @@ On the [Unix socket](delegation.md), every `GET /mcp/auth/whoami` emits one
 `INFO` line `mcp whoami`:
 
 ```text
-INFO mcp whoami cluster_id=00000000-0000-4000-8000-000000000001 issuer=node-a subject=<sub> outcome=daemon_refused status=401 duration=12ms daemon_status=401
+INFO mcp whoami cluster_id=00000000-0000-4000-8000-000000000001 issuer=https://sso.example.com/application/o/opensvc-cluster-a/ subject=<sub> outcome=daemon_refused status=401 duration=12ms daemon_status=401
 ```
 
 | Field | Meaning |
 |---|---|
 | `cluster_id` | Cluster selected by the `X-OpenSVC-Cluster-ID` header |
-| `issuer`, `subject` | Unverified claims of the delegated token, which the daemon verifies |
+| `issuer`, `subject` | Claims of the delegated token, verified by the MCP |
 | `outcome` | `ok`; `daemon_refused` (the daemon answered 401 or 403); `daemon_failed` (any other daemon failure, answered 502); `identity_mismatch` (the daemon authenticated another method than OpenID or another username than predicted); `expired`; `bad_request` |
 | `status` | The HTTP status the bridge answered |
 | `duration` | Total check duration, including the daemon request |
 | `daemon_status`, `detail`, `auth` | When relevant: the daemon HTTP status, the bounded error of a daemon failure, the strategy the daemon reported |
 | `request_id` | As for `mcp tool call` |
 
-A missing or unknown cluster, or a malformed token, is refused before the
-bridge and emits no line.
+A missing or unknown cluster, or a token refused by the local verification of
+the MCP (malformed, expired, or not signed by the provider of the cluster for
+its audience), is refused with 401 before the bridge and emits no line.
 
 Tokens, secrets, raw arguments other than `cluster_id`, and tool results are
 never logged. Values come from verified claims or are quoted by the structured

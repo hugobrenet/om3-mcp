@@ -19,8 +19,9 @@ import (
 
 const (
 	maxMCPBodyBytes = 1 << 20
-	// ClusterIDHeader selects the cluster whose daemon verifies a delegated
-	// token. It is never trusted as an identity on its own.
+	// ClusterIDHeader selects the cluster of a delegated token: the OpenID
+	// provider that verifies it and the daemon that receives it. It is never
+	// trusted as an identity on its own.
 	ClusterIDHeader = "X-OpenSVC-Cluster-ID"
 	// NodeHeader is accepted from OpenSVC clients but routing uses the cluster
 	// VIP; it is removed so that it never reaches a daemon.

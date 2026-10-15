@@ -39,8 +39,8 @@ func auditToolCalls(next mcp.MethodHandler) mcp.MethodHandler {
 			exchange = "none"
 		}
 		// On the Unix socket, the cluster comes from the header and the daemon
-		// receives the caller's token unchanged. Its claims are verified by the
-		// daemon on each call: a refused call may log unverified claims.
+		// receives the caller's token unchanged. The middleware verified its
+		// claims before the call: a refused token never reaches this line.
 		if delegation, _, ok := auth.DelegationFromContext(ctx); ok {
 			identity.Issuer, identity.Subject = delegation.Issuer, delegation.Subject
 			target.ClusterID, exchange, daemonSubject = delegation.ClusterID, "delegated", delegation.Subject
@@ -80,7 +80,7 @@ func auditToolCalls(next mcp.MethodHandler) mcp.MethodHandler {
 }
 
 // auditWhoAmI records one identity check of the whoami bridge on the Unix
-// socket: the unverified claims of the token, the cluster whose daemon checked
+// socket: the verified claims of the token, the cluster whose daemon checked
 // it, what the bridge answered and why.
 func auditWhoAmI(ctx context.Context, delegation auth.Delegation, outcome string, status int, started time.Time, extra ...slog.Attr) {
 	attrs := []slog.Attr{

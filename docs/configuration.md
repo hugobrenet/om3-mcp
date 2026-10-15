@@ -27,9 +27,11 @@ The MCP has two optional listeners; configure at least one:
   requires OAuth. Daemon calls use RFC 8693 token exchange for the clusters
   configured with `auth`. Without exchange, incoming OAuth and tool discovery
   work, but daemon calls remain blocked. `OPENSVC_MCP_LISTEN_ADDR`, the OAuth
-  variables and `OPENSVC_MCP_AUTH_CONFIG_FILE` are refused without HTTPS.
+  variables, `OPENSVC_MCP_AUTH_CONFIG_FILE` and `OPENSVC_MCP_MAX_*` are
+  refused without HTTPS.
 - **Unix socket** for OpenSVC components such as the AI agent, enabled by
-  `OPENSVC_MCP_DELEGATED_SOCKET`. It requires the catalogue and no SSO.
+  `OPENSVC_MCP_DELEGATED_SOCKET`. It requires the catalogue, with the OpenID
+  provider of each cluster (`delegation`), but no confidential SSO profile.
 
 See [authentication](authentication.md) and [token delegation](delegation.md)
 for the complete contracts.
@@ -147,9 +149,9 @@ clusters:
   when the Unix socket is enabled. `issuer` is its exact HTTPS issuer and
   `audience` its client ID, by default `auth.audience`, required without
   `auth`. The tokens of the socket are verified for them before they reach
-  the daemon; see [token delegation](delegation.md). Both follow the OpenID
+  the daemon; see [token delegation](delegation.md). Copy both from the OpenID
   configuration of the daemon, which its public `GET /api/auth/info` shows
-  (`openid.issuer`, `openid.client_id`).
+  (`openid.issuer`, `openid.client_id`); the MCP never queries that route.
 - `tls.ca_file`: optional absolute public CA bundle path for daemon TLS.
   Omit `tls` for the system CA roots, for example with Let's Encrypt.
   An explicit bundle replaces, rather than extends, system roots.
@@ -167,7 +169,9 @@ must be regular, at most 16 KiB, mode 0600 or 0400, and contain one nonempty
 line. Unknown profile references prevent startup. Public discovery is lazy and
 cached for five minutes.
 
-The daemon verifies JWT signatures itself. Neither JWT public keys nor daemon
+The MCP verifies the tokens it accepts with the public JWKS of their issuer,
+the OAuth issuer on HTTPS and the `delegation` provider on the socket; each
+daemon verifies the tokens it receives again. Neither JWT public keys nor
 private signing keys belong on the MCP host. The optional TLS CA bundle
 validates only the daemon HTTPS certificate chain. With TLS verification
 enabled, an IP endpoint works if its certificate covers that IP; a DNS-only

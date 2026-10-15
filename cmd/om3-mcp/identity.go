@@ -58,8 +58,9 @@ func serveWhoAmI(api *client.DelegatedClient) http.HandlerFunc {
 			return
 		}
 		// Another authentication than OpenID cannot authenticate this token.
-		// OpenID names use preferred_username, email, then sub; the daemon
-		// verifies those signed claims, issuer and audience itself.
+		// OpenID names use preferred_username, email, then sub; the MCP
+		// verified those signed claims, issuer and audience, and the daemon
+		// verifies them again.
 		if identity.Auth != daemonOpenIDAuth || identity.Name == "" || identity.Name != delegation.Username {
 			refuse(401, "identity_mismatch", slog.String("auth", auditValue(identity.Auth)))
 			return

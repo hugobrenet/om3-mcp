@@ -8,7 +8,7 @@ between them:
 | Listener | Clients | Authentication |
 |---|---|---|
 | HTTPS `/mcp` | External agents | OAuth access JWT for the MCP resource, then token exchange (this page) |
-| Local Unix socket | OpenSVC components such as the AI agent | OpenID Connect access token of the user, verified by the MCP with the OpenID provider the selected daemon publishes, then forwarded unchanged to that daemon ([token delegation](delegation.md)) |
+| Local Unix socket | OpenSVC components such as the AI agent | OpenID Connect access token of the user, verified by the MCP with the OpenID provider the catalogue names for the cluster, then forwarded unchanged to that daemon ([token delegation](delegation.md)) |
 
 ## External-client OAuth and daemon token exchange
 
@@ -124,8 +124,8 @@ lifetimes in the SSO accordingly. The external client handles renewal; MCP does
 not store refresh tokens or implement renewal.
 
 Validated identity and the incoming token live only in a private request
-context, separate from delegated daemon tokens. The request deadline is bounded
-by token expiry. Incoming Authorization and OpenSVC target headers are removed
+context, separate from the delegated tokens of the socket. The request
+deadline is bounded by token expiry. Incoming Authorization and OpenSVC target headers are removed
 before reaching the MCP protocol handler. Sessions and shared clients do not
 store user credentials. Request bodies remain bounded to 1 MiB and cross-origin
 browser requests remain refused by the MCP SDK.

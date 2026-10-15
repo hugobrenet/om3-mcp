@@ -90,7 +90,7 @@ func (t *exchangedTransport) RoundTrip(r *http.Request) (*http.Response, error) 
 	request := r.Clone(r.Context())
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Del(auth.ClusterIDHeader)
-	request.Header.Del("X-OpenSVC-Node")
+	request.Header.Del(auth.NodeHeader)
 	response, err := t.base.RoundTrip(request)
 	if err == nil && (response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
 		// A refused exchanged token is not reused: the next tool call

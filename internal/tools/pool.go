@@ -52,7 +52,7 @@ func RegisterPoolTools(registrar *Registrar, service *core.Service) error {
 			Name:  "list_pool_volumes",
 			Title: "List pool volumes",
 			Description: "List the volumes the OpenSVC storage pools serve, with their size, the objects using them, whether they are orphans, and the storage they take of other pools. " +
-				"Use orphans_only for volumes no object uses, and the cursor to continue a page. Requires root access to the daemon endpoint.",
+				"Requires root access to the daemon endpoint.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input ListPoolVolumesInput) (*mcp.CallToolResult, ListPoolVolumesOutput, error) {

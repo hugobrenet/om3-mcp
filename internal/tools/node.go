@@ -339,7 +339,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 			Name:  "list_node_disks",
 			Title: "List node disks",
 			Description: "List the disks of one OpenSVC node from its disk inventory cache: identifier, device path, size, vendor, model, type, and the OpenSVC objects claiming disk regions. " +
-				"Filter by type or by claim, with stable pagination; compare nodes to find a LUN missing on one of them. " +
+				"Compare nodes to find a LUN missing on one of them. " +
 				"The inventory holds presence and claims, not path or health states. " +
 				"This root-only read does not refresh the cache, written by the push disks schedule; a missing cache remains an explicit daemon error.",
 			Annotations: readOnlyClosedWorldAnnotations(),

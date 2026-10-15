@@ -206,7 +206,11 @@ func TestDelegatedSocketVerifiesLocallyThenAtTheSelectedClusterDaemon(t *testing
 		if tool.Name == "list_clusters" || strings.Contains(string(data), "cluster_id") {
 			t.Fatalf("delegated tool %s exposes cluster selection", tool.Name)
 		}
-		// The tool search of the AI agent always shows the core tools.
+		// The tool search of the AI agent always shows the core tools, and
+		// ranks the others with their keywords.
+		if keywords, ok := tool.Meta["opensvc/keywords"].([]any); !ok || len(keywords) == 0 {
+			t.Fatalf("delegated tool %s has no search keywords: %v", tool.Name, tool.Meta)
+		}
 		if tool.Meta["opensvc/core"] == true {
 			core = append(core, tool.Name)
 		}

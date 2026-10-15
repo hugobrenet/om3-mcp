@@ -32,13 +32,22 @@ documents describe the implemented tool contracts.
 
 ## Tool search
 
-Each core tool carries `"opensvc/core": true` in its `_meta`, the key the
-tool search of an AI client reads, such as the OpenSVC AI agent: a client that
-shows the model a part of a large catalog always shows these tools, and finds
-the others by a search. The core tools are `get_cluster_status`,
-`list_cluster_objects`, `get_object_status`, `get_instance_status`,
-`get_node_status` and `get_caller_identity`. The registrar sets the key from
-`internal/tools/search_meta.go`; a tool declaration sets no `_meta`.
+Each tool carries in its `_meta` the keys the tool search of an AI client
+reads, such as the OpenSVC AI agent, which shows the model a part of a large
+catalog:
+
+- `opensvc/keywords`: the words a question may use for the tool that its
+  description does not hold, such as `ping` for `probe_node_reachability` or
+  `secret` for `list_object_data_keys`. They only rank the tool in a search;
+  the model does not see them.
+- `opensvc/core`: true for the tools always shown, the others being found by
+  a search: `get_cluster_status`, `list_cluster_objects`, `get_object_status`,
+  `get_instance_status`, `get_node_status` and `get_caller_identity`.
+
+The registrar sets them from `internal/tools/search_meta.go` and refuses a
+tool without keywords; a tool declaration sets no `_meta`. The descriptions of
+the core tools are kept as replays measured them: changing them changes what
+the model does on the first turn of a question.
 
 ## Authentication and visibility
 

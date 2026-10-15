@@ -109,7 +109,6 @@ func RegisterDaemonTools(registrar *Registrar, service *core.Service) error {
 			Name:  "list_dns_records",
 			Title: "List DNS records",
 			Description: "List the records of the cluster DNS zone one OpenSVC daemon serves, built from the instance status of the cluster: object names, node affine names, resource names, service and reverse records. " +
-				"Filter by exact name, type, content such as an address, or object path, and use the cursor to continue a page. " +
 				"An object name resolves only to the addresses serving the object, while node affine names are published whatever the instance state. " +
 				"Reports the zone as the daemon builds it, without checking resolution. Requires root access to the daemon endpoint.",
 			Annotations: readOnlyClosedWorldAnnotations(),

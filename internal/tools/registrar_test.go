@@ -60,7 +60,21 @@ func TestValidateToolDeclarationRejectsInvalidMetadata(t *testing.T) {
 	}
 }
 
+// withTestKeywords gives test tools the search keywords every tool needs.
+func withTestKeywords(t *testing.T, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		toolKeywords[name] = []string{"test"}
+	}
+	t.Cleanup(func() {
+		for _, name := range names {
+			delete(toolKeywords, name)
+		}
+	})
+}
+
 func TestRegistrarRejectsDuplicateNames(t *testing.T) {
+	withTestKeywords(t, "test_tool")
 	registrar := newTestRegistrar(t)
 	if err := addTool(registrar, validTestTool("test_tool"), registrarTestHandler); err != nil {
 		t.Fatalf("register first tool: %v", err)
@@ -111,6 +125,7 @@ func TestRegisterAllToolDomains(t *testing.T) {
 }
 
 func TestRegistrarConvertsSDKSchemaPanicToError(t *testing.T) {
+	withTestKeywords(t, "invalid_schema")
 	registrar := newTestRegistrar(t)
 	tool := validTestTool("invalid_schema")
 	tool.InputSchema = map[string]any{"type": "string"}
@@ -160,4 +175,21 @@ func registrarUntypedInputHandler(context.Context, *mcp.CallToolRequest, any) (*
 
 func registrarUntypedOutputHandler(context.Context, *mcp.CallToolRequest, registrarTestInput) (*mcp.CallToolResult, any, error) {
 	return nil, registrarTestOutput{Status: "ok"}, nil
+}
+
+func TestEveryToolNeedsSearchKeywords(t *testing.T) {
+	registrar := newTestRegistrar(t)
+	if err := addTool(registrar, validTestTool("no_keywords"), registrarTestHandler); err == nil || !strings.Contains(err.Error(), "search keywords") {
+		t.Fatalf("a tool without keywords was registered: %v", err)
+	}
+	toolKeywords["bad_keywords"] = []string{"Upper Case"}
+	defer delete(toolKeywords, "bad_keywords")
+	if err := addTool(registrar, validTestTool("bad_keywords"), registrarTestHandler); err == nil || !strings.Contains(err.Error(), "lowercase") {
+		t.Fatalf("an invalid keyword was accepted: %v", err)
+	}
+	for _, name := range coreTools {
+		if _, ok := toolKeywords[name]; !ok {
+			t.Errorf("core tool %s has no keywords", name)
+		}
+	}
 }

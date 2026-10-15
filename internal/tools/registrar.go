@@ -66,7 +66,9 @@ func registerTool[In, Out any](registrar *Registrar, tool *mcp.Tool, handler mcp
 		return fmt.Errorf("tool name %q is already registered", tool.Name)
 	}
 	// The registrar sets the search metadata; a declaration sets none.
-	tool.Meta = searchMeta(tool.Name)
+	if tool.Meta, err = searchMeta(tool.Name); err != nil {
+		return err
+	}
 
 	defer func() {
 		if recovered := recover(); recovered != nil {

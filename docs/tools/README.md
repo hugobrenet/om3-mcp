@@ -30,6 +30,16 @@ documents describe the implemented tool contracts.
 | Auth | `get_caller_identity` | [Auth tools](auth.md) |
 | Actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_object`, `unfreeze_object`, `abort_object_orchestration`, `start_object`, `stop_object`, `restart_object`, `switch_object`, `giveback_object` | [Action tools](actions.md) |
 
+## Tool search
+
+Each core tool carries `"opensvc/core": true` in its `_meta`, the key the
+tool search of an AI client reads, such as the OpenSVC AI agent: a client that
+shows the model a part of a large catalog always shows these tools, and finds
+the others by a search. The core tools are `get_cluster_status`,
+`list_cluster_objects`, `get_object_status`, `get_instance_status`,
+`get_node_status` and `get_caller_identity`. The registrar sets the key from
+`internal/tools/search_meta.go`; a tool declaration sets no `_meta`.
+
 ## Authentication and visibility
 
 Remote agents supply an OAuth access token intended for the MCP resource on

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -199,11 +200,20 @@ func TestDelegatedSocketVerifiesLocallyThenAtTheSelectedClusterDaemon(t *testing
 	if err != nil || len(list.Tools) == 0 {
 		t.Fatalf("list tools: %v", err)
 	}
+	var core []string
 	for _, tool := range list.Tools {
 		data, _ := json.Marshal(tool.InputSchema)
 		if tool.Name == "list_clusters" || strings.Contains(string(data), "cluster_id") {
 			t.Fatalf("delegated tool %s exposes cluster selection", tool.Name)
 		}
+		// The tool search of the AI agent always shows the core tools.
+		if tool.Meta["opensvc/core"] == true {
+			core = append(core, tool.Name)
+		}
+	}
+	slices.Sort(core)
+	if strings.Join(core, ",") != "get_caller_identity,get_cluster_status,get_instance_status,get_node_status,get_object_status,list_cluster_objects" {
+		t.Fatalf("core tools = %v", core)
 	}
 	beforeB := calls["cluster-b"].Load()
 	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "get_node_status", Arguments: map[string]any{"node": "shared-node"}})

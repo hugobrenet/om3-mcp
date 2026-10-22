@@ -22,7 +22,9 @@ the orchestration is queued.
 
 Implementation:
 
-- business logic: `internal/core/instance_action.go`;
+- business logic: `internal/core/instance_action.go`, and
+  `internal/core/execution_wait.go` for the wait on an execution, shared with
+  the [node actions](node-actions.md);
 - MCP definitions: `internal/tools/instance_action.go`.
 
 ## Tools
@@ -97,7 +99,7 @@ daemon refuses with 409 a node whose configuration is older. `force`,
 `subset`, `tag` and `session_id` are not offered.
 
 The output of the five actions holds `provenance`, `object`, `node`,
-`action`, `resources`, `session_id`, `exec_id`, `instance`, the instance read
-before the action, then `completed`, `state`, `exit_code`, `error`,
+`action`, `resources`, `session_id`, `exec_id`, `instance_before`, the instance
+read before the action, not its state after it, then `completed`, `state`, `exit_code`, `error`,
 `execution_error`, and for a failure `log_tail`, `log_truncated` and
 `log_error`.

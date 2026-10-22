@@ -141,6 +141,46 @@ func (c *Client) GetFile(ctx context.Context, path string, query url.Values) ([]
 	return payload, nil
 }
 
+// GetBlob reads a bounded value and gives its media type. The daemon
+// answers the value of a data key as text/plain when it is valid UTF-8,
+// application/octet-stream otherwise, and relays the answer of a peer as
+// application/json: any type of a 200 is taken, its errors coming as 4xx or
+// 5xx. A value beyond the bound is cut, and complete says so. A 200 without
+// body nor content type gives an empty media type.
+func (c *Client) GetBlob(ctx context.Context, path string, query url.Values) ([]byte, string, bool, error) {
+	endpoint := c.baseURL.JoinPath(strings.TrimPrefix(path, "/"))
+	endpoint.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, "", false, fmt.Errorf("create OpenSVC daemon GET request: %w", err)
+	}
+	request.Header.Set("Accept", "text/plain, application/octet-stream")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return nil, "", false, fmt.Errorf("request OpenSVC daemon %s: %w", path, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, "", false, newAPIError(http.MethodGet, path, response)
+	}
+	payload, err := io.ReadAll(io.LimitReader(response.Body, maxFileResponseBodySize+1))
+	if err != nil {
+		return nil, "", false, fmt.Errorf("read OpenSVC daemon %s response: %w", path, err)
+	}
+	raw := response.Header.Get("Content-Type")
+	if raw == "" && len(payload) == 0 {
+		return nil, "", true, nil
+	}
+	mediaType, _, err := mime.ParseMediaType(raw)
+	if err != nil {
+		mediaType = "application/octet-stream"
+	}
+	if len(payload) > maxFileResponseBodySize {
+		return payload[:maxFileResponseBodySize], mediaType, false, nil
+	}
+	return payload, mediaType, true, nil
+}
+
 // GetStream sends an authenticated GET request and delivers bounded opaque
 // response chunks to consume. The OpenSVC container-log endpoint declares
 // text/event-stream but returns raw log bytes rather than SSE framing.
@@ -231,14 +271,35 @@ func (c *Client) doJSON(ctx context.Context, method string, path string, query u
 // held under the timeout of the client, so that the answer, written or
 // still propagating, arrives before the client gives up on a done write.
 func (c *Client) PatchJSON(ctx context.Context, path string, query url.Values, output any) (http.Header, error) {
+	return c.patch(ctx, path, query, nil, output)
+}
+
+// PatchJSONBody is PatchJSON with a JSON body, such as the operations on
+// the data keys of an object.
+func (c *Client) PatchJSONBody(ctx context.Context, path string, query url.Values, input any, output any) (http.Header, error) {
+	payload, err := json.Marshal(input)
+	if err != nil {
+		return nil, fmt.Errorf("encode OpenSVC daemon %s request: %w", path, err)
+	}
+	return c.patch(ctx, path, query, payload, output)
+}
+
+func (c *Client) patch(ctx context.Context, path string, query url.Values, payload []byte, output any) (http.Header, error) {
 	query = c.boundWait(query)
 	endpoint := c.baseURL.JoinPath(strings.TrimPrefix(path, "/"))
 	endpoint.RawQuery = query.Encode()
-	request, err := http.NewRequestWithContext(ctx, http.MethodPatch, endpoint.String(), nil)
+	var body io.Reader
+	if payload != nil {
+		body = bytes.NewReader(payload)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPatch, endpoint.String(), body)
 	if err != nil {
 		return nil, fmt.Errorf("create OpenSVC daemon PATCH request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
+	if payload != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	response, err := c.httpClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("request OpenSVC daemon %s: %w", path, err)

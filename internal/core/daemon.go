@@ -33,6 +33,17 @@ type JSONPatcher interface {
 	PatchJSON(context.Context, string, url.Values, any) (http.Header, error)
 }
 
+// JSONBodyPatcher sends a PATCH request with a JSON body.
+type JSONBodyPatcher interface {
+	PatchJSONBody(context.Context, string, url.Values, any, any) (http.Header, error)
+}
+
+// BlobGetter reads a value the daemon answers as text or as bytes, with its
+// media type, and whether it was read whole.
+type BlobGetter interface {
+	GetBlob(context.Context, string, url.Values) ([]byte, string, bool, error)
+}
+
 // FilePoster sends a POST request with a file body, and gives the headers
 // of the answer.
 type FilePoster interface {

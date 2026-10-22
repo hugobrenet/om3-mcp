@@ -11,7 +11,8 @@ func TestActionToolsAreRegisteredOnlyWhenEnabled(t *testing.T) {
 	actions := []string{"freeze_object", "unfreeze_object", "abort_object_orchestration", "start_object", "stop_object", "restart_object", "switch_object", "giveback_object", "update_object_config", "create_object",
 		"provision_object", "resize_object", "cap_object", "enable_object", "disable_object", "delete_object",
 		"start_instance", "stop_instance", "restart_instance", "freeze_instance", "unfreeze_instance", "clear_instance",
-		"freeze_node", "unfreeze_node", "drain_node", "abort_node", "clear_node"}
+		"freeze_node", "unfreeze_node", "drain_node", "abort_node", "clear_node",
+		"set_object_data_key", "delete_object_data_key", "create_object_certificate", "renew_object_certificate"}
 	for _, enabled := range []bool{false, true} {
 		handler, err := newConfiguredToolsHandler(nil, nil, nil, enabled, nil)
 		if err != nil {

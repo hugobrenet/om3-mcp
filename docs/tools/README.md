@@ -21,7 +21,7 @@ documents describe the implemented tool contracts.
 | Daemon | `list_daemon_executions`, `list_daemon_orchestrations`, `list_dns_records` | [Daemon tools](daemon.md) |
 | Cluster | `get_cluster_config`, `get_cluster_status` | [Cluster tools](cluster.md) |
 | Node | `get_node_config`, `get_node_status`, `get_node_logs`, `list_node_properties`, `list_node_hardware`, `list_node_packages`, `get_node_daemon_metrics`, `probe_node_reachability`, `list_node_capabilities`, `list_node_drivers`, `list_node_disks`, `get_node_san_topology`, `list_node_ip_addresses` | [Node tools](node.md) |
-| Objects | `list_cluster_objects`, `get_object_status`, `get_object_config`, `list_object_config_keywords`, `list_object_data_keys` | [Object tools](objects.md) |
+| Objects | `list_cluster_objects`, `get_object_status`, `get_object_config`, `list_object_config_keywords`, `list_object_data_keys`, `get_object_data_key` | [Object tools](objects.md) |
 | Instances | `list_object_instances`, `get_instance_status`, `get_instance_logs`, `refresh_instance_status` | [Instance tools](instances.md) |
 | Resources | `list_cluster_ip_resources`, `list_object_resources`, `list_resource_info`, `get_container_logs` | [Resource tools](resources.md) |
 | Scheduler | `list_schedules` | [Scheduler tools](schedules.md) |
@@ -32,6 +32,7 @@ documents describe the implemented tool contracts.
 | Configuration writes (`OPENSVC_MCP_ACTIONS=enabled`) | `update_object_config`, `create_object` | [Configuration write tools](config-writes.md) |
 | Instance actions (`OPENSVC_MCP_ACTIONS=enabled`) | `start_instance`, `stop_instance`, `restart_instance`, `freeze_instance`, `unfreeze_instance`, `clear_instance` | [Instance action tools](instance-actions.md) |
 | Node actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_node`, `unfreeze_node`, `drain_node`, `abort_node`, `clear_node` | [Node action tools](node-actions.md) |
+| Data writes (`OPENSVC_MCP_ACTIONS=enabled`) | `set_object_data_key`, `delete_object_data_key`, `create_object_certificate`, `renew_object_certificate` | [Data write tools](data-writes.md) |
 
 ## Tool search
 
@@ -154,6 +155,7 @@ are representative and will differ between calls.
 | `get_object_status` | Yes | No | Visibility on the object namespace |
 | `get_object_config` | Yes | No | Visibility on the object namespace |
 | `list_object_config_keywords` | Yes | No | `guest` or higher on the object namespace |
+| `get_object_data_key` | Yes | No | `guest` or higher on the namespace of the cfg; sec and usr refused |
 | `list_object_instances` | Yes | No | Visibility on the object namespace |
 | `get_instance_status` | Yes | No | Namespace `guest` or higher |
 | `get_instance_logs` | Yes | No | `root` |
@@ -183,6 +185,10 @@ are representative and will differ between calls.
 | `drain_node` | No | Yes | `root` |
 | `abort_node` | No | No | `root` |
 | `clear_node` | No | No | `root` |
+| `set_object_data_key` | No | Yes | `admin` on the object namespace; for a usr, its grants too, or `root` |
+| `delete_object_data_key` | No | Yes | `admin` on the object namespace; for a usr, its grants too, or `root` |
+| `create_object_certificate` | No | Yes | `admin` on the namespace of the sec and of its ca; `root` for ACME through `acme.webroot` |
+| `renew_object_certificate` | No | No | `admin` on the namespace of the sec and of its ca; `root` for ACME through `acme.webroot` |
 | `update_object_config` | No | Yes | `admin` on the object namespace; `squatter` or `root` for an `nscfg` |
 | `create_object` | No | No | `admin` on the object namespace; `squatter` or `root` for an `nscfg` |
 | `list_cluster_ip_resources` | Yes | No | Visible namespaces |

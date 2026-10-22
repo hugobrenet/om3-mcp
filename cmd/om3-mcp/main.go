@@ -17,6 +17,7 @@ import (
 	"github.com/opensvc/om3-mcp/internal/clusterconfig"
 	"github.com/opensvc/om3-mcp/internal/config"
 	"github.com/opensvc/om3-mcp/internal/core"
+	"github.com/opensvc/om3-mcp/internal/resources"
 	"github.com/opensvc/om3-mcp/internal/tools"
 	"github.com/opensvc/osvc-auth-mcp/mcpauth"
 )
@@ -210,7 +211,9 @@ func shutdownHTTPServer(server *http.Server, timeout time.Duration) error {
 // exchange configuration (api nil, HTTPS only).
 func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catalog, router tools.ClusterRouter, actions bool, limiter *mcpauth.CallLimiter) (http.Handler, error) {
 	service := core.New(api)
-	server := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: serverVersion}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: serverVersion}, &mcp.ServerOptions{
+		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}, Resources: &mcp.ResourceCapabilities{}},
+	})
 	registrar, err := tools.NewRegistrar(server)
 	if err != nil {
 		return nil, err
@@ -242,6 +245,9 @@ func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catal
 		if err := tools.RegisterObjectConfigWriteTools(registrar, service); err != nil {
 			return nil, err
 		}
+	}
+	if err := resources.Register(server); err != nil {
+		return nil, err
 	}
 	if api == nil {
 		// Without exchange configuration, tools remain discoverable but blocked.

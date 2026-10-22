@@ -30,6 +30,33 @@ object namespace; a namespace configuration, `nscfg`, needs the `squatter`
 or `root` role. `force`, which only `root` may use and which overrides the
 protection of a running resource, is not offered.
 
+## The reference of the format: `om3://docs/object-config`
+
+The MCP serves the reference of the configuration file of an object as an
+MCP resource, `om3://docs/object-config`, in Markdown
+([`internal/resources/object_config.md`](../../internal/resources/object_config.md),
+embedded in the binary by the `internal/resources` package), served
+whatever `OPENSVC_MCP_ACTIONS`. Read from the daemon code (`core/xconfig`,
+`core/object`, `core/keyop`) and its keyword catalog, it gives the sections
+of a file, a resource and the driver its `type` selects, the free sections
+`env`, `labels` and `data`, and `subset#`; the syntax of the scopes and of
+the references, with an example of each; three examples; the update
+operators; and what follows a creation, the flag stopped, the provision the
+MCP does not offer, the start. The descriptions of `create_object` and
+`update_object_config` tell the model to read it in the same turn as the
+call: the OpenSVC AI agent keeps no string longer than 256 bytes of the
+earlier turns, so that a reference read in one turn is gone in the next.
+
+A test keeps the examples honest: each section of each example is checked
+against a snapshot of the keyword catalog of the daemon,
+`cmd/om3-mcp/testdata/keywords.json`, taken from dev5 for the `DEFAULT`
+section, a subset section and the drivers the examples use; a keyword
+missing from it, a driver it does not hold, or a scope on a keyword that
+takes none fails the test. The daemon holds a keyword it does not know for
+a warning it does not return, so that the reference, and the check of each
+keyword with `list_object_config_keywords`, are what keeps the model from
+writing one.
+
 ## `update_object_config`
 
 `PATCH /api/object/path/<ns>/<kind>/<name>/config`, the operations in the

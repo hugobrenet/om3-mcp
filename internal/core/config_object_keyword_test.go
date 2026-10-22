@@ -213,3 +213,45 @@ func marshalObjectConfigKeywordResponse(t *testing.T, items []daemonObjectConfig
 	}
 	return string(payload)
 }
+
+// The options filter keeps the definitions of the options asked, by name or
+// alias, the driver filter going to the daemon, and names the options no
+// definition holds: one call checks the keywords of a resource.
+func TestListObjectConfigKeywordsKeepsTheOptionsAsked(t *testing.T) {
+	definition := func(option string, aliases ...string) daemonObjectConfigKeywordDefinition {
+		item := validDaemonObjectConfigKeywordDefinition()
+		item.Section, item.Option, item.Types = "ip", option, []string{"host"}
+		if aliases != nil {
+			item.Aliases = aliases
+		}
+		return item
+	}
+	payload := marshalObjectConfigKeywordResponse(t, []daemonObjectConfigKeywordDefinition{
+		definition("name", "ipname"), definition("netmask"), definition("dev", "ipdev"), definition("gateway"),
+	})
+	client := &recordingJSONGetter{t: t, path: "/api/object/path/test/svc/web/config/keywords", query: url.Values{"driver": {"ip.host"}}, payload: payload}
+	result, err := New(client).ListObjectConfigKeywords(context.Background(), ListObjectConfigKeywordsOptions{
+		Path: "test/svc/web", Driver: "ip.host", Options: []string{"netmask", "ipname", "netmaskx", "netmask"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var options []string
+	for _, item := range result.Definitions {
+		options = append(options, item.Option)
+	}
+	if strings.Join(options, ",") != "name,netmask" || result.Total != 2 || strings.Join(result.MissingOptions, ",") != "netmaskx" ||
+		strings.Join(result.Filters.Options, ",") != "ipname,netmask,netmaskx" {
+		t.Fatalf("result %+v", result)
+	}
+	for name, options := range map[string]ListObjectConfigKeywordsOptions{
+		"with option": {Path: "test/svc/web", Option: "dev", Options: []string{"dev"}},
+		"empty":       {Path: "test/svc/web", Options: []string{""}},
+		"padded":      {Path: "test/svc/web", Options: []string{" dev"}},
+		"too many":    {Path: "test/svc/web", Options: strings.Fields(strings.Repeat("a ", 31))},
+	} {
+		if _, err := New(&recordingJSONGetter{t: t}).ListObjectConfigKeywords(context.Background(), options); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

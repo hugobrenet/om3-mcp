@@ -47,7 +47,7 @@ To follow an action, pass its `orchestration_id` to
 | Tool | OpenSVC API | Kinds | Destructive | Idempotent |
 |---|---|---|---:|---:|
 | `freeze_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/freeze` | svc, vol | No | Yes |
-| `unfreeze_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/unfreeze` | svc, vol | No | Yes |
+| `unfreeze_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/unfreeze` | svc, vol | Yes | Yes |
 | `abort_object_orchestration` | `POST /api/object/path/<ns>/<kind>/<name>/action/abort` | svc, vol, cfg, sec, usr, nscfg | No | Yes |
 | `start_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/start` | svc | No | Yes |
 | `stop_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/stop` | svc | Yes | Yes |
@@ -59,7 +59,8 @@ To follow an action, pass its `orchestration_id` to
   all its nodes, such as an ha failover or the restart of a degraded monitored
   resource, until it is unfrozen. Running instances keep running.
 - `unfreeze_object` resumes those automatic actions, which may then start, fail
-  over or restart instances to reach the object placement.
+  over or restart instances to reach the object placement: it is destructive, as
+  they may interrupt the service.
 - `abort_object_orchestration` drops the pending target state of the object.
   An action already running on an instance is not interrupted: the daemon
   queues the abort and applies it when that action ends.

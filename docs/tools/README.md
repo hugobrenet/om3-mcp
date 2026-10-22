@@ -156,7 +156,7 @@ are representative and will differ between calls.
 | `get_instance_logs` | Yes | No | `root` |
 | `refresh_instance_status` | No | No | `operator`, `admin`, or `root` |
 | `freeze_object` | No | No | `operator` on the object namespace |
-| `unfreeze_object` | No | No | `operator` on the object namespace |
+| `unfreeze_object` | No | Yes | `operator` on the object namespace |
 | `abort_object_orchestration` | No | No | `operator` on the object namespace |
 | `start_object` | No | No | `operator` on the object namespace |
 | `stop_object` | No | Yes | `operator` on the object namespace |

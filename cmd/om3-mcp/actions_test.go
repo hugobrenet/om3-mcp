@@ -37,6 +37,10 @@ func TestActionToolsAreRegisteredOnlyWhenEnabled(t *testing.T) {
 			if present && (tool.Annotations == nil || tool.Annotations.ReadOnlyHint) {
 				t.Fatalf("%s must be announced as a state-changing tool: %+v", name, tool.Annotations)
 			}
+			// Unfreezing resumes automatic actions that may interrupt the service.
+			if present && name == "unfreeze_object" && (tool.Annotations.DestructiveHint == nil || !*tool.Annotations.DestructiveHint) {
+				t.Fatalf("unfreeze_object must be destructive: %+v", tool.Annotations)
+			}
 		}
 		if _, present := found["get_node_status"]; !present {
 			t.Fatalf("actions enabled=%v: read-only tools missing", enabled)

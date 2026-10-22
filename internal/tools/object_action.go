@@ -47,7 +47,8 @@ func RegisterObjectActionTools(registrar *Registrar, service *core.Service) erro
 		{
 			action: core.ObjectActionUnfreeze, name: "unfreeze_object", title: "Unfreeze object",
 			description: "Unfreeze one OpenSVC svc or vol object on all its nodes: the daemon resumes its automatic actions, which may then start, fail over or restart instances to reach the object placement. ",
-			idempotent:  true,
+			// The automatic actions it resumes may interrupt the service.
+			destructive: true, idempotent: true,
 		},
 		{
 			action: core.ObjectActionAbort, name: "abort_object_orchestration", title: "Abort object orchestration",

@@ -29,14 +29,18 @@ var coreTools = []string{"get_cluster_status", "list_cluster_objects", "get_obje
 // description does not hold, such as synonyms: the model does not see them,
 // they only rank the tool in a search.
 var toolKeywords = map[string][]string{
+	"abort_node":                  {"abort drain", "cancel drain", "stop node orchestration", "interrupt node"},
 	"abort_object_orchestration":  {"abort", "cancel", "stuck orchestration", "interrupt", "target state"},
 	"cap_object":                  {"limit", "cgroup", "cpu limit", "memory limit", "quota", "throttle"},
 	"clear_instance":              {"clear", "start failed", "reset failure", "monitor error", "unblock instance"},
+	"clear_node":                  {"drain failed", "freeze failed", "reset node failure", "node monitor error"},
 	"create_object":               {"new service", "new object", "define service", "add service", "deploy", "object template"},
 	"delete_object":               {"remove", "delete service", "drop object", "destroy config", "clean up"},
 	"disable_object":              {"disable", "deactivate", "turn off resource", "exclude resource"},
+	"drain_node":                  {"drain", "evacuate node", "node maintenance", "empty node", "shutdown all instances"},
 	"enable_object":               {"enable", "activate", "turn on resource", "reenable"},
 	"freeze_instance":             {"freeze node instance", "maintenance on one node", "pause instance"},
+	"freeze_node":                 {"freeze node", "node maintenance", "suspend node automation", "pause node"},
 	"freeze_object":               {"freeze", "maintenance", "disable failover", "suspend automation", "pause"},
 	"get_caller_identity":         {"whoami", "who am i", "permissions", "roles", "grants", "access rights"},
 	"get_cluster_config":          {"cluster.conf", "cluster settings", "cluster configuration"},
@@ -87,6 +91,7 @@ var toolKeywords = map[string][]string{
 	"stop_object":                 {"stop", "shutdown", "bring down", "halt service"},
 	"switch_object":               {"switch", "relocate", "move", "failover", "migrate", "takeover"},
 	"unfreeze_instance":           {"unfreeze node instance", "thaw instance", "resume instance"},
+	"unfreeze_node":               {"unfreeze node", "end node maintenance", "resume node", "thaw node"},
 	"unfreeze_object":             {"unfreeze", "thaw", "resume automation", "end maintenance"},
 	"update_object_config":        {"edit config", "change setting", "set keyword", "modify configuration", "configure", "unset"},
 }

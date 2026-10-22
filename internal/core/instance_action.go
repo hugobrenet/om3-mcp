@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -34,9 +33,6 @@ const (
 	defaultInstanceActionWait = 10 * time.Second
 	maxInstanceActionWait     = 60 * time.Second
 	clearInstanceWait         = 10 * time.Second
-	// instanceActionLogLines are the last lines of the journal of a failed
-	// execution the result carries.
-	instanceActionLogLines = 20
 )
 
 // failedMonitorStates are the monitor states of an action that failed, the
@@ -75,26 +71,8 @@ type InstanceActionResult struct {
 	SessionID  string                 `json:"session_id" jsonschema:"the session the execution belongs to"`
 	ExecID     string                 `json:"exec_id" jsonschema:"the execution the node forked for the action; pass it, with the node, to list_daemon_executions and get_node_logs"`
 	// Instance is the instance as read before the action.
-	Instance ObjectInstanceStatus `json:"instance" jsonschema:"the instance as read before the action"`
-	// Completed says whether the execution ended within the wait.
-	Completed bool    `json:"completed" jsonschema:"whether the execution ended within the wait; false, it still runs, or could not be read"`
-	State     string  `json:"state,omitempty" jsonschema:"the state of the execution reported by OpenSVC, when read"`
-	ExitCode  *int    `json:"exit_code,omitempty" jsonschema:"the exit code of the execution when it ended: 0 succeeded"`
-	Error     *string `json:"error,omitempty" jsonschema:"the bounded error of the execution reported by OpenSVC, when it failed"`
-	// ExecutionError is why the execution could not be read: the action is
-	// running or ran all the same.
-	ExecutionError string `json:"execution_error,omitempty" jsonschema:"why the execution could not be read, such as the root access its read requires, or 410 for an execution the daemon ran and has dropped since; the action was accepted all the same: check get_instance_status"`
-	// LogTail is the end of the journal of a failed execution, where its
-	// cause is: the error of the execution is the exit of the process.
-	LogTail      []InstanceActionLogLine `json:"log_tail,omitempty" jsonschema:"for an execution that failed, the last 20 lines at most of its journal on the node, in time order, where its cause is; get_node_logs with the node and exec_id gives more"`
-	LogTruncated bool                    `json:"log_truncated,omitempty" jsonschema:"whether older lines of the journal of the execution, or message content, were left out"`
-	LogError     string                  `json:"log_error,omitempty" jsonschema:"why the journal of the failed execution could not be read; the execution result stands"`
-}
-
-type InstanceActionLogLine struct {
-	Time    string `json:"time" jsonschema:"the time of the line"`
-	Level   string `json:"level,omitempty" jsonschema:"the OpenSVC log level, when given"`
-	Message string `json:"message" jsonschema:"the bounded message"`
+	Instance ObjectInstanceStatus `json:"instance_before" jsonschema:"the instance as read before the action, not its state after it: get_instance_status reads it again"`
+	ExecutionOutcome
 }
 
 type InstanceClearResult struct {
@@ -155,9 +133,11 @@ func (s *Service) RunInstanceAction(ctx context.Context, path string, node strin
 		ExecID:    strings.ToLower(accepted.ExecID),
 		Instance:  instance,
 	}
-	if err := s.waitInstanceExecution(ctx, &result, wait); err != nil {
+	outcome, err := s.waitExecution(ctx, node, result.ExecID, wait)
+	if err != nil {
 		return InstanceActionResult{}, err
 	}
+	result.ExecutionOutcome = outcome
 	result.Provenance = s.newProvenance()
 	return result, nil
 }
@@ -255,70 +235,6 @@ func (s *Service) refuseInstanceAction(ctx context.Context, reference ClusterObj
 		}
 	}
 	return instances.Instances[index], nil
-}
-
-// waitInstanceExecution reads the execution until it ends or the wait
-// expires. A read refused, such as for a caller without root access, ends
-// the wait with the reason: the action runs all the same.
-func (s *Service) waitInstanceExecution(ctx context.Context, result *InstanceActionResult, wait time.Duration) error {
-	endpoint := fmt.Sprintf("/api/node/name/%s/daemon/exec/id/%s", result.Node, result.ExecID)
-	waitCtx, cancel := context.WithTimeout(ctx, wait)
-	defer cancel()
-	for attempt := 0; ; attempt++ {
-		timer := time.NewTimer(refreshPollDelay(attempt))
-		select {
-		case <-waitCtx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-		var item daemonExecutionResponse
-		if err := s.client.GetJSON(waitCtx, endpoint, nil, &item); err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
-				return nil
-			}
-			var problem daemonProblem
-			if errors.As(err, &problem) && problem.HTTPStatus() == http.StatusForbidden {
-				result.ExecutionError = "reading the execution requires root access: " + err.Error()
-			} else {
-				result.ExecutionError = err.Error()
-			}
-			return nil
-		}
-		if _, err := validateDaemonExecutionResponse(item); err != nil {
-			result.ExecutionError = fmt.Sprintf("read execution %s: %s", result.ExecID, err)
-			return nil
-		}
-		execution, _ := daemonExecutionOutput(item)
-		result.State = execution.State
-		if execution.EndedAt != nil {
-			result.Completed = true
-			result.ExitCode = execution.ExitCode
-			result.Error = execution.Error
-			if result.ExitCode == nil || *result.ExitCode != 0 {
-				s.readInstanceExecutionLog(ctx, result)
-			}
-			return nil
-		}
-	}
-}
-
-// readInstanceExecutionLog gives a failed execution the end of its journal,
-// read once, where the cause of the failure is.
-func (s *Service) readInstanceExecutionLog(ctx context.Context, result *InstanceActionResult) {
-	logs, err := s.GetNodeLogs(ctx, GetNodeLogsOptions{Node: result.Node, ExecID: result.ExecID, Lines: instanceActionLogLines})
-	if err != nil {
-		result.LogError = err.Error()
-		return
-	}
-	result.LogTail = make([]InstanceActionLogLine, 0, len(logs.Entries))
-	for _, entry := range logs.Entries {
-		result.LogTail = append(result.LogTail, InstanceActionLogLine{Time: entry.Timestamp, Level: entry.Level, Message: entry.Message})
-	}
-	result.LogTruncated = logs.Truncated
 }
 
 // ClearInstance lifts the failed monitor state of the instance of one exact

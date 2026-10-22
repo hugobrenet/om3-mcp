@@ -166,3 +166,32 @@ func quoteJSON(t *testing.T, value string) string {
 	}
 	return string(payload)
 }
+
+// The data keys of a sec are secrets: they are left out, counted, and a
+// filter naming one is refused before the call. Those of a cfg stay.
+func TestGetObjectConfigLeavesOutTheKeysOfASecret(t *testing.T) {
+	payload := `{"kind":"KeywordList","items":[
+		{"object":"test/sec/web","node":"","keyword":"data.private_key","value":"crypt:AAAA","evaluated_as":""},
+		{"object":"test/sec/web","node":"","keyword":"cn","value":"web.example.com","evaluated_as":""},
+		{"object":"test/sec/web","node":"","keyword":"data.certificate","value":"crypt:BBBB","evaluated_as":""}]}`
+	client := &recordingJSONGetter{t: t, path: "/api/object/path/test/sec/web/config", query: url.Values{"evaluate": {"false"}}, payload: payload}
+	result, err := New(client).GetObjectConfig(context.Background(), GetObjectConfigOptions{Path: "test/sec/web", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 || result.Count != 1 || result.Truncated || result.Items[0].Keyword != "cn" || result.DataKeysOmitted != 2 || result.DataKeysNote == "" {
+		t.Fatalf("got %+v", result)
+	}
+	for _, keyword := range []string{"data.private_key", "DATA.certificate"} {
+		getter := &recordingJSONGetter{t: t}
+		if _, err := New(getter).GetObjectConfig(context.Background(), GetObjectConfigOptions{Path: "test/usr/jane", Keywords: []string{keyword}}); err == nil || !strings.Contains(err.Error(), "list_object_data_keys") || getter.calls != 0 {
+			t.Fatalf("%s: %v", keyword, err)
+		}
+	}
+	cfg := strings.ReplaceAll(payload, "test/sec/web", "test/cfg/web")
+	client = &recordingJSONGetter{t: t, path: "/api/object/path/test/cfg/web/config", query: url.Values{"evaluate": {"false"}}, payload: cfg}
+	result, err = New(client).GetObjectConfig(context.Background(), GetObjectConfigOptions{Path: "test/cfg/web"})
+	if err != nil || result.Total != 3 || result.DataKeysOmitted != 0 || result.DataKeysNote != "" {
+		t.Fatalf("cfg: %+v %v", result, err)
+	}
+}

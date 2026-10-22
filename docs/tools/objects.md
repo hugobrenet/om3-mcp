@@ -428,6 +428,16 @@ Because the daemon endpoint has no pagination contract, request the required
 omitted values explicitly through `keywords` rather than requesting an
 unbounded response.
 
+The data keys of a sec or usr object, the `data.*` keywords, are never
+returned. The daemon replaces their values with a redaction for a reader
+without `admin`, but gives an `admin` or `root` their encrypted `crypt:…`
+blocks, which the model has no use for and which would spend the bound of
+items. The tool leaves them out before the sort and the bound, so that
+`total` and `truncated` count what is returned, gives their number in
+`data_keys_omitted` with a `data_keys_note` pointing to
+`list_object_data_keys`, and refuses a `keywords` filter naming one before
+the call. The data keys of a cfg, plain text, are returned.
+
 ## Errors
 
 | Condition | Result |

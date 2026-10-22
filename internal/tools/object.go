@@ -77,7 +77,7 @@ func RegisterObjectTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:        "get_object_config",
 			Title:       "Get object configuration",
-			Description: "Read bounded raw, non-evaluated configuration keywords for one exact OpenSVC object. Values may contain sensitive operational data; request exact keywords when possible. This tool never dereferences references, impersonates a node, or returns the raw configuration file.",
+			Description: "Read bounded raw, non-evaluated configuration keywords for one exact OpenSVC object. Values may contain sensitive operational data; request exact keywords when possible. The data keys of a sec or usr object, data.*, are never returned: data_keys_omitted counts them, and list_object_data_keys gives their names; those of a cfg are. This tool never dereferences references, impersonates a node, or returns the raw configuration file.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input GetObjectConfigInput) (*mcp.CallToolResult, GetObjectConfigOutput, error) {

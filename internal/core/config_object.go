@@ -34,6 +34,24 @@ type ObjectConfig struct {
 	Items           []ObjectConfigKeyword  `json:"items" jsonschema:"the sorted raw non-evaluated configuration keyword records"`
 	Truncated       bool                   `json:"truncated" jsonschema:"whether additional keyword records were omitted by the configured item limit"`
 	ValuesTruncated int                    `json:"values_truncated" jsonschema:"the number of returned values shortened by per-value or aggregate output bounds"`
+	// DataKeysOmitted counts the data keys of a sec or usr left out: their
+	// values are secrets, encrypted, which the model has no use for.
+	DataKeysOmitted int    `json:"data_keys_omitted,omitempty" jsonschema:"for a sec or usr object, the number of data.* keywords left out: the keys of a secret are never returned; list_object_data_keys gives their names"`
+	DataKeysNote    string `json:"data_keys_note,omitempty" jsonschema:"why the data keys were left out, and where their names are"`
+}
+
+// secretDataKeysNote tells why the keys of a sec or usr are left out.
+const secretDataKeysNote = "the keys of a sec or usr object are secrets, never returned here; list_object_data_keys gives their names"
+
+// secretDataKeys says whether the data keys of an object of kind are
+// secrets: those of a sec or a usr are, those of a cfg are plain text.
+func secretDataKeys(kind string) bool {
+	return kind == "sec" || kind == "usr"
+}
+
+// isDataKeyword says whether a keyword is a data key, data.<name>.
+func isDataKeyword(keyword string) bool {
+	return strings.HasPrefix(strings.ToLower(keyword), "data.")
 }
 
 type ObjectConfigKeyword struct {
@@ -62,7 +80,7 @@ func (s *Service) GetObjectConfig(ctx context.Context, options GetObjectConfigOp
 	if err != nil {
 		return ObjectConfig{}, err
 	}
-	keywords, err := normalizeObjectConfigKeywords(options.Keywords)
+	keywords, err := normalizeObjectConfigKeywords(options.Keywords, reference.Kind)
 	if err != nil {
 		return ObjectConfig{}, err
 	}
@@ -102,6 +120,20 @@ func (s *Service) GetObjectConfig(ctx context.Context, options GetObjectConfigOp
 			return ObjectConfig{}, fmt.Errorf("object config unexpectedly returned evaluated data for keyword %q", item.Keyword)
 		}
 	}
+	// The data keys of a sec or usr are left out before the sort and the
+	// bound, for total and truncated to count what is returned.
+	omitted := 0
+	if secretDataKeys(reference.Kind) {
+		kept := response.Items[:0]
+		for _, item := range response.Items {
+			if isDataKeyword(item.Keyword) {
+				omitted++
+				continue
+			}
+			kept = append(kept, item)
+		}
+		response.Items = kept
+	}
 	sort.Slice(response.Items, func(i, j int) bool {
 		if response.Items[i].Keyword == response.Items[j].Keyword {
 			return response.Items[i].Node < response.Items[j].Node
@@ -127,6 +159,10 @@ func (s *Service) GetObjectConfig(ctx context.Context, options GetObjectConfigOp
 		})
 	}
 
+	note := ""
+	if omitted > 0 {
+		note = secretDataKeysNote
+	}
 	return ObjectConfig{
 		Provenance:      s.newProvenance(),
 		Object:          reference,
@@ -136,10 +172,12 @@ func (s *Service) GetObjectConfig(ctx context.Context, options GetObjectConfigOp
 		Items:           items,
 		Truncated:       end < len(response.Items),
 		ValuesTruncated: valuesTruncated,
+		DataKeysOmitted: omitted,
+		DataKeysNote:    note,
 	}, nil
 }
 
-func normalizeObjectConfigKeywords(input []string) ([]string, error) {
+func normalizeObjectConfigKeywords(input []string, kind string) ([]string, error) {
 	if len(input) > maxObjectConfigKeywordFilters {
 		return nil, fmt.Errorf("object config accepts at most %d keyword filters", maxObjectConfigKeywordFilters)
 	}
@@ -152,6 +190,10 @@ func normalizeObjectConfigKeywords(input []string) ([]string, error) {
 		}
 		if len(keyword) > maxObjectConfigKeywordLength {
 			return nil, fmt.Errorf("object config keyword filter exceeds %d characters", maxObjectConfigKeywordLength)
+		}
+		// A filter naming a data key would bring its value back.
+		if secretDataKeys(kind) && isDataKeyword(keyword) {
+			return nil, fmt.Errorf("keyword %q: %s", keyword, secretDataKeysNote)
 		}
 		if _, ok := seen[keyword]; ok {
 			continue

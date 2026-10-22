@@ -21,6 +21,12 @@ type JSONPoster interface {
 	PostJSON(context.Context, string, url.Values, any, any) error
 }
 
+// JSONHeaderPoster sends a POST request, and gives the headers of the
+// answer, such as the time of a configuration written.
+type JSONHeaderPoster interface {
+	PostJSONWithHeader(context.Context, string, url.Values, any, any) (http.Header, error)
+}
+
 // JSONPatcher sends a PATCH request with its parameters in the query, and
 // gives the headers of the answer.
 type JSONPatcher interface {

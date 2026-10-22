@@ -9,6 +9,12 @@ tools:
   - giveback_object
   - freeze_object
   - unfreeze_object
+  - provision_object
+  - resize_object
+  - cap_object
+  - enable_object
+  - disable_object
+  - delete_object
 stability: experimental
 ---
 
@@ -32,9 +38,11 @@ Every action tool:
   this standard MCP annotation, to ask the user before running one;
   `destructiveHint` tells whether the action can stop, move or lose a service;
 - returns as soon as the daemon queued the orchestration, with its
-  `orchestration_id`, without waiting for the target state;
+  `orchestration_id`, without waiting for the target state, but for
+  `enable_object` and `disable_object`, which write the configuration at once;
 - leaves authorization to the daemon: the caller needs `operator` on the
-  object namespace, and a refusal is returned as the daemon reports it;
+  object namespace, `admin` for the lifecycle actions below, and a refusal is
+  returned as the daemon reports it;
 - is recorded by the MCP audit line of every tool call, with the caller
   identity.
 
@@ -54,6 +62,12 @@ To follow an action, pass its `orchestration_id` to
 | `restart_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/restart` | svc | Yes | No |
 | `switch_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/switch` | svc | Yes | No |
 | `giveback_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/giveback` | svc | Yes | Yes |
+| `provision_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/provision[?adopt=true]` | svc, vol | No | Yes |
+| `resize_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/resize`, `{"size"}` | vol | No | Yes |
+| `cap_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/cap?set=…` | svc, vol | Yes | Yes |
+| `enable_object` | `POST /api/object/path/<ns>/svc/<name>/enable[?rid=…]` | svc | No | Yes |
+| `disable_object` | `POST /api/object/path/<ns>/svc/<name>/disable[?rid=…]` | svc | Yes | Yes |
+| `delete_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/delete` | svc, vol, cfg, sec, usr | Yes | No |
 
 - `freeze_object` stops the automatic actions of the daemon on the object on
   all its nodes, such as an ha failover or the restart of a degraded monitored
@@ -97,6 +111,63 @@ To follow an action, pass its `orchestration_id` to
 - `giveback_object` moves the running instances of the service to the nodes
   its placement policy ranks first. A service already on its preferred nodes
   is left as it is.
+
+### Lifecycle actions
+
+They require `admin` on the object namespace. `unprovision` and `purge`,
+which delete the data, are not offered.
+
+- `provision_object` creates what the resources of the object hold, a
+  volume, a filesystem, a disk, then starts the leader instance, and lifts the
+  stopped flag `create_object` leaves; on an object already provisioned, it
+  starts it. Without `adopt`, each node first checks that nothing holds what
+  the object would take, a filesystem mounted on its mount point, a volume
+  group of its name, a device in use: a node refusing ends the orchestration
+  as a provision failure, and nothing is provisioned. `adopt: true` takes over
+  what it finds, as the replicated storage a restored object finds.
+- `resize_object` grows a volume: the daemon writes `size` to its
+  configuration, within the claims of its pool, then queues the orchestration.
+  `size` is absolute, `11g`, or an amount to add, `+1g`, checked on its form
+  by the MCP; a size under the one configured is refused with 400; omitted,
+  the resize converges to the size configured, which finishes a resize
+  stopped part way. The orchestration fails when no instance is up. The
+  daemon declares the route for a svc too, and refuses it with 400, a svc
+  having no size to grow: the MCP accepts a vol only.
+- `cap_object` writes the `pg_*` keywords its operations name, as a
+  configuration update would, and applies them to the running instances; an
+  instance not running applies them at its start. An operation is
+  `[<section>.]pg_<name>[@<node>]=<value>`, the operator `=` only, checked on
+  its form by the MCP; `default` lifts a cap; without operations, the caps
+  configured are applied. The orchestration is queued before the write, so
+  that a cap refused, 409 while an orchestration runs, is not written. It
+  returns `last_modified`, the `OM-Last-Modified` of the configuration
+  written. Destructive: a memory limit under what an instance up uses ends
+  its processes.
+- `resize_object` and `cap_object` take `config_updated_at`, an RFC 3339
+  time, the `last_modified` `update_object_config` gives: the orchestration
+  waits for that configuration on every node. It serves the form that
+  applies the configuration, without `size` or operations, after an update
+  wrote `size` or `pg_*` keywords; the daemon replaces it with the time of
+  its own write otherwise. The other object routes take none.
+- `enable_object` and `disable_object` write the `disable` keyword of
+  DEFAULT, or of each resource given in `rids`, exact ids such as `fs#1` sent
+  as the daemon `rid` selector joined by commas, at once, without an
+  orchestration: the daemon answers 204. The daemon answers 204 as well for
+  an id the service has not, writing nothing: the MCP first reads the
+  `<group>.type` keywords of the groups named, and refuses an id that is not
+  a section of the configuration, naming the ones it has. The MCP reads the
+  `disable` keywords of the sections touched again. `disable_object` is refused with 403 for a
+  resource up on a node, and destructive: a disabled object is no longer
+  orchestrated, a disabled resource no longer started. `enable_object` is
+  refused with 409 when a resource enabled again holds a value a resource of
+  another object holds on the same node.
+- `delete_object` removes the configuration of the object and the files of
+  every instance. The daemon does not look at what the object runs or holds:
+  the MCP reads its instances first, and refuses when one is not `down` or
+  `n/a`, or, for a svc or a vol, is provisioned, `true` or `mixed`, which
+  would leave the resources mounted, or the storage, held by nothing. A
+  namespace configuration, `nscfg`, whose deletion touches the namespace, is
+  not offered.
 
 ### Input and output
 

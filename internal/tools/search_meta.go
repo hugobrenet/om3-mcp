@@ -30,7 +30,11 @@ var coreTools = []string{"get_cluster_status", "list_cluster_objects", "get_obje
 // they only rank the tool in a search.
 var toolKeywords = map[string][]string{
 	"abort_object_orchestration":  {"abort", "cancel", "stuck orchestration", "interrupt", "target state"},
+	"cap_object":                  {"limit", "cgroup", "cpu limit", "memory limit", "quota", "throttle"},
 	"create_object":               {"new service", "new object", "define service", "add service", "deploy", "object template"},
+	"delete_object":               {"remove", "delete service", "drop object", "destroy config", "clean up"},
+	"disable_object":              {"disable", "deactivate", "turn off resource", "exclude resource"},
+	"enable_object":               {"enable", "activate", "turn on resource", "reenable"},
 	"freeze_object":               {"freeze", "maintenance", "disable failover", "suspend automation", "pause"},
 	"get_caller_identity":         {"whoami", "who am i", "permissions", "roles", "grants", "access rights"},
 	"get_cluster_config":          {"cluster.conf", "cluster settings", "cluster configuration"},
@@ -70,7 +74,9 @@ var toolKeywords = map[string][]string{
 	"list_schedules":              {"schedule", "cron", "scheduled tasks", "next run", "last run"},
 	"list_storage_pools":          {"storage pool", "capacity", "free space", "pool usage", "thin provisioning"},
 	"probe_node_reachability":     {"ping", "reachable", "connectivity", "node answers", "health check"},
+	"provision_object":            {"provision", "create storage", "format", "deploy", "allocate", "first start"},
 	"refresh_instance_status":     {"refresh", "update status", "status probe", "resync status"},
+	"resize_object":               {"grow", "extend volume", "enlarge", "increase size", "expand"},
 	"restart_object":              {"restart", "reboot service", "bounce", "start again"},
 	"start_object":                {"start", "bring up", "boot service", "provision start"},
 	"stop_object":                 {"stop", "shutdown", "bring down", "halt service"},

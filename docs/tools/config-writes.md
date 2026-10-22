@@ -41,8 +41,8 @@ whatever `OPENSVC_MCP_ACTIONS`. Read from the daemon code (`core/xconfig`,
 of a file, a resource and the driver its `type` selects, the free sections
 `env`, `labels` and `data`, and `subset#`; the syntax of the scopes and of
 the references, with an example of each; three examples; the update
-operators; and what follows a creation, the flag stopped, the provision the
-MCP does not offer, the start. The descriptions of `create_object` and
+operators; and what follows a creation, the flag stopped, then
+`provision_object`, which provisions and starts the object. The descriptions of `create_object` and
 `update_object_config` tell the model to read it in the same turn as the
 call: the OpenSVC AI agent keeps no string longer than 256 bytes of the
 earlier turns, so that a reference read in one turn is gone in the next.
@@ -115,10 +115,10 @@ file as `application/octet-stream`:
   object: the id and what it recorded of the things created for that object,
   a disk, an address, are left behind, and the object gets an id of its own.
   `restore`, which keeps them, is not offered.
-- **Nothing started.** Nothing is provisioned or started. An object
-  orchestrated `ha` or `start` is flagged stopped on the node that created
-  it: `flagged_stopped`, read from the `orchestrate` keyword of the file
-  created.
+- **Nothing started.** Nothing is provisioned or started:
+  `provision_object` does it next. An object orchestrated `ha` or `start` is
+  flagged stopped on the node that created it: `flagged_stopped`, read from
+  the `orchestrate` keyword of the file created.
 - **Refusals.** An object that exists is refused, 409: the error names
   `update_object_config`. A configuration the daemon does not accept, 400 or
   403; resources holding a value a resource of another object holds on the

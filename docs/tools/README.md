@@ -28,7 +28,7 @@ documents describe the implemented tool contracts.
 | Pools | `list_storage_pools`, `list_pool_volumes` | [Pool tools](pools.md) |
 | Networks | `list_networks`, `list_network_ips` | [Network tools](networks.md) |
 | Auth | `get_caller_identity` | [Auth tools](auth.md) |
-| Actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_object`, `unfreeze_object`, `abort_object_orchestration`, `start_object`, `stop_object`, `restart_object`, `switch_object`, `giveback_object` | [Action tools](actions.md) |
+| Actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_object`, `unfreeze_object`, `abort_object_orchestration`, `start_object`, `stop_object`, `restart_object`, `switch_object`, `giveback_object`, `provision_object`, `resize_object`, `cap_object`, `enable_object`, `disable_object`, `delete_object` | [Action tools](actions.md) |
 | Configuration writes (`OPENSVC_MCP_ACTIONS=enabled`) | `update_object_config`, `create_object` | [Configuration write tools](config-writes.md) |
 
 ## Tool search
@@ -164,6 +164,12 @@ are representative and will differ between calls.
 | `restart_object` | No | Yes | `operator` on the object namespace |
 | `switch_object` | No | Yes | `operator` on the object namespace |
 | `giveback_object` | No | Yes | `operator` on the object namespace |
+| `provision_object` | No | No | `admin` on the object namespace |
+| `resize_object` | No | No | `admin` on the object namespace |
+| `cap_object` | No | Yes | `admin` on the object namespace |
+| `enable_object` | No | No | `admin` on the object namespace |
+| `disable_object` | No | Yes | `admin` on the object namespace |
+| `delete_object` | No | Yes | `admin` on the object namespace |
 | `update_object_config` | No | Yes | `admin` on the object namespace; `squatter` or `root` for an `nscfg` |
 | `create_object` | No | No | `admin` on the object namespace; `squatter` or `root` for an `nscfg` |
 | `list_cluster_ip_resources` | Yes | No | Visible namespaces |

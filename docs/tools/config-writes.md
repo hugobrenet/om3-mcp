@@ -1,0 +1,102 @@
+---
+domain: config-writes
+tools:
+  - update_object_config
+  - create_object
+stability: experimental
+---
+
+# Configuration Write Tools
+
+This document describes the tools that write the configuration of an OpenSVC
+object. They are action tools: registered only when
+`OPENSVC_MCP_ACTIONS=enabled`, on the HTTPS listener and on the Unix socket
+alike.
+
+Implementation:
+
+- business logic: `internal/core/config_object_update.go` and
+  `internal/core/config_object_create.go`;
+- MCP definitions: `internal/tools/object_config_write.go`;
+- daemon client: `PatchJSON` and `PostFile` in `internal/client/client.go`.
+
+## Contract
+
+Both tools target one exact object, and leave the content to the daemon,
+which validates the configuration and refuses what it does not accept with
+the reason, a title and a detail naming the sections, keywords and nodes:
+the MCP checks the form of the input only. The caller needs `admin` on the
+object namespace; a namespace configuration, `nscfg`, needs the `squatter`
+or `root` role. `force`, which only `root` may use and which overrides the
+protection of a running resource, is not offered.
+
+## `update_object_config`
+
+`PATCH /api/object/path/<ns>/<kind>/<name>/config`, the operations in the
+query, applied by the daemon in this order:
+
+| Input | Meaning |
+|---|---|
+| `delete` | Sections to remove with their keywords, such as `fs#2` |
+| `unset` | Keywords to remove, `<section>.<keyword>` |
+| `set` | `<section>.<keyword><operator><value>`: `=` sets, `+=` appends, `-=` removes, `|=` appends an absent value, `^=` toggles; `<keyword>[<index>]=<value>` inserts at an index |
+| `wait_seconds` | Optional, at most 120: hold the answer until the configuration reached every live node |
+
+- **Bounds.** 1 to 50 operations, keywords of at most 255 characters without
+  space, values of at most 4 KiB.
+- **Form.** A set operation splits on its first operator, as the daemon
+  splits it: one without operator, or with a comparison operator, `!=`,
+  `>=`, `<=`, `>`, `<`, is refused before the call, rather than taken by
+  the daemon for something else. An index takes `=` only. An empty section
+  and `DEFAULT`, the whole object, are not deleted.
+- **Unknown keywords.** The daemon validation holds a keyword it does not
+  know for a warning, not an error: the keyword is written, and the PATCH
+  answer does not return the warning. The description of the tool tells the
+  model to check a keyword with `list_object_config_keywords` first.
+- **Refusals of the daemon**, given as it reports them: 400 for a value it
+  does not accept; 403 for a keyword of a resource changed,
+  its type or `disable`, or its section deleted, while the resource is up on
+  a node, to be stopped first; 409 when the configuration changed between
+  its read and its write, when a value is held by a resource of another
+  object on the same node, or when a size changes during a resize.
+- **Result.** `is_changed`, and `outcome` `unchanged` when the operations
+  left the configuration as it was; `last_modified`, the `OM-Last-Modified`
+  time of the configuration; the `warnings` of the daemon; and the keywords
+  the set and unset operations name, read again with `get_object_config`:
+  the daemon reads an unset keyword back with an empty value, as it does a
+  keyword never set. A read that fails gives `keywords_error`, the write
+  being done.
+- **Wait.** `wait_seconds` is held under the request timeout of the cluster,
+  less 3 seconds, or not sent when that leaves less than a second. A wait
+  that expires, a 408, is a write done: `outcome` `written`, and
+  `propagation_pending` names the nodes not reached yet. It is never to be
+  repeated: a `+=` would apply twice.
+- Annotated destructive, and not idempotent.
+
+## `create_object`
+
+`POST /api/object/path/<ns>/<kind>/<name>/config/file`, the configuration
+file as `application/octet-stream`:
+
+| Input | Meaning |
+|---|---|
+| `config` | The configuration file, INI text, at most 256 KiB, valid UTF-8 |
+| `set` | Optional operations applied after it, as `update_object_config` takes them |
+| `wait_local` | Optional, `true` by default: hold the answer until the daemon knows the object, so that `get_object_status` finds it |
+
+- **A copy.** The daemon takes the configuration as copied from another
+  object: the id and what it recorded of the things created for that object,
+  a disk, an address, are left behind, and the object gets an id of its own.
+  `restore`, which keeps them, is not offered.
+- **Nothing started.** Nothing is provisioned or started. An object
+  orchestrated `ha` or `start` is flagged stopped on the node that created
+  it: `flagged_stopped`, read from the `orchestrate` keyword of the file
+  created.
+- **Refusals.** An object that exists is refused, 409: the error names
+  `update_object_config`. A configuration the daemon does not accept, 400 or
+  403; resources holding a value a resource of another object holds on the
+  same node, 409 naming them.
+- **Result.** `created`, `last_modified`, `flagged_stopped`, and the file
+  created read again through the daemon with secret redaction, bounded as
+  `get_cluster_config` bounds its file.
+- Annotated not destructive, and not idempotent.

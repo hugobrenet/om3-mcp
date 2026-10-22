@@ -155,3 +155,19 @@ func (c *ExchangeClient) GetNoContent(ctx context.Context, path string, query ur
 	}
 	return api.GetNoContent(ctx, path, query)
 }
+
+func (c *ExchangeClient) PatchJSON(ctx context.Context, path string, query url.Values, output any) (http.Header, error) {
+	api, err := c.selected(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return api.PatchJSON(ctx, path, query, output)
+}
+
+func (c *ExchangeClient) PostFile(ctx context.Context, path string, query url.Values, body []byte) (http.Header, error) {
+	api, err := c.selected(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return api.PostFile(ctx, path, query, body)
+}

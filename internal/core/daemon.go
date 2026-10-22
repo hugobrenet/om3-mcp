@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 )
@@ -18,6 +19,18 @@ type JSONGetter interface {
 
 type JSONPoster interface {
 	PostJSON(context.Context, string, url.Values, any, any) error
+}
+
+// JSONPatcher sends a PATCH request with its parameters in the query, and
+// gives the headers of the answer.
+type JSONPatcher interface {
+	PatchJSON(context.Context, string, url.Values, any) (http.Header, error)
+}
+
+// FilePoster sends a POST request with a file body, and gives the headers
+// of the answer.
+type FilePoster interface {
+	PostFile(context.Context, string, url.Values, []byte) (http.Header, error)
 }
 
 type SSEGetter interface {

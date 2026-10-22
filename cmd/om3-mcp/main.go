@@ -239,6 +239,9 @@ func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catal
 		if err := tools.RegisterObjectActionTools(registrar, service); err != nil {
 			return nil, err
 		}
+		if err := tools.RegisterObjectConfigWriteTools(registrar, service); err != nil {
+			return nil, err
+		}
 	}
 	if api == nil {
 		// Without exchange configuration, tools remain discoverable but blocked.

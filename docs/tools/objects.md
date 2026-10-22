@@ -222,8 +222,18 @@ empty filters, or the `driver`/`section` conflict are daemon errors. OpenSVC
 requires at least `guest` visibility on the namespace named by the object path.
 
 The daemon returns the complete filtered catalog without pagination. The MCP
-validates and deterministically sorts that catalog, then applies bounded cursor
-pagination locally. A cursor is tied to the path, filters, and returned
+validates and deterministically sorts that catalog, keeps the definitions of
+the `options` asked, if any, then applies bounded cursor pagination locally.
+
+`options`, a list of at most 30 exact option names, is filtered by the MCP,
+not sent to the daemon: it keeps the definitions whose option or one of its
+aliases is asked, and `missing_options` names the options no definition
+holds. With `driver`, one call checks the keywords a resource of that driver
+uses before `create_object` or `update_object_config` writes them, where
+paging through the catalog of the driver took several calls: the daemon
+writes a keyword it does not know with a warning it does not return. The
+`driver` filter does not read the object, and works for an object not
+created yet; the `section` filter reads it. A cursor is tied to the path, filters, and returned
 definition; pagination is recalculated from the current catalog and is not a
 snapshot.
 
@@ -238,7 +248,8 @@ This tool is read-only, non-destructive, closed-world, and has no side effects.
 | `path` | Yes | — | 512 characters | Exact canonical object path |
 | `driver` | No | Empty | 255 characters | Exact driver; mutually exclusive with `section` |
 | `section` | No | Empty | 255 characters | Exact configured section; mutually exclusive with `driver` |
-| `option` | No | Empty | 255 characters | Exact option name |
+| `option` | No | Empty | 255 characters | Exact option name; mutually exclusive with `options` |
+| `options` | No | Empty | 30 names of 255 characters | Exact option names, by name or alias, filtered by the MCP |
 | `limit` | No | 25 | 1..100 | Maximum definitions in this page |
 | `cursor` | No | Empty | 128 characters | Previous `next_cursor` for the same path and filters |
 

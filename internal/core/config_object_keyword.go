@@ -23,6 +23,7 @@ const (
 	maxObjectConfigKeywordTextRunes   = 32 << 10
 	maxObjectConfigKeywordPageRunes   = 128 << 10
 	maxObjectConfigKeywordCursorRunes = 128
+	maxObjectConfigKeywordOptions     = 30
 )
 
 type ListObjectConfigKeywordsOptions struct {
@@ -30,6 +31,9 @@ type ListObjectConfigKeywordsOptions struct {
 	Driver  string
 	Section string
 	Option  string
+	// Options keeps the definitions of these options only, by name or
+	// alias, filtered by the MCP.
+	Options []string
 	Limit   int
 	Cursor  string
 }
@@ -38,17 +42,20 @@ type ObjectConfigKeywordDefinitionList struct {
 	Provenance  Provenance                      `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
 	Object      ClusterObjectReference          `json:"object" jsonschema:"the canonical OpenSVC object reference used to resolve supported definitions"`
 	Filters     ObjectConfigKeywordFilters      `json:"filters" jsonschema:"the exact daemon-side definition filters applied to this result"`
-	Total       int                             `json:"total" jsonschema:"number of definitions returned by OpenSVC for these filters before MCP pagination"`
+	Total       int                             `json:"total" jsonschema:"number of definitions matching these filters before MCP pagination"`
 	Count       int                             `json:"count" jsonschema:"number of definitions returned in this page"`
 	Definitions []ObjectConfigKeywordDefinition `json:"definitions" jsonschema:"supported configuration keyword definitions in deterministic order"`
 	NextCursor  string                          `json:"next_cursor,omitempty" jsonschema:"opaque cursor to pass unchanged for the next page with the same path and filters"`
 	Truncated   bool                            `json:"truncated" jsonschema:"whether definitions remain after this page"`
+	// MissingOptions are the options asked that no definition holds.
+	MissingOptions []string `json:"missing_options,omitempty" jsonschema:"the options asked that no definition of these filters holds, by name or alias: not keywords of this driver or section, which the daemon would write with a warning it does not return"`
 }
 
 type ObjectConfigKeywordFilters struct {
-	Driver  string `json:"driver,omitempty" jsonschema:"exact OpenSVC driver filter sent to the daemon, such as container.docker"`
-	Section string `json:"section,omitempty" jsonschema:"exact configured section filter sent to the daemon, such as container redis expressed as container#redis"`
-	Option  string `json:"option,omitempty" jsonschema:"exact option-name filter sent to the daemon"`
+	Driver  string   `json:"driver,omitempty" jsonschema:"exact OpenSVC driver filter sent to the daemon, such as container.docker"`
+	Section string   `json:"section,omitempty" jsonschema:"exact configured section filter sent to the daemon, such as container redis expressed as container#redis"`
+	Option  string   `json:"option,omitempty" jsonschema:"exact option-name filter sent to the daemon"`
+	Options []string `json:"options,omitempty" jsonschema:"exact option names the MCP kept the definitions of, by name or alias"`
 }
 
 type ObjectConfigKeywordDefinition struct {
@@ -162,6 +169,10 @@ func (s *Service) ListObjectConfigKeywords(ctx context.Context, options ListObje
 	sort.SliceStable(records, func(i, j int) bool {
 		return compareObjectConfigKeywordRecords(records[i], records[j]) < 0
 	})
+	var missing []string
+	if len(filters.Options) > 0 {
+		records, missing = keepObjectConfigKeywordOptions(records, filters.Options)
+	}
 
 	queryPrefix, err := objectConfigKeywordQueryFingerprint(reference.Path, filters)
 	if err != nil {
@@ -209,6 +220,7 @@ func (s *Service) ListObjectConfigKeywords(ctx context.Context, options ListObje
 	result := ObjectConfigKeywordDefinitionList{
 		Provenance: s.newProvenance(), Object: reference, Filters: filters,
 		Total: len(records), Count: len(definitions), Definitions: definitions, Truncated: end < len(records),
+		MissingOptions: missing,
 	}
 	if result.Truncated {
 		result.NextCursor = records[end-1].cursor
@@ -222,6 +234,23 @@ func validateObjectConfigKeywordOptions(options ListObjectConfigKeywordsOptions)
 		return ClusterObjectReference{}, ObjectConfigKeywordFilters{}, 0, "", err
 	}
 	filters := ObjectConfigKeywordFilters{Driver: options.Driver, Section: options.Section, Option: options.Option}
+	if len(options.Options) > maxObjectConfigKeywordOptions {
+		return ClusterObjectReference{}, ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword options accept at most %d names", maxObjectConfigKeywordOptions)
+	}
+	if len(options.Options) > 0 && options.Option != "" {
+		return ClusterObjectReference{}, ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword option and options filters are mutually exclusive")
+	}
+	seen := map[string]bool{}
+	for _, value := range options.Options {
+		if value == "" || value != strings.TrimSpace(value) || len([]rune(value)) > maxObjectConfigKeywordFilterRunes || containsControl(value) {
+			return ClusterObjectReference{}, ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword options must each hold at most %d non-control characters without surrounding whitespace", maxObjectConfigKeywordFilterRunes)
+		}
+		if !seen[value] {
+			seen[value] = true
+			filters.Options = append(filters.Options, value)
+		}
+	}
+	sort.Strings(filters.Options)
 	for name, value := range map[string]string{"driver": filters.Driver, "section": filters.Section, "option": filters.Option} {
 		if value == "" {
 			continue
@@ -330,7 +359,7 @@ func compareObjectConfigKeywordRecords(left, right objectConfigKeywordRecord) in
 }
 
 func objectConfigKeywordQueryFingerprint(path string, filters ObjectConfigKeywordFilters) (string, error) {
-	payload, err := json.Marshal([4]string{path, filters.Driver, filters.Section, filters.Option})
+	payload, err := json.Marshal([5]string{path, filters.Driver, filters.Section, filters.Option, strings.Join(filters.Options, "\x00")})
 	if err != nil {
 		return "", err
 	}
@@ -349,4 +378,32 @@ func objectConfigKeywordTextRunes(item ObjectConfigKeywordDefinition) int {
 		}
 	}
 	return total
+}
+
+// keepObjectConfigKeywordOptions keeps the records of the options asked, by
+// name or alias, and names the options no record holds.
+func keepObjectConfigKeywordOptions(records []objectConfigKeywordRecord, options []string) ([]objectConfigKeywordRecord, []string) {
+	found := make(map[string]bool, len(options))
+	kept := make([]objectConfigKeywordRecord, 0, len(options))
+	for _, record := range records {
+		names := append([]string{record.definition.Option}, record.definition.Aliases...)
+		matched := false
+		for _, option := range options {
+			for _, name := range names {
+				if name == option {
+					found[option], matched = true, true
+				}
+			}
+		}
+		if matched {
+			kept = append(kept, record)
+		}
+	}
+	var missing []string
+	for _, option := range options {
+		if !found[option] {
+			missing = append(missing, option)
+		}
+	}
+	return kept, missing
 }

@@ -6,6 +6,7 @@ tools:
   - get_object_config
   - list_object_config_keywords
   - list_object_data_keys
+  - get_object_data_key
 stability: experimental
 ---
 
@@ -477,3 +478,29 @@ encoded, so its stored size is not the length of the secret, only a hint of an
 empty or unusual value. An object without keys returns an empty list. For an
 object no node holds, the daemon answers an empty body, which the tool reports
 as an error naming the object.
+
+### `get_object_data_key`
+
+Reads the value of one key of a cfg object.
+
+```text
+GET /api/object/path/<ns>/cfg/<name>/data/key?name=<key>
+```
+
+The daemon reads a cfg key for a `guest` of the namespace, a sec key for an
+`admin` and a usr key for `root`. The tool refuses a sec and a usr before the
+call: their values are secrets, which would reach the context of the model,
+and an admin would be allowed to read a sec. `list_object_data_keys` gives
+their names.
+
+The daemon answers `text/plain` for a value that is valid UTF-8,
+`application/octet-stream` otherwise, and relays the value a peer holds, for
+a cfg the node of the MCP does not hold, as `application/json`: the tool
+takes any type of a 200 and tells text by its UTF-8 validity. It returns a
+text value up to
+64 KiB, cut on a character boundary with `truncated`, and for a binary value
+`binary: true` and `size_bytes` only. A key absent is the 404 of the daemon;
+an object no node holds is answered with an empty 200, as for the list of the
+keys, which the tool reports as `object not found`. The value is untrusted
+text. A value over 1 MiB, the bound of the client, is read in part:
+`read_whole` is false and `size_bytes` is that part.

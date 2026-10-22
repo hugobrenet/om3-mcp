@@ -111,3 +111,59 @@ func TestPostJSONWithHeaderGivesTheHeaders(t *testing.T) {
 		t.Fatalf("got %+v %v %v", output, header, err)
 	}
 }
+
+func TestPatchJSONBodySendsItsJSONBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		if request.Method != http.MethodPatch || request.Header.Get("Content-Type") != "application/json" || string(body) != `[{"action":"remove","name":"k"}]` || request.URL.Query().Get("wait") != "5s" {
+			t.Errorf("got %s %s %q %q", request.Method, request.URL, request.Header.Get("Content-Type"), body)
+		}
+		response.Header().Set("OM-Last-Modified", "2026-10-22T12:00:00Z")
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	api, _ := New(server.URL, server.Client())
+	header, err := api.PatchJSONBody(context.Background(), "/data", url.Values{"wait": {"5s"}}, []map[string]string{{"action": "remove", "name": "k"}}, nil)
+	if err != nil || header.Get("OM-Last-Modified") == "" {
+		t.Fatalf("got %v %v", header, err)
+	}
+}
+
+func TestGetBlobGivesTextBytesOrNothing(t *testing.T) {
+	for _, tc := range []struct {
+		contentType string
+		body        string
+		wantType    string
+		whole       bool
+	}{
+		{"text/plain", "hello", "text/plain", true},
+		{"application/octet-stream", "\xff\x00", "application/octet-stream", true},
+		{"", "", "", true},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+			if request.URL.Query().Get("name") != "k" {
+				t.Errorf("query %v", request.URL.Query())
+			}
+			if tc.contentType != "" {
+				response.Header().Set("Content-Type", tc.contentType)
+			}
+			_, _ = io.WriteString(response, tc.body)
+		}))
+		api, _ := New(server.URL, server.Client())
+		payload, mediaType, whole, err := api.GetBlob(context.Background(), "/data/key", url.Values{"name": {"k"}})
+		server.Close()
+		if err != nil || string(payload) != tc.body || mediaType != tc.wantType || whole != tc.whole {
+			t.Fatalf("%q: got %q %q %v %v", tc.contentType, payload, mediaType, whole, err)
+		}
+	}
+	// The daemon relays the value a peer holds as application/json.
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `listen 80`)
+	}))
+	defer server.Close()
+	api, _ := New(server.URL, server.Client())
+	if payload, mediaType, _, err := api.GetBlob(context.Background(), "/data/key", nil); err != nil || string(payload) != "listen 80" || mediaType != "application/json" {
+		t.Fatalf("relayed: %q %q %v", payload, mediaType, err)
+	}
+}

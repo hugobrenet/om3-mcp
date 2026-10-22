@@ -254,6 +254,9 @@ func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catal
 		if err := tools.RegisterNodeActionTools(registrar, service); err != nil {
 			return nil, err
 		}
+		if err := tools.RegisterObjectDataActionTools(registrar, service); err != nil {
+			return nil, err
+		}
 	}
 	if err := resources.Register(server); err != nil {
 		return nil, err

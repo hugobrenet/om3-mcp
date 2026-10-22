@@ -179,3 +179,19 @@ func (c *ExchangeClient) PostJSONWithHeader(ctx context.Context, path string, qu
 	}
 	return api.PostJSONWithHeader(ctx, path, query, input, output)
 }
+
+func (c *ExchangeClient) GetBlob(ctx context.Context, path string, query url.Values) ([]byte, string, bool, error) {
+	api, err := c.selected(ctx)
+	if err != nil {
+		return nil, "", false, err
+	}
+	return api.GetBlob(ctx, path, query)
+}
+
+func (c *ExchangeClient) PatchJSONBody(ctx context.Context, path string, query url.Values, input any, output any) (http.Header, error) {
+	api, err := c.selected(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return api.PatchJSONBody(ctx, path, query, input, output)
+}

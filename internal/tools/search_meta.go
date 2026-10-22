@@ -30,6 +30,7 @@ var coreTools = []string{"get_cluster_status", "list_cluster_objects", "get_obje
 // they only rank the tool in a search.
 var toolKeywords = map[string][]string{
 	"abort_object_orchestration":  {"abort", "cancel", "stuck orchestration", "interrupt", "target state"},
+	"create_object":               {"new service", "new object", "define service", "add service", "deploy", "object template"},
 	"freeze_object":               {"freeze", "maintenance", "disable failover", "suspend automation", "pause"},
 	"get_caller_identity":         {"whoami", "who am i", "permissions", "roles", "grants", "access rights"},
 	"get_cluster_config":          {"cluster.conf", "cluster settings", "cluster configuration"},
@@ -75,6 +76,7 @@ var toolKeywords = map[string][]string{
 	"stop_object":                 {"stop", "shutdown", "bring down", "halt service"},
 	"switch_object":               {"switch", "relocate", "move", "failover", "migrate", "takeover"},
 	"unfreeze_object":             {"unfreeze", "thaw", "resume automation", "end maintenance"},
+	"update_object_config":        {"edit config", "change setting", "set keyword", "modify configuration", "configure", "unset"},
 }
 
 // searchMeta is the _meta of a tool for the tool search. Every tool has

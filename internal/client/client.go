@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 const (
@@ -229,4 +230,89 @@ func (c *Client) doJSON(ctx context.Context, method string, path string, query u
 		return fmt.Errorf("decode OpenSVC daemon %s response: %w", path, err)
 	}
 	return nil
+}
+
+// PatchJSON sends an authenticated PATCH request, its parameters in the
+// query, and decodes the JSON answer. It returns the headers of the answer,
+// such as the time the daemon gives a write. A wait the request carries is
+// held under the timeout of the client, so that the answer, written or
+// still propagating, arrives before the client gives up on a done write.
+func (c *Client) PatchJSON(ctx context.Context, path string, query url.Values, output any) (http.Header, error) {
+	query = c.boundWait(query)
+	endpoint := c.baseURL.JoinPath(strings.TrimPrefix(path, "/"))
+	endpoint.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPatch, endpoint.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create OpenSVC daemon PATCH request: %w", err)
+	}
+	request.Header.Set("Accept", "application/json")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("request OpenSVC daemon %s: %w", path, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return response.Header, newAPIError(http.MethodPatch, path, response)
+	}
+	if output != nil {
+		if err := json.NewDecoder(io.LimitReader(response.Body, maxResponseBodySize)).Decode(output); err != nil {
+			return response.Header, fmt.Errorf("decode OpenSVC daemon %s response: %w", path, err)
+		}
+	}
+	return response.Header, nil
+}
+
+// PostFile sends an authenticated POST request with a file body, as
+// application/octet-stream, and expects 204 No Content. It returns the
+// headers of the answer, such as the time the daemon gives the file written.
+func (c *Client) PostFile(ctx context.Context, path string, query url.Values, body []byte) (http.Header, error) {
+	endpoint := c.baseURL.JoinPath(strings.TrimPrefix(path, "/"))
+	endpoint.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create OpenSVC daemon POST request: %w", err)
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", "application/octet-stream")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("request OpenSVC daemon %s: %w", path, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return response.Header, newAPIError(http.MethodPost, path, response)
+	}
+	if response.StatusCode != http.StatusNoContent {
+		return response.Header, fmt.Errorf("OpenSVC daemon %s returned unexpected status %d, want 204", path, response.StatusCode)
+	}
+	return response.Header, nil
+}
+
+// waitMargin is the time a held answer keeps under the timeout of the
+// client, for the daemon to answer and the answer to arrive.
+const waitMargin = 3 * time.Second
+
+// boundWait holds the wait of a request under the timeout of the client,
+// and drops it when the timeout leaves no time to wait.
+func (c *Client) boundWait(query url.Values) url.Values {
+	raw := query.Get("wait")
+	if raw == "" || c.httpClient.Timeout <= 0 {
+		return query
+	}
+	wait, err := time.ParseDuration(raw)
+	if err != nil {
+		return query
+	}
+	bounded := url.Values{}
+	for key, values := range query {
+		bounded[key] = values
+	}
+	limit := c.httpClient.Timeout - waitMargin
+	switch {
+	case limit < time.Second:
+		bounded.Del("wait")
+	case wait > limit:
+		bounded.Set("wait", limit.Truncate(time.Second).String())
+	}
+	return bounded
 }

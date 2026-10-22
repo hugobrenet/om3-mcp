@@ -81,3 +81,10 @@ func normalizeProblemText(value string, maxRunes int) string {
 	}
 	return string(runes[:maxRunes]) + "…"
 }
+
+// HTTPStatus gives the status code of the answer, for the use cases that
+// read some statuses as an outcome rather than a failure.
+func (e *APIError) HTTPStatus() int { return e.StatusCode }
+
+// ProblemDetail gives the bounded detail of the problem the daemon returned.
+func (e *APIError) ProblemDetail() string { return e.Detail }

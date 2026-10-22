@@ -171,3 +171,11 @@ func (c *ExchangeClient) PostFile(ctx context.Context, path string, query url.Va
 	}
 	return api.PostFile(ctx, path, query, body)
 }
+
+func (c *ExchangeClient) PostJSONWithHeader(ctx context.Context, path string, query url.Values, input, output any) (http.Header, error) {
+	api, err := c.selected(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return api.PostJSONWithHeader(ctx, path, query, input, output)
+}

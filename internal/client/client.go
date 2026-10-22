@@ -104,15 +104,8 @@ func (c *Client) GetNoContent(ctx context.Context, path string, query url.Values
 }
 
 func (c *Client) PostJSON(ctx context.Context, path string, query url.Values, input any, output any) error {
-	var body io.Reader
-	if input != nil {
-		payload, err := json.Marshal(input)
-		if err != nil {
-			return fmt.Errorf("encode OpenSVC daemon POST request body: %w", err)
-		}
-		body = bytes.NewReader(payload)
-	}
-	return c.doJSON(ctx, http.MethodPost, path, query, body, output)
+	_, err := c.PostJSONWithHeader(ctx, path, query, input, output)
+	return err
 }
 
 // GetFile reads a bounded configuration file response from the OpenSVC daemon.
@@ -315,4 +308,42 @@ func (c *Client) boundWait(query url.Values) url.Values {
 		bounded.Set("wait", limit.Truncate(time.Second).String())
 	}
 	return bounded
+}
+
+// PostJSONWithHeader sends an authenticated POST request and decodes the JSON
+// answer, as PostJSON does, and returns the headers of the answer, such as the
+// time the daemon gives a configuration it wrote.
+func (c *Client) PostJSONWithHeader(ctx context.Context, path string, query url.Values, input any, output any) (http.Header, error) {
+	var body io.Reader
+	if input != nil {
+		payload, err := json.Marshal(input)
+		if err != nil {
+			return nil, fmt.Errorf("encode OpenSVC daemon POST request body: %w", err)
+		}
+		body = bytes.NewReader(payload)
+	}
+	endpoint := c.baseURL.JoinPath(strings.TrimPrefix(path, "/"))
+	endpoint.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), body)
+	if err != nil {
+		return nil, fmt.Errorf("create OpenSVC daemon POST request: %w", err)
+	}
+	request.Header.Set("Accept", "application/json")
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("request OpenSVC daemon %s: %w", path, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return response.Header, newAPIError(http.MethodPost, path, response)
+	}
+	if output != nil {
+		if err := json.NewDecoder(io.LimitReader(response.Body, maxResponseBodySize)).Decode(output); err != nil {
+			return response.Header, fmt.Errorf("decode OpenSVC daemon %s response: %w", path, err)
+		}
+	}
+	return response.Header, nil
 }

@@ -91,3 +91,23 @@ func TestPostFileSendsTheFileAndExpectsNoContent(t *testing.T) {
 		}
 	}
 }
+
+func TestPostJSONWithHeaderGivesTheHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Query().Get("set") != "pg_cpus=1" {
+			t.Errorf("got %s %s", request.Method, request.URL)
+		}
+		response.Header().Set("OM-Last-Modified", "2026-10-22T12:00:00Z")
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"orchestration_id":"x"}`)
+	}))
+	defer server.Close()
+	api, _ := New(server.URL, server.Client())
+	var output struct {
+		OrchestrationID string `json:"orchestration_id"`
+	}
+	header, err := api.PostJSONWithHeader(context.Background(), "/action/cap", url.Values{"set": {"pg_cpus=1"}}, nil, &output)
+	if err != nil || output.OrchestrationID != "x" || header.Get("OM-Last-Modified") != "2026-10-22T12:00:00Z" {
+		t.Fatalf("got %+v %v %v", output, header, err)
+	}
+}

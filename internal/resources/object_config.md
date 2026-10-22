@@ -167,10 +167,13 @@ configuration until restarted.
    created it, `flagged_stopped`, so that it does not start before anything is
    asked of it.
 2. Its resources are not provisioned: a disk, a filesystem, a volume does not
-   exist yet. This MCP does not provision: the operator runs
-   `om <path> provision`, and `start_object` answers 409 until then.
-3. `start_object` starts it, `get_object_status` and `list_object_instances`
-   follow it, `freeze_object` keeps the daemon from acting on it.
+   exist yet, and `start_object` answers 409 until they are.
+   `provision_object` creates them, then starts the leader instance and lifts
+   the stopped flag; it refuses, on every node, what something else holds.
+3. `get_object_status` and `list_object_instances` follow it, `stop_object`
+   stops it, `freeze_object` keeps the daemon from acting on it.
+4. An object created by mistake, never provisioned nor started, is removed
+   with `delete_object`.
 
 Start from the configuration of a similar object, `get_object_config`,
 rather than from memory, then check the keywords of each resource in one

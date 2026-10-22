@@ -157,3 +157,11 @@ func (c *DelegatedClient) PostFile(ctx context.Context, path string, query url.V
 	}
 	return api.PostFile(ctx, path, query, body)
 }
+
+func (c *DelegatedClient) PostJSONWithHeader(ctx context.Context, path string, query url.Values, input, output any) (http.Header, error) {
+	api, err := c.selected(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return api.PostJSONWithHeader(ctx, path, query, input, output)
+}

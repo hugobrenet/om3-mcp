@@ -30,6 +30,7 @@ documents describe the implemented tool contracts.
 | Auth | `get_caller_identity` | [Auth tools](auth.md) |
 | Actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_object`, `unfreeze_object`, `abort_object_orchestration`, `start_object`, `stop_object`, `restart_object`, `switch_object`, `giveback_object`, `provision_object`, `resize_object`, `cap_object`, `enable_object`, `disable_object`, `delete_object` | [Action tools](actions.md) |
 | Configuration writes (`OPENSVC_MCP_ACTIONS=enabled`) | `update_object_config`, `create_object` | [Configuration write tools](config-writes.md) |
+| Instance actions (`OPENSVC_MCP_ACTIONS=enabled`) | `start_instance`, `stop_instance`, `restart_instance`, `freeze_instance`, `unfreeze_instance`, `clear_instance` | [Instance action tools](instance-actions.md) |
 
 ## Tool search
 
@@ -170,6 +171,12 @@ are representative and will differ between calls.
 | `enable_object` | No | No | `admin` on the object namespace |
 | `disable_object` | No | Yes | `admin` on the object namespace |
 | `delete_object` | No | Yes | `admin` on the object namespace |
+| `start_instance` | No | No | `operator` on the object namespace |
+| `stop_instance` | No | Yes | `operator` on the object namespace |
+| `restart_instance` | No | Yes | `operator` on the object namespace |
+| `freeze_instance` | No | No | `operator` on the object namespace |
+| `unfreeze_instance` | No | Yes | `operator` on the object namespace |
+| `clear_instance` | No | No | `operator` on the object namespace |
 | `update_object_config` | No | Yes | `admin` on the object namespace; `squatter` or `root` for an `nscfg` |
 | `create_object` | No | No | `admin` on the object namespace; `squatter` or `root` for an `nscfg` |
 | `list_cluster_ip_resources` | Yes | No | Visible namespaces |

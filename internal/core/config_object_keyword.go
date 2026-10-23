@@ -128,7 +128,18 @@ func (s *Service) ListObjectConfigKeywords(ctx context.Context, options ListObje
 	if err != nil {
 		return ObjectConfigKeywordDefinitionList{}, err
 	}
+	endpoint := fmt.Sprintf("/api/object/path/%s/%s/%s/config/keywords", reference.Namespace, reference.Kind, reference.Name)
+	result, err := s.listConfigKeywordDefinitions(ctx, endpoint, reference.Path, filters, limit, cursor)
+	if err != nil {
+		return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("list object config keywords: %w", err)
+	}
+	result.Object = reference
+	return result, nil
+}
 
+// listConfigKeywordDefinitions reads one page of a keyword catalog, of an
+// object or of a node, the cursor bound to scope and the filters.
+func (s *Service) listConfigKeywordDefinitions(ctx context.Context, endpoint string, scope string, filters ObjectConfigKeywordFilters, limit int, cursor string) (ObjectConfigKeywordDefinitionList, error) {
 	query := url.Values{}
 	if filters.Driver != "" {
 		query.Set("driver", filters.Driver)
@@ -139,30 +150,29 @@ func (s *Service) ListObjectConfigKeywords(ctx context.Context, options ListObje
 	if filters.Option != "" {
 		query.Set("option", filters.Option)
 	}
-	endpoint := fmt.Sprintf("/api/object/path/%s/%s/%s/config/keywords", reference.Namespace, reference.Kind, reference.Name)
 	var response daemonObjectConfigKeywordDefinitionList
 	if err := s.client.GetJSON(ctx, endpoint, query, &response); err != nil {
-		return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("list object config keywords: %w", err)
+		return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("read the catalog: %w", err)
 	}
 	if response.Kind != "KeywordDefinitionList" {
-		return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("list object config keywords: unexpected response kind %q", response.Kind)
+		return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("unexpected response kind %q", response.Kind)
 	}
 	if response.Items == nil {
-		return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("list object config keywords: response items must be an array")
+		return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("response items must be an array")
 	}
 	if len(response.Items) > maxObjectConfigKeywordItems {
-		return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("list object config keywords: response contains %d items, limit is %d", len(response.Items), maxObjectConfigKeywordItems)
+		return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("response contains %d items, limit is %d", len(response.Items), maxObjectConfigKeywordItems)
 	}
 
 	records := make([]objectConfigKeywordRecord, 0, len(response.Items))
 	for index, raw := range response.Items {
 		definition, err := projectObjectConfigKeywordDefinition(raw)
 		if err != nil {
-			return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("list object config keywords: item %d: %w", index, err)
+			return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("item %d: %w", index, err)
 		}
 		payload, err := json.Marshal(definition)
 		if err != nil {
-			return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("list object config keywords: encode item %d: %w", index, err)
+			return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("encode item %d: %w", index, err)
 		}
 		records = append(records, objectConfigKeywordRecord{definition: definition, payload: string(payload)})
 	}
@@ -174,9 +184,9 @@ func (s *Service) ListObjectConfigKeywords(ctx context.Context, options ListObje
 		records, missing = keepObjectConfigKeywordOptions(records, filters.Options)
 	}
 
-	queryPrefix, err := objectConfigKeywordQueryFingerprint(reference.Path, filters)
+	queryPrefix, err := objectConfigKeywordQueryFingerprint(scope, filters)
 	if err != nil {
-		return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("list object config keywords: encode cursor scope: %w", err)
+		return ObjectConfigKeywordDefinitionList{}, fmt.Errorf("encode cursor scope: %w", err)
 	}
 	occurrences := make(map[string]int, len(records))
 	for index := range records {
@@ -218,7 +228,7 @@ func (s *Service) ListObjectConfigKeywords(ctx context.Context, options ListObje
 		definitions = []ObjectConfigKeywordDefinition{}
 	}
 	result := ObjectConfigKeywordDefinitionList{
-		Provenance: s.newProvenance(), Object: reference, Filters: filters,
+		Provenance: s.newProvenance(), Filters: filters,
 		Total: len(records), Count: len(definitions), Definitions: definitions, Truncated: end < len(records),
 		MissingOptions: missing,
 	}
@@ -233,17 +243,24 @@ func validateObjectConfigKeywordOptions(options ListObjectConfigKeywordsOptions)
 	if err != nil {
 		return ClusterObjectReference{}, ObjectConfigKeywordFilters{}, 0, "", err
 	}
+	filters, limit, cursor, err := validateConfigKeywordFilters(options)
+	return reference, filters, limit, cursor, err
+}
+
+// validateConfigKeywordFilters checks the filters, the limit and the cursor
+// of a keyword catalog read, of an object or of a node.
+func validateConfigKeywordFilters(options ListObjectConfigKeywordsOptions) (ObjectConfigKeywordFilters, int, string, error) {
 	filters := ObjectConfigKeywordFilters{Driver: options.Driver, Section: options.Section, Option: options.Option}
 	if len(options.Options) > maxObjectConfigKeywordOptions {
-		return ClusterObjectReference{}, ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword options accept at most %d names", maxObjectConfigKeywordOptions)
+		return ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword options accept at most %d names", maxObjectConfigKeywordOptions)
 	}
 	if len(options.Options) > 0 && options.Option != "" {
-		return ClusterObjectReference{}, ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword option and options filters are mutually exclusive")
+		return ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword option and options filters are mutually exclusive")
 	}
 	seen := map[string]bool{}
 	for _, value := range options.Options {
 		if value == "" || value != strings.TrimSpace(value) || len([]rune(value)) > maxObjectConfigKeywordFilterRunes || containsControl(value) {
-			return ClusterObjectReference{}, ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword options must each hold at most %d non-control characters without surrounding whitespace", maxObjectConfigKeywordFilterRunes)
+			return ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword options must each hold at most %d non-control characters without surrounding whitespace", maxObjectConfigKeywordFilterRunes)
 		}
 		if !seen[value] {
 			seen[value] = true
@@ -256,23 +273,23 @@ func validateObjectConfigKeywordOptions(options ListObjectConfigKeywordsOptions)
 			continue
 		}
 		if value != strings.TrimSpace(value) || len([]rune(value)) > maxObjectConfigKeywordFilterRunes || containsControl(value) {
-			return ClusterObjectReference{}, ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword %s filter must contain at most %d non-control characters without surrounding whitespace", name, maxObjectConfigKeywordFilterRunes)
+			return ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword %s filter must contain at most %d non-control characters without surrounding whitespace", name, maxObjectConfigKeywordFilterRunes)
 		}
 	}
 	if filters.Driver != "" && filters.Section != "" {
-		return ClusterObjectReference{}, ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword driver and section filters are mutually exclusive")
+		return ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword driver and section filters are mutually exclusive")
 	}
 	limit := options.Limit
 	if limit == 0 {
 		limit = defaultObjectConfigKeywordLimit
 	}
 	if limit < 1 || limit > maxObjectConfigKeywordLimit {
-		return ClusterObjectReference{}, ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword limit must be between 1 and %d", maxObjectConfigKeywordLimit)
+		return ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword limit must be between 1 and %d", maxObjectConfigKeywordLimit)
 	}
 	if len([]rune(options.Cursor)) > maxObjectConfigKeywordCursorRunes || containsControl(options.Cursor) {
-		return ClusterObjectReference{}, ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword cursor exceeds %d characters or contains control characters", maxObjectConfigKeywordCursorRunes)
+		return ObjectConfigKeywordFilters{}, 0, "", fmt.Errorf("object config keyword cursor exceeds %d characters or contains control characters", maxObjectConfigKeywordCursorRunes)
 	}
-	return reference, filters, limit, options.Cursor, nil
+	return filters, limit, options.Cursor, nil
 }
 
 func projectObjectConfigKeywordDefinition(raw daemonObjectConfigKeywordDefinition) (ObjectConfigKeywordDefinition, error) {

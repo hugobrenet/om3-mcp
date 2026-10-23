@@ -150,65 +150,10 @@ func (s *Service) GetObjectConfig(ctx context.Context, options GetObjectConfigOp
 			return ObjectConfig{}, fmt.Errorf("object config unexpectedly returned evaluated data for keyword %q", item.Keyword)
 		}
 	}
-	// The secret keywords, and the data keys of a sec or usr, are left out
-	// before the sort and the bound, for total and truncated to count what
-	// is returned.
-	var secrets int
-	response.Items, secrets = omitSecretKeywords(response.Items)
-	omitted := 0
-	if secretDataKeys(reference.Kind) {
-		kept := response.Items[:0]
-		for _, item := range response.Items {
-			if isDataKeyword(item.Keyword) {
-				omitted++
-				continue
-			}
-			kept = append(kept, item)
-		}
-		response.Items = kept
-	}
-	sort.Slice(response.Items, func(i, j int) bool {
-		if response.Items[i].Keyword == response.Items[j].Keyword {
-			return response.Items[i].Node < response.Items[j].Node
-		}
-		return response.Items[i].Keyword < response.Items[j].Keyword
-	})
-
-	end := min(limit, len(response.Items))
-	items := make([]ObjectConfigKeyword, 0, end)
-	remainingValueRunes := maxObjectConfigTotalValueRunes
-	valuesTruncated := 0
-	for _, item := range response.Items[:end] {
-		value, valueTruncated, usedRunes := boundObjectConfigValue(item.Value, remainingValueRunes)
-		remainingValueRunes -= usedRunes
-		if valueTruncated {
-			valuesTruncated++
-		}
-		items = append(items, ObjectConfigKeyword{
-			Keyword:        item.Keyword,
-			Value:          value,
-			Node:           item.Node,
-			ValueTruncated: valueTruncated,
-		})
-	}
-
-	note := ""
-	if omitted > 0 {
-		note = secretDataKeysNote
-	}
-	return ObjectConfig{
-		Provenance:      s.newProvenance(),
-		Object:          reference,
-		KeywordFilter:   keywords,
-		Total:           len(response.Items),
-		Count:           len(items),
-		Items:           items,
-		Truncated:       end < len(response.Items),
-		ValuesTruncated: valuesTruncated,
-		DataKeysOmitted: omitted,
-		DataKeysNote:    note,
-		SecretsOmitted:  secrets,
-	}, nil
+	result := s.configKeywordsOf(response.Items, reference.Kind, limit)
+	result.Object = reference
+	result.KeywordFilter = keywords
+	return result, nil
 }
 
 func normalizeObjectConfigKeywords(input []string, kind string) ([]string, error) {
@@ -249,4 +194,65 @@ func boundObjectConfigValue(value string, remainingRunes int) (string, bool, int
 		return "", len(runes) > 0, 0
 	}
 	return string(runes[:allowed-1]) + "…", true, allowed
+}
+
+// configKeywordsOf leaves the secrets out of the keyword records of a read,
+// of an object of kind or of a node, kind empty, then sorts and bounds
+// them. The secrets are left out before the sort and the bound, so that
+// total and truncated count what is returned.
+func (s *Service) configKeywordsOf(records []daemonObjectConfigItem, kind string, limit int) ObjectConfig {
+	var secrets int
+	records, secrets = omitSecretKeywords(records)
+	omitted := 0
+	if secretDataKeys(kind) {
+		kept := records[:0]
+		for _, item := range records {
+			if isDataKeyword(item.Keyword) {
+				omitted++
+				continue
+			}
+			kept = append(kept, item)
+		}
+		records = kept
+	}
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].Keyword == records[j].Keyword {
+			return records[i].Node < records[j].Node
+		}
+		return records[i].Keyword < records[j].Keyword
+	})
+
+	end := min(limit, len(records))
+	items := make([]ObjectConfigKeyword, 0, end)
+	remainingValueRunes := maxObjectConfigTotalValueRunes
+	valuesTruncated := 0
+	for _, item := range records[:end] {
+		value, valueTruncated, usedRunes := boundObjectConfigValue(item.Value, remainingValueRunes)
+		remainingValueRunes -= usedRunes
+		if valueTruncated {
+			valuesTruncated++
+		}
+		items = append(items, ObjectConfigKeyword{
+			Keyword:        item.Keyword,
+			Value:          value,
+			Node:           item.Node,
+			ValueTruncated: valueTruncated,
+		})
+	}
+
+	note := ""
+	if omitted > 0 {
+		note = secretDataKeysNote
+	}
+	return ObjectConfig{
+		Provenance:      s.newProvenance(),
+		Total:           len(records),
+		Count:           len(items),
+		Items:           items,
+		Truncated:       end < len(records),
+		ValuesTruncated: valuesTruncated,
+		DataKeysOmitted: omitted,
+		DataKeysNote:    note,
+		SecretsOmitted:  secrets,
+	}
 }

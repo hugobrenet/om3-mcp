@@ -54,7 +54,7 @@ func RegisterObjectTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:  "list_object_config_keywords",
 			Title: "List object configuration keywords",
-			Description: "Discover bounded configuration keyword definitions supported by one exact OpenSVC object, optionally filtered by driver, configured section, or option. This describes schema, defaults, constraints, deprecation, and secret-handling flags; it does not return configured values. Driver and section filters are mutually exclusive. " +
+			Description: "Discover bounded configuration keyword definitions supported by one exact OpenSVC object, optionally filtered by driver, configured section, or option. The cluster configuration is the object cluster, path cluster, its hb and arbitrator sections included. This describes schema, defaults, constraints, deprecation, and secret-handling flags; it does not return configured values. Driver and section filters are mutually exclusive. " +
 				"To check the keywords of a resource before writing them, pass its driver and the options it uses in options: one call answers the definitions of those options, and missing_options names those the driver does not hold. The driver filter works for an object not created yet.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
@@ -77,7 +77,7 @@ func RegisterObjectTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:        "get_object_config",
 			Title:       "Get object configuration",
-			Description: "Read bounded raw, non-evaluated configuration keywords for one exact OpenSVC object. Values may contain sensitive operational data; request exact keywords when possible. The data keys of a sec or usr object, data.*, are never returned: data_keys_omitted counts them, and list_object_data_keys gives their names; those of a cfg are. The secrets cluster.secret and node.uuid are never returned either: secrets_omitted counts them, set but not returned. This tool never dereferences references, impersonates a node, or returns the raw configuration file.",
+			Description: "Read bounded raw, non-evaluated configuration keywords for one exact OpenSVC object. The cluster configuration is the object cluster, path cluster: cluster.secret is never returned. Values may contain sensitive operational data; request exact keywords when possible. The data keys of a sec or usr object, data.*, are never returned: data_keys_omitted counts them, and list_object_data_keys gives their names; those of a cfg are. The secrets cluster.secret and node.uuid are never returned either: secrets_omitted counts them, set but not returned. This tool never dereferences references, impersonates a node, or returns the raw configuration file.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input GetObjectConfigInput) (*mcp.CallToolResult, GetObjectConfigOutput, error) {

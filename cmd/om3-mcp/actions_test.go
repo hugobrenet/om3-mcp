@@ -12,7 +12,7 @@ func TestActionToolsAreRegisteredOnlyWhenEnabled(t *testing.T) {
 		"provision_object", "resize_object", "cap_object", "enable_object", "disable_object", "delete_object",
 		"start_instance", "stop_instance", "restart_instance", "freeze_instance", "unfreeze_instance", "clear_instance",
 		"freeze_node", "unfreeze_node", "drain_node", "abort_node", "clear_node",
-		"set_object_data_key", "delete_object_data_key", "create_object_certificate", "renew_object_certificate"}
+		"set_object_data_key", "delete_object_data_key", "create_object_certificate", "renew_object_certificate", "update_node_config"}
 	for _, enabled := range []bool{false, true} {
 		handler, err := newConfiguredToolsHandler(nil, nil, nil, enabled, nil)
 		if err != nil {

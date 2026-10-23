@@ -2,6 +2,8 @@
 domain: node
 tools:
   - get_node_config
+  - get_node_config_keywords
+  - list_node_config_keywords
   - get_node_status
   - get_node_logs
   - list_node_properties
@@ -1291,3 +1293,43 @@ address. Each address holds `interface`, `address`, `prefix_length` (as
 reported; empty for a multicast group membership), `family`, `mac` and
 `deprecated`. The cache holds at most a few hundred entries: the list is not
 paginated, and a response over 4096 entries is an error.
+
+## Node configuration by keyword
+
+### `get_node_config_keywords`
+
+Reads keywords of the configuration of one node, raw and non-evaluated.
+
+```text
+GET /api/node/name/<node>/config?kw=…&evaluate=false
+```
+
+The daemon relays the read to the node, and answers the keys `node.conf`
+sets, or the keywords asked, a keyword not set, or unknown, with an empty
+value. The values are read on the merged configuration. The inputs and bounds
+are those of `get_object_config`: exact `keywords`, 50 at most, `limit` up to
+200, 4096 characters per value and 64 KiB in all. `node` is one exact node
+name, never `_`; a name outside the cluster is the 400 of the daemon. The
+secret `node.uuid`, the key the node authenticates to the collector with, not
+its identifier there (the collector knows the node by its name), is left out
+before
+the sort and the bound, and counted in `secrets_omitted`: the daemon gives it
+in clear to root through this read, which takes no `redact-secrets`
+parameter. `get_node_config` reads the whole file, redacted. Requires `root`.
+
+### `list_node_config_keywords`
+
+Lists the keywords the configuration of a node supports.
+
+```text
+GET /api/node/name/<node>/config/keywords?driver=…|section=…&option=…
+```
+
+The filters, the cursor pagination and the bounds are those of
+`list_object_config_keywords`, whose core reads either catalog. The catalog
+is the same on every node, and the daemon reads neither the node name of the
+path nor resolves it: `node` is optional, and without it the tool asks the
+`_` alias, the daemon answering, and returns `node` empty. The alias stays
+refused as an input, as for every node tool; only an empty `node` is
+admitted. The daemon does not relay this route: a `section` filter is
+resolved on the configuration of the node answering, not on that of `node`.

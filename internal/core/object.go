@@ -113,6 +113,9 @@ func parseClusterObjectReference(path string) (ClusterObjectReference, error) {
 	if path == "cluster" {
 		return ClusterObjectReference{Path: path, Namespace: "root", Kind: "ccfg", Name: "cluster"}, nil
 	}
+	if path == "/" {
+		return ClusterObjectReference{Path: path, Namespace: "root", Kind: "nscfg", Name: "namespace"}, nil
+	}
 
 	parts := strings.Split(path, "/")
 	reference := ClusterObjectReference{Path: path}
@@ -144,5 +147,26 @@ func parseClusterObjectReference(path string) (ClusterObjectReference, error) {
 	default:
 		return ClusterObjectReference{}, fmt.Errorf("path has %d components", len(parts))
 	}
+	reference.Path = canonicalObjectPath(reference)
 	return reference, nil
+}
+
+// canonicalObjectPath is the form the daemon gives the path of an object, as
+// om3 naming.Path.String writes it: ns/kind/name, the root namespace left
+// out, and there the svc and ccfg kinds too; a namespace configuration is
+// ns/, or / for root. The daemon answers with it whatever form the request
+// used, so the MCP compares its answers to this form.
+func canonicalObjectPath(reference ClusterObjectReference) string {
+	switch {
+	case reference.Kind == "nscfg" && reference.Namespace == "root":
+		return "/"
+	case reference.Kind == "nscfg":
+		return reference.Namespace + "/"
+	case reference.Namespace != "root":
+		return reference.Namespace + "/" + reference.Kind + "/" + reference.Name
+	case reference.Kind == "svc" || reference.Kind == "ccfg":
+		return reference.Name
+	default:
+		return reference.Kind + "/" + reference.Name
+	}
 }

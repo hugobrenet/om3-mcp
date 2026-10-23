@@ -19,7 +19,7 @@ documents describe the implemented tool contracts.
 |---|---|---|
 | Catalogue | `list_clusters` | [Multi-cluster tools](../token-exchange.md#tool-contracts) |
 | Daemon | `list_daemon_executions`, `list_daemon_orchestrations`, `list_dns_records` | [Daemon tools](daemon.md) |
-| Cluster | `get_cluster_config`, `get_cluster_status` | [Cluster tools](cluster.md) |
+| Cluster | `get_cluster_config`, `get_cluster_status`, `list_cluster_locks` | [Cluster tools](cluster.md) |
 | Node | `get_node_config`, `get_node_config_keywords`, `list_node_config_keywords`, `get_node_status`, `get_node_logs`, `list_node_properties`, `list_node_hardware`, `list_node_packages`, `get_node_daemon_metrics`, `probe_node_reachability`, `list_node_capabilities`, `list_node_drivers`, `list_node_disks`, `get_node_san_topology`, `list_node_ip_addresses` | [Node tools](node.md) |
 | Objects | `list_cluster_objects`, `get_object_status`, `get_object_config`, `list_object_config_keywords`, `list_object_data_keys`, `get_object_data_key` | [Object tools](objects.md) |
 | Instances | `list_object_instances`, `get_instance_status`, `get_instance_logs`, `refresh_instance_status` | [Instance tools](instances.md) |
@@ -33,6 +33,7 @@ documents describe the implemented tool contracts.
 | Instance actions (`OPENSVC_MCP_ACTIONS=enabled`) | `start_instance`, `stop_instance`, `restart_instance`, `freeze_instance`, `unfreeze_instance`, `clear_instance` | [Instance action tools](instance-actions.md) |
 | Node actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_node`, `unfreeze_node`, `drain_node`, `abort_node`, `clear_node` | [Node action tools](node-actions.md) |
 | Data writes (`OPENSVC_MCP_ACTIONS=enabled`) | `set_object_data_key`, `delete_object_data_key`, `create_object_certificate`, `renew_object_certificate` | [Data write tools](data-writes.md) |
+| Cluster actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_cluster`, `unfreeze_cluster`, `abort_cluster_orchestration` | [Cluster action tools](cluster-actions.md) |
 
 ## Tool search
 
@@ -141,6 +142,7 @@ are representative and will differ between calls.
 | `list_daemon_orchestrations` | Yes | No | `root` |
 | `get_cluster_config` | Yes | No | `root` |
 | `get_cluster_status` | Yes | No | `guest` or higher |
+| `list_cluster_locks` | Yes | No | `root` |
 | `get_node_config` | Yes | No | `root` |
 | `get_node_config_keywords` | Yes | No | `root` |
 | `list_node_config_keywords` | Yes | No | Any authenticated caller |
@@ -193,6 +195,9 @@ are representative and will differ between calls.
 | `renew_object_certificate` | No | No | `admin` on the namespace of the sec and of its ca; `root` for ACME through `acme.webroot` |
 | `update_object_config` | No | Yes | `admin` on the object namespace; `squatter` or `root` for an `nscfg`; `admin` on `root`, a global `admin` or `root` for `cluster` |
 | `update_node_config` | No | Yes | `root` |
+| `freeze_cluster` | No | No | `root` |
+| `unfreeze_cluster` | No | Yes | `root` |
+| `abort_cluster_orchestration` | No | No | `root` |
 | `create_object` | No | No | `admin` on the object namespace; `squatter` or `root` for an `nscfg` |
 | `list_cluster_ip_resources` | Yes | No | Visible namespaces |
 | `list_object_resources` | Yes | No | Visibility on the object namespace |

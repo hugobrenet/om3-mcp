@@ -3,6 +3,7 @@ domain: cluster
 tools:
   - get_cluster_config
   - get_cluster_status
+  - list_cluster_locks
 stability: experimental
 ---
 
@@ -302,3 +303,22 @@ output schema and implementation always return their complete typed shapes.
 | Insufficient daemon grants | Tool error containing daemon HTTP `403` |
 | Invalid page limit or oversized cursor | Tool error before the daemon request |
 | Daemon unavailable or malformed status | Tool error; no partial snapshot |
+
+## `list_cluster_locks`
+
+Lists the locks the cluster holds.
+
+```text
+GET /api/cluster/lock
+```
+
+A lock serializes what reads the state of the cluster to change it, such as
+`network/<name>` for the address management of a network. The node speaking
+for the cluster, the leader of the speaker election, answers after rebuilding
+its table; the daemon answers 503 when no node speaks, or a peer it hears does
+not answer, which the tool passes on as a fact about the cluster. Each lock
+holds `name`, `id`, `node`, `holder`, `acquired_at`, `expires_at` and
+`expires_in`: a lock never released is freed at the end of its lease. The
+locks are sorted by name then acquisition time, 1000 at most. The tool takes
+and releases nothing: `POST` and `DELETE /api/cluster/lock` are not offered,
+nothing justifying that an agent takes a lock. Requires `root`.

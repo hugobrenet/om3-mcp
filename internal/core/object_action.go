@@ -109,6 +109,9 @@ type ObjectActionResult struct {
 
 type daemonOrchestrationQueued struct {
 	OrchestrationID string `json:"orchestration_id"`
+	// Node is the node that accepted the orchestration, which answers for
+	// it at once.
+	Node string `json:"node"`
 }
 
 // SubmitObjectAction submits one orchestrated action on one exact object and

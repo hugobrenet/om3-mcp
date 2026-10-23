@@ -29,6 +29,7 @@ var coreTools = []string{"get_cluster_status", "list_cluster_objects", "get_obje
 // description does not hold, such as synonyms: the model does not see them,
 // they only rank the tool in a search.
 var toolKeywords = map[string][]string{
+	"abort_cluster_orchestration": {"abort cluster", "cancel cluster freeze", "stop cluster orchestration"},
 	"abort_node":                  {"abort drain", "cancel drain", "stop node orchestration", "interrupt node"},
 	"abort_object_orchestration":  {"abort", "cancel", "stuck orchestration", "interrupt", "target state"},
 	"cap_object":                  {"limit", "cgroup", "cpu limit", "memory limit", "quota", "throttle"},
@@ -41,6 +42,7 @@ var toolKeywords = map[string][]string{
 	"disable_object":              {"disable", "deactivate", "turn off resource", "exclude resource"},
 	"drain_node":                  {"drain", "evacuate node", "node maintenance", "empty node", "shutdown all instances"},
 	"enable_object":               {"enable", "activate", "turn on resource", "reenable"},
+	"freeze_cluster":              {"freeze cluster", "global maintenance", "stop failover everywhere", "pause orchestration"},
 	"freeze_instance":             {"freeze node instance", "maintenance on one node", "pause instance"},
 	"freeze_node":                 {"freeze node", "node maintenance", "suspend node automation", "pause node"},
 	"freeze_object":               {"freeze", "maintenance", "disable failover", "suspend automation", "pause"},
@@ -61,6 +63,7 @@ var toolKeywords = map[string][]string{
 	"get_object_status":           {"service status", "is it up", "placement", "where it runs", "object health"},
 	"giveback_object":             {"giveback", "preferred node", "rebalance", "move back", "placement"},
 	"list_cluster_ip_resources":   {"vip", "virtual ip", "service ip", "ip resource", "addresses"},
+	"list_cluster_locks":          {"cluster lock", "locks", "lease", "ipam lock", "who holds the lock", "verrou", "lock held", "locked"},
 	"list_clusters":               {"clusters", "cluster id", "catalog", "which cluster"},
 	"list_cluster_objects":        {"list services", "list objects", "selector", "namespaces", "inventory"},
 	"list_daemon_executions":      {"running commands", "executions", "processes", "in progress", "session"},
@@ -97,6 +100,7 @@ var toolKeywords = map[string][]string{
 	"stop_instance":               {"stop on node", "bring down instance", "stop one node", "local stop"},
 	"stop_object":                 {"stop", "shutdown", "bring down", "halt service"},
 	"switch_object":               {"switch", "relocate", "move", "failover", "migrate", "takeover"},
+	"unfreeze_cluster":            {"unfreeze cluster", "thaw cluster", "end global maintenance", "resume orchestration"},
 	"unfreeze_instance":           {"unfreeze node instance", "thaw instance", "resume instance"},
 	"unfreeze_node":               {"unfreeze node", "end node maintenance", "resume node", "thaw node"},
 	"unfreeze_object":             {"unfreeze", "thaw", "resume automation", "end maintenance"},

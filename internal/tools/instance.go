@@ -8,6 +8,23 @@ import (
 	"github.com/opensvc/om3-mcp/internal/core"
 )
 
+type ListInstanceSyncSnapshotsInput struct {
+	Path string `json:"path" jsonschema:"the exact canonical OpenSVC svc or vol object path; no wildcard or selector"`
+	Node string `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
+	Rid  string `json:"rid,omitempty" jsonschema:"optional sync resource, such as sync#1; omitted, sync, every sync resource of the instance"`
+}
+
+type GetInstanceResourceFileInput struct {
+	Path string `json:"path" jsonschema:"the exact canonical OpenSVC svc or vol object path; no wildcard or selector"`
+	Node string `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
+	Rid  string `json:"rid" jsonschema:"the exact resource id declaring the file, such as disk#2"`
+	Name string `json:"name" jsonschema:"the file, as get_instance_status gives it in resources[rid].files[].name, or its base name, such as sub_devs, when one file only of the resource has it"`
+}
+
+type ListInstanceSyncSnapshotsOutput = core.InstanceSyncSnapshotList
+
+type GetInstanceResourceFileOutput = core.InstanceResourceFileContent
+
 type ListObjectInstancesInput struct {
 	Path   string `json:"path" jsonschema:"the exact canonical OpenSVC object path returned by list_cluster_objects"`
 	Node   string `json:"node,omitempty" jsonschema:"optional exact OpenSVC node name used to filter instances"`
@@ -122,6 +139,45 @@ func RegisterInstanceTools(registrar *Registrar, service *core.Service) error {
 				return nil, ListObjectInstancesOutput{}, err
 			}
 			return nil, instances, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "list_instance_sync_snapshots",
+			Title: "List instance sync snapshots",
+			Description: "List the snapshots the sync resources of the instance of one OpenSVC svc or vol object on one node hold, the restorable points a sync.store keeps, the most recent first: rid, id, created_at, node, members and location. " +
+				"Only sync.store lists snapshots; the other sync drivers return none. The id is the session of the sync update that took the snapshot, what a restore, not offered, would take. A sync resource in error fails the read with its cause, such as a store whose directory is missing. Requires guest access on the object namespace.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListInstanceSyncSnapshotsInput) (*mcp.CallToolResult, ListInstanceSyncSnapshotsOutput, error) {
+			result, err := service.ListInstanceSyncSnapshots(ctx, core.ListInstanceSyncSnapshotsOptions{Path: input.Path, Node: input.Node, RID: input.Rid})
+			if err != nil {
+				return nil, ListInstanceSyncSnapshotsOutput{}, err
+			}
+			return nil, result, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "get_instance_resource_file",
+			Title: "Get instance resource file",
+			Description: "Read one file a resource of the instance of one OpenSVC svc or vol object declares to replicate to its peers: the domain definition of a kvm, lxc or vbox container, the metadata of a shared md disk, the sub_devs of a zpool. " +
+				"The list is closed: get_instance_status gives the files of each resource in resources[rid].files, with their csum, which compared between nodes tells a drift without reading the files; the MCP takes the full name or a base name one declared file only has, such as sub_devs, and refuses a file the resource does not declare, naming those it does. The daemon serves the file while the instance is up. " +
+				"Returns the text, at most 64 KiB, its passwd attributes masked; a binary file, its size and csum only. Requires root.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input GetInstanceResourceFileInput) (*mcp.CallToolResult, GetInstanceResourceFileOutput, error) {
+			result, err := service.GetInstanceResourceFile(ctx, input.Path, input.Node, input.Rid, input.Name)
+			if err != nil {
+				return nil, GetInstanceResourceFileOutput{}, err
+			}
+			return nil, result, nil
 		},
 	); err != nil {
 		return err

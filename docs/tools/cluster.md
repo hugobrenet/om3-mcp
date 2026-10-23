@@ -4,6 +4,7 @@ tools:
   - get_cluster_config
   - get_cluster_status
   - list_cluster_locks
+  - get_relay_status
 stability: experimental
 ---
 
@@ -322,3 +323,23 @@ holds `name`, `id`, `node`, `holder`, `acquired_at`, `expires_at` and
 locks are sorted by name then acquisition time, 1000 at most. The tool takes
 and releases nothing: `POST` and `DELETE /api/cluster/lock` are not offered,
 nothing justifying that an agent takes a lock. Requires `root`.
+
+## `get_relay_status`
+
+```text
+GET /api/relay/status[?remote=true]
+```
+
+The heartbeat relay slots, the heartbeat grant or `root`, served by the
+daemon the MCP talks to. Without `remote`, the slots it relays for the
+nodes of other clusters: `root` sees them all, another account its own.
+With `remote`, the relays the heartbeats of type `relay` of this cluster go
+through: the daemon reads each relay with the credentials its heartbeat
+configuration holds, and returns a relay in error as a slot with `status`
+set.
+
+Each slot holds `relay`, its user information left out, `cluster_id`,
+`cluster_name`, `nodename`, `node_addr`, `msg_len`, `updated_at` and
+`username`; never the message, which `GET /relay/message`, not offered,
+carries. An old `updated_at` on a relay alive is the sign of a node no
+longer beating through it. At most 1000 slots.

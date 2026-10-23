@@ -19,10 +19,10 @@ documents describe the implemented tool contracts.
 |---|---|---|
 | Catalogue | `list_clusters` | [Multi-cluster tools](../token-exchange.md#tool-contracts) |
 | Daemon | `list_daemon_executions`, `list_daemon_orchestrations`, `list_dns_records`, `get_daemon_log_level` | [Daemon tools](daemon.md) |
-| Cluster | `get_cluster_config`, `get_cluster_status`, `list_cluster_locks` | [Cluster tools](cluster.md) |
-| Node | `get_node_config`, `get_node_config_keywords`, `list_node_config_keywords`, `get_node_status`, `get_node_logs`, `list_node_properties`, `list_node_hardware`, `list_node_packages`, `get_node_daemon_metrics`, `probe_node_reachability`, `list_node_capabilities`, `list_node_drivers`, `list_node_disks`, `get_node_san_topology`, `list_node_ip_addresses` | [Node tools](node.md) |
+| Cluster | `get_cluster_config`, `get_cluster_status`, `list_cluster_locks`, `get_relay_status` | [Cluster tools](cluster.md) |
+| Node | `get_node_config`, `get_node_config_keywords`, `list_node_config_keywords`, `get_node_status`, `get_node_logs`, `list_node_properties`, `list_node_hardware`, `list_node_packages`, `get_node_daemon_metrics`, `probe_node_reachability`, `list_node_capabilities`, `list_node_drivers`, `list_node_disks`, `get_node_san_topology`, `list_node_ip_addresses`, `list_node_network_reservations`, `list_node_locks`, `get_node_drbd_config` | [Node tools](node.md) |
 | Objects | `list_cluster_objects`, `get_object_status`, `get_object_config`, `list_object_config_keywords`, `list_object_data_keys`, `get_object_data_key` | [Object tools](objects.md) |
-| Instances | `list_object_instances`, `get_instance_status`, `get_instance_logs`, `refresh_instance_status` | [Instance tools](instances.md) |
+| Instances | `list_object_instances`, `get_instance_status`, `get_instance_logs`, `refresh_instance_status`, `list_instance_sync_snapshots`, `get_instance_resource_file` | [Instance tools](instances.md) |
 | Resources | `list_cluster_ip_resources`, `list_object_resources`, `list_resource_info`, `get_container_logs` | [Resource tools](resources.md) |
 | Scheduler | `list_schedules` | [Scheduler tools](schedules.md) |
 | Pools | `list_storage_pools`, `list_pool_volumes` | [Pool tools](pools.md) |
@@ -145,6 +145,7 @@ are representative and will differ between calls.
 | `get_cluster_config` | Yes | No | `root` |
 | `get_cluster_status` | Yes | No | `guest` or higher |
 | `list_cluster_locks` | Yes | No | `root` |
+| `get_relay_status` | Yes | No | `heartbeat` grant or `root` |
 | `get_node_config` | Yes | No | `root` |
 | `get_node_config_keywords` | Yes | No | `root` |
 | `list_node_config_keywords` | Yes | No | Any authenticated caller |
@@ -157,6 +158,9 @@ are representative and will differ between calls.
 | `get_node_daemon_metrics` | Yes | No | OpenSVC JWT; daemon endpoint policy |
 | `probe_node_reachability` | Yes | No | `root` |
 | `get_node_logs` | Yes | No | `root` |
+| `list_node_network_reservations` | Yes | No | `root` |
+| `list_node_locks` | Yes | No | `root` |
+| `get_node_drbd_config` | Yes | No | `root` |
 | `list_cluster_objects` | Yes | No | Visible namespaces |
 | `get_object_status` | Yes | No | Visibility on the object namespace |
 | `get_object_config` | Yes | No | Visibility on the object namespace |
@@ -165,6 +169,8 @@ are representative and will differ between calls.
 | `list_object_instances` | Yes | No | Visibility on the object namespace |
 | `get_instance_status` | Yes | No | Namespace `guest` or higher |
 | `get_instance_logs` | Yes | No | `root` |
+| `list_instance_sync_snapshots` | Yes | No | Namespace `guest` or higher |
+| `get_instance_resource_file` | Yes | No | `root` |
 | `refresh_instance_status` | No | No | `operator`, `admin`, or `root` |
 | `freeze_object` | No | No | `operator` on the object namespace |
 | `unfreeze_object` | No | Yes | `operator` on the object namespace |

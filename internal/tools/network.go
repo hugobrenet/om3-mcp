@@ -52,7 +52,7 @@ func RegisterNetworkTools(registrar *Registrar, service *core.Service) error {
 			Title: "List network IPs",
 			Description: "List the addresses the OpenSVC instances report in the cluster backend networks, with the node, object, resource and network of each. " +
 				"Each entry counts the other object resources reporting the same address; use shared_only to list only those addresses, which may reveal a conflict. " +
-				"The instances of a failover object on several nodes each report its address without sharing it. " +
+				"The instances of a failover object on several nodes each report its address without sharing it. An address drawn but not yet reported by its object shows in list_node_network_reservations. " +
 				"Requires root access to the daemon endpoint.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},

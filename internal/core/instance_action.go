@@ -23,6 +23,9 @@ const (
 	// An unprovision stops then unprovisions the resources of the instance,
 	// which destroys the data of its disk and fs resources.
 	InstanceActionUnprovision InstanceAction = "unprovision"
+	// A run runs tasks of the instance, task#<name> resources, each the
+	// command its configuration names.
+	InstanceActionRun InstanceAction = "run"
 )
 
 // instanceActionKinds are the object kinds the instance actions accept, as
@@ -63,6 +66,10 @@ type InstanceActionOptions struct {
 	// StateOnly has an unprovision record the resources as unprovisioned,
 	// touching nothing, for resources a sysadmin freed by hand.
 	StateOnly bool
+	// Env are the KEY=VALUE variables a run exports to the commands of its
+	// tasks, after those of their configuration. Their values are never
+	// returned.
+	Env []string
 	// ConfigUpdatedAt has the action wait for the configuration written at
 	// that time, as update_object_config gives it, on the node.
 	ConfigUpdatedAt string
@@ -83,6 +90,9 @@ type InstanceActionResult struct {
 	// Instance is the instance as read before the action.
 	Instance ObjectInstanceStatus `json:"instance_before" jsonschema:"the instance as read before the action, not its state after it: get_instance_status reads it again"`
 	ExecutionOutcome
+	// Tasks are the tasks a run ran, their last run read again.
+	Tasks      []TaskRun `json:"tasks,omitempty" jsonschema:"for a run, each task, its last run read again in the instance status once the wait ended"`
+	TasksError string    `json:"tasks_error,omitempty" jsonschema:"why the last runs of the tasks could not be read again; the run itself was accepted"`
 }
 
 type InstanceClearResult struct {
@@ -126,6 +136,12 @@ func (s *Service) RunInstanceAction(ctx context.Context, path string, node strin
 	if err != nil {
 		return InstanceActionResult{}, err
 	}
+	var logged map[string]bool
+	if action == InstanceActionRun {
+		if logged, err = s.refuseTaskRun(ctx, reference, node, options.Rids); err != nil {
+			return InstanceActionResult{}, err
+		}
+	}
 	endpoint := fmt.Sprintf("/api/node/name/%s/instance/path/%s/%s/%s/action/%s", node, reference.Namespace, reference.Kind, reference.Name, action)
 	var accepted daemonInstanceActionAccepted
 	if err := poster.PostJSON(ctx, endpoint, query, nil, &accepted); err != nil {
@@ -149,6 +165,12 @@ func (s *Service) RunInstanceAction(ctx context.Context, path string, node strin
 		return InstanceActionResult{}, err
 	}
 	result.ExecutionOutcome = outcome
+	if action == InstanceActionRun {
+		result.Tasks, err = s.readTaskRuns(ctx, reference, node, result.SessionID, options.Rids, logged, outcome.Completed)
+		if err != nil {
+			result.TasksError = err.Error()
+		}
+	}
 	result.Provenance = s.newProvenance()
 	return result, nil
 }
@@ -176,14 +198,35 @@ func validateInstanceTarget(path string, node string, action string, kinds []str
 // and gives the query of the action.
 func instanceActionQuery(action InstanceAction, options InstanceActionOptions) (url.Values, error) {
 	switch action {
-	case InstanceActionStart, InstanceActionStop, InstanceActionRestart, InstanceActionFreeze, InstanceActionUnfreeze, InstanceActionUnprovision:
+	case InstanceActionStart, InstanceActionStop, InstanceActionRestart, InstanceActionFreeze, InstanceActionUnfreeze, InstanceActionUnprovision, InstanceActionRun:
 	default:
 		return nil, fmt.Errorf("unsupported instance action %q", action)
 	}
 	query := url.Values{}
+	if action == InstanceActionRun {
+		// A run without rid runs every task of the instance: the tasks are
+		// named, one at least.
+		if len(options.Rids) == 0 {
+			return nil, fmt.Errorf("a run names its tasks: rids, one task#<name> at least")
+		}
+		for _, rid := range options.Rids {
+			if !strings.HasPrefix(rid, "task#") {
+				return nil, fmt.Errorf("resource %q is not a task: a run runs task#<name> resources only", rid)
+			}
+		}
+	}
+	if len(options.Env) > 0 {
+		if action != InstanceActionRun {
+			return nil, fmt.Errorf("env applies to the run action only")
+		}
+		if err := validateTaskEnv(options.Env); err != nil {
+			return nil, err
+		}
+		query["env"] = append([]string(nil), options.Env...)
+	}
 	if len(options.Rids) > 0 {
 		if action == InstanceActionFreeze || action == InstanceActionUnfreeze {
-			return nil, fmt.Errorf("rids apply to the start, stop, restart and unprovision actions only")
+			return nil, fmt.Errorf("rids apply to the start, stop, restart, unprovision and run actions only")
 		}
 		if len(options.Rids) > maxEnableResources {
 			return nil, fmt.Errorf("at most %d resource ids are accepted", maxEnableResources)

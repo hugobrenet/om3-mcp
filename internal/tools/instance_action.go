@@ -50,6 +50,15 @@ type MarkInstanceUnprovisionedInput struct {
 	WaitSeconds     int      `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
 }
 
+type RunTaskInput struct {
+	Path            string   `json:"path" jsonschema:"the exact canonical OpenSVC svc or vol object path; no wildcard or selector"`
+	Node            string   `json:"node" jsonschema:"the exact name of the node to run the tasks on; no wildcard, selector or the _ alias"`
+	Rids            []string `json:"rids" jsonschema:"the tasks to run, each an exact task#<name> resource id, one at least, at most 50"`
+	Env             []string `json:"env,omitempty" jsonschema:"optional KEY=VALUE variables exported to the commands of the tasks, after those of their configuration, at most 32, each at most 4096 bytes on one line, the key of capitals, digits and underscores; PATH, LD_* and OPENSVC_* are refused; their values are never returned"`
+	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time, the last_modified update_object_config gives: the daemon refuses with 409 a node whose configuration is older"`
+	WaitSeconds     int      `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
+}
+
 type ClearInstanceInput struct {
 	Path string `json:"path" jsonschema:"the exact canonical OpenSVC object path; no wildcard or selector"`
 	Node string `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
@@ -162,6 +171,24 @@ func RegisterInstanceActionTools(registrar *Registrar, service *core.Service) er
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input MarkInstanceUnprovisionedInput) (*mcp.CallToolResult, InstanceActionOutput, error) {
 			return run(ctx, input.Path, input.Node, core.InstanceActionUnprovision, core.InstanceActionOptions{Rids: input.Rids, StateOnly: true, ConfigUpdatedAt: input.ConfigUpdatedAt}, input.WaitSeconds)
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "run_task",
+			Title: "Run task",
+			Description: "Run tasks of the instance of one OpenSVC svc or vol object on one node, task#<name> resources, each the command, script or container its configuration names: the daemon of that node runs them at once, outside of the orchestration, and a task may do anything its command does. Name the tasks in rids: a run without them would run every task. " +
+				"A task whose author asks a human to confirm each run, confirmation=true, is refused: the MCP does not confirm for them; an operator runs om <path> instance run --rid task#<name> --confirm on the node. " +
+				"env exports variables to the commands; their values are never returned. The task decides whether it runs: run_requires or max_parallel refuse a run in the execution, the reason in log_tail. " +
+				"Returns, per task, output_logged, its log keyword: true, get_node_logs on the node filtered on the exec_id gives its stdout and stderr; and its last run read again, last_run_exitcode and last_run_at, this_run telling whether it is the run of this call. A task longer than wait_seconds returns completed false, to follow with list_daemon_executions. " +
+				instanceExecutionFollowUp + "Requires admin on the object namespace.",
+			Annotations: actionAnnotations(true, false),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input RunTaskInput) (*mcp.CallToolResult, InstanceActionOutput, error) {
+			return run(ctx, input.Path, input.Node, core.InstanceActionRun, core.InstanceActionOptions{Rids: input.Rids, Env: input.Env, ConfigUpdatedAt: input.ConfigUpdatedAt}, input.WaitSeconds)
 		},
 	); err != nil {
 		return err

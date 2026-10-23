@@ -9,6 +9,7 @@ tools:
   - clear_instance
   - unprovision_instance
   - mark_instance_unprovisioned
+  - run_task
 stability: experimental
 ---
 
@@ -41,11 +42,12 @@ Implementation:
 | `clear_instance` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/clear` | svc, vol, cfg, nscfg, sec, usr | No | Yes |
 | `unprovision_instance` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/unprovision[?rid=…&leader=true]` | svc, vol | Yes | Yes |
 | `mark_instance_unprovisioned` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/unprovision?state_only=true[&rid=…]` | svc, vol | No | Yes |
+| `run_task` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/run?rid=task#…[&env=K=V…]` | svc, vol | Yes | No |
 
-They require `operator` on the object namespace, `unprovision_instance` and
-`mark_instance_unprovisioned` `admin`.
+They require `operator` on the object namespace, `unprovision_instance`,
+`mark_instance_unprovisioned` and `run_task` `admin`.
 
-- The seven actions fork `om <path> instance <action>` on the node, and the
+- The eight actions fork `om <path> instance <action>` on the node, and the
   daemon answers at once with the `session_id` and the `exec_id` of the
   execution. The MCP then reads `GET /api/node/name/<node>/daemon/exec/id/<exec_id>`
   until the execution ends, `wait_seconds`, 10 by default, 60 at most, and
@@ -116,6 +118,53 @@ They require `operator` on the object namespace, `unprovision_instance` and
   place of a record destroys the data. A name matching the request better
   steers the model to the lesser, reversible, one, and
   `unprovision_instance` points to it.
+
+### Running tasks
+
+A task is a resource, `task#<name>`, whose driver runs a command: `task.host`
+on the node, `task.docker`, `task.podman` or `task.oci` in a container. Its
+status stays `n/a`: a task runs on demand, or on its schedule, and an object
+of tasks alone needs no start. `run_task` forks `om <path> instance run --rid
+<tasks>` on the node.
+
+- `rids` is required, one `task#<name>` at least: a run without `rid` runs
+  every task of the instance, the other resources ignoring it. The MCP reads
+  the `<group>.type` keywords and refuses a task the object has not.
+- A task with `confirmation=true` asks a human to confirm each run. The
+  daemon runs it with `--confirm`, or, without a tty, aborts it at once, "run
+  aborted (stdin is not a tty)". The MCP never sends `--confirm`, and offers
+  no input for it: the model writes the arguments, and the confirmation card
+  of an agent would show a `confirm: true` the model wrote, not a human. It
+  reads `confirmation` before the call, the value scoped to the node first,
+  and refuses such a task, naming `om <path> instance run --rid <task>
+  --confirm` on the node; a value it cannot read as false, such as a
+  reference, is taken as true.
+- `env` exports `KEY=VALUE` variables to the commands, after those of the
+  configuration: at most 32, 4096 bytes each, one line, the key
+  `^[A-Z_][A-Z0-9_]*$`. `PATH`, `LD_*` and `OPENSVC_*` are refused: they
+  change what the command runs rather than what it does. The values are
+  never returned. The journal of the execution, which `log_tail` and
+  `get_node_logs` with `exec_id` read, shows them masked, `--env KEY=xxx`;
+  the daemon line of the API request, under the same session but without
+  the exec id, shows them in clear, an om3 defect: `get_node_logs` filtered
+  on `session_id` returns it.
+- The task decides whether it runs: `run_requires`, `max_parallel` ("task is
+  already running n times") and `snooze` refuse a run inside the execution,
+  which fails; the reason is in `log_tail`. The MCP does not guard them.
+- After the wait, the MCP reads the instance status again, `last_run_exitcode`,
+  `last_run_at` and `last_run_session_id` in the `info` of each task, which
+  the task writes at the end of each run, `log` or not. A run refused before
+  it ran writes none: `this_run`, the last run of the session of the call,
+  tells them apart. The status publishes the run a moment after the
+  execution ends: the MCP reads again up to 5 seconds until it shows.
+- `output_logged` is the `log` keyword of the task: true, its stdout goes to
+  the journal at info and its stderr at warn, under the execution:
+  `get_node_logs` with `exec_id` gives them, including, for a container task
+  with `rm`, the name of the container `docker rm` prints. False, only the
+  exit code is kept.
+- A task longer than `wait_seconds` returns `completed: false` with its
+  `exec_id`. Not offered: `cron`, `force`, `to`, `subset`, `tag`, `slaves`,
+  `master` and `confirm`.
 
 ### Input and output
 

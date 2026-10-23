@@ -13,7 +13,8 @@ func TestActionToolsAreRegisteredOnlyWhenEnabled(t *testing.T) {
 		"start_instance", "stop_instance", "restart_instance", "freeze_instance", "unfreeze_instance", "clear_instance",
 		"freeze_node", "unfreeze_node", "drain_node", "abort_node", "clear_node",
 		"set_object_data_key", "delete_object_data_key", "create_object_certificate", "renew_object_certificate", "update_node_config",
-		"freeze_cluster", "unfreeze_cluster", "abort_cluster_orchestration"}
+		"freeze_cluster", "unfreeze_cluster", "abort_cluster_orchestration",
+		"set_daemon_log_level", "start_heartbeat", "restart_heartbeat", "restart_daemon_listener", "restart_daemon"}
 	for _, enabled := range []bool{false, true} {
 		handler, err := newConfiguredToolsHandler(nil, nil, nil, enabled, nil)
 		if err != nil {

@@ -18,7 +18,7 @@ documents describe the implemented tool contracts.
 | Domain | Tools | Documentation |
 |---|---|---|
 | Catalogue | `list_clusters` | [Multi-cluster tools](../token-exchange.md#tool-contracts) |
-| Daemon | `list_daemon_executions`, `list_daemon_orchestrations`, `list_dns_records` | [Daemon tools](daemon.md) |
+| Daemon | `list_daemon_executions`, `list_daemon_orchestrations`, `list_dns_records`, `get_daemon_log_level` | [Daemon tools](daemon.md) |
 | Cluster | `get_cluster_config`, `get_cluster_status`, `list_cluster_locks` | [Cluster tools](cluster.md) |
 | Node | `get_node_config`, `get_node_config_keywords`, `list_node_config_keywords`, `get_node_status`, `get_node_logs`, `list_node_properties`, `list_node_hardware`, `list_node_packages`, `get_node_daemon_metrics`, `probe_node_reachability`, `list_node_capabilities`, `list_node_drivers`, `list_node_disks`, `get_node_san_topology`, `list_node_ip_addresses` | [Node tools](node.md) |
 | Objects | `list_cluster_objects`, `get_object_status`, `get_object_config`, `list_object_config_keywords`, `list_object_data_keys`, `get_object_data_key` | [Object tools](objects.md) |
@@ -34,6 +34,7 @@ documents describe the implemented tool contracts.
 | Node actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_node`, `unfreeze_node`, `drain_node`, `abort_node`, `clear_node` | [Node action tools](node-actions.md) |
 | Data writes (`OPENSVC_MCP_ACTIONS=enabled`) | `set_object_data_key`, `delete_object_data_key`, `create_object_certificate`, `renew_object_certificate` | [Data write tools](data-writes.md) |
 | Cluster actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_cluster`, `unfreeze_cluster`, `abort_cluster_orchestration` | [Cluster action tools](cluster-actions.md) |
+| Daemon actions (`OPENSVC_MCP_ACTIONS=enabled`) | `set_daemon_log_level`, `start_heartbeat`, `restart_heartbeat`, `restart_daemon_listener`, `restart_daemon` | [Daemon action tools](daemon-actions.md) |
 
 ## Tool search
 
@@ -140,6 +141,7 @@ are representative and will differ between calls.
 |---|---:|---:|---|
 | `list_daemon_executions` | Yes | No | `root` |
 | `list_daemon_orchestrations` | Yes | No | `root` |
+| `get_daemon_log_level` | Yes | No | `root` |
 | `get_cluster_config` | Yes | No | `root` |
 | `get_cluster_status` | Yes | No | `guest` or higher |
 | `list_cluster_locks` | Yes | No | `root` |
@@ -198,6 +200,11 @@ are representative and will differ between calls.
 | `freeze_cluster` | No | No | `root` |
 | `unfreeze_cluster` | No | Yes | `root` |
 | `abort_cluster_orchestration` | No | No | `root` |
+| `set_daemon_log_level` | No | No | `root` |
+| `start_heartbeat` | No | No | `root` |
+| `restart_heartbeat` | No | Yes | `root` |
+| `restart_daemon_listener` | No | Yes | `root` |
+| `restart_daemon` | No | Yes | `root` |
 | `create_object` | No | No | `admin` on the object namespace; `squatter` or `root` for an `nscfg` |
 | `list_cluster_ip_resources` | Yes | No | Visible namespaces |
 | `list_object_resources` | Yes | No | Visibility on the object namespace |

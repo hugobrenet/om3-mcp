@@ -100,6 +100,7 @@ var toolKeywords = map[string][]string{
 	"restart_heartbeat":           {"restart heartbeat", "heartbeat stuck", "reset hb", "heartbeat failed"},
 	"restart_instance":            {"restart on node", "bounce instance", "restart one node"},
 	"restart_object":              {"restart", "reboot service", "bounce", "start again"},
+	"run_task":                    {"run task", "lancer une tâche", "backup job", "execute job", "run script", "trigger job", "task"},
 	"set_daemon_log_level":        {"set log level", "quiet daemon", "reduce logs", "daemon verbosity"},
 	"set_object_data_key":         {"set key", "add secret", "store password", "add config file", "change secret", "user password"},
 	"start_heartbeat":             {"start heartbeat", "enable hb stream", "resume heartbeat"},

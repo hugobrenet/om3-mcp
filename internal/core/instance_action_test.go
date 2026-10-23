@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +39,12 @@ type instanceActionClient struct {
 	execReads int
 	posts     []string
 	query     url.Values
+	// taskTypes are the task#<name>.type records, taskKeywords the
+	// confirmation and log records, and taskInfo the info of each task in
+	// the instance status, for a run.
+	taskTypes    string
+	taskKeywords string
+	taskInfo     string
 }
 
 func (c *instanceActionClient) GetJSON(_ context.Context, path string, query url.Values, output any) error {
@@ -50,6 +57,13 @@ func (c *instanceActionClient) GetJSON(_ context.Context, path string, query url
 			items = []string{instanceMonitorRecord("test/svc/web", "n1", "down", state)}
 		}
 		return json.Unmarshal([]byte(`{"items":[`+strings.Join(items, ",")+`]}`), output)
+	case path == "/api/object/path/test/svc/web/config":
+		if kw := query["kw"]; len(kw) == 1 && kw[0] == "task.type" {
+			return json.Unmarshal([]byte(`{"kind":"KeywordList","items":[`+c.taskTypes+`]}`), output)
+		}
+		return json.Unmarshal([]byte(`{"kind":"KeywordList","items":[`+c.taskKeywords+`]}`), output)
+	case path == "/api/node/name/n1/instance/path/test/svc/web":
+		return json.Unmarshal([]byte(`{"kind":"InstanceItem","meta":{"node":"n1","object":"test/svc/web"},"data":{"config":{"csum":"c","priority":50,"scope":["n1"],"updated_at":"2026-10-23T12:00:00Z"},"status":{"avail":"n/a","overall":"n/a","provisioned":"n/a","resources":{`+c.taskInfo+`}}}}`), output)
 	case path == "/api/object":
 		return json.Unmarshal([]byte(fmt.Sprintf(`{"items":[{"meta":{"object":%q},"data":{"topology":%q}}]}`, query.Get("path"), c.topology)), output)
 	case strings.HasPrefix(path, "/api/node/name/n1/daemon/exec/id/"):
@@ -233,7 +247,7 @@ func TestRunInstanceActionRefusesBeforeTheCall(t *testing.T) {
 		{"kind", "test/cfg/web", "n1", InstanceActionStart, InstanceActionOptions{}, nil, "", "svc, vol objects only"},
 		{"node alias", "test/svc/web", "_", InstanceActionStart, InstanceActionOptions{}, nil, "", "the _ alias"},
 		{"rid selector", "test/svc/web", "n1", InstanceActionStart, InstanceActionOptions{Rids: []string{"fs"}}, nil, "", "one exact resource id"},
-		{"rids on freeze", "test/svc/web", "n1", InstanceActionFreeze, InstanceActionOptions{Rids: []string{"fs#1"}}, nil, "", "start, stop, restart and unprovision actions only"},
+		{"rids on freeze", "test/svc/web", "n1", InstanceActionFreeze, InstanceActionOptions{Rids: []string{"fs#1"}}, nil, "", "start, stop, restart, unprovision and run actions only"},
 		{"leader on stop", "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{Leader: true}, nil, "", "unprovision action only"},
 		{"state only on stop", "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{StateOnly: true}, nil, "", "unprovision action only"},
 		{"state only and leader", "test/svc/web", "n1", InstanceActionUnprovision, InstanceActionOptions{StateOnly: true, Leader: true}, nil, "", "exclusive"},
@@ -301,5 +315,89 @@ func TestClearInstanceLiftsAFailureOnly(t *testing.T) {
 	client = &instanceActionClient{}
 	if _, err := New(client).ClearInstance(context.Background(), "test/sec/web", "dev5n1,dev5n2"); err == nil || len(client.reads) != 0 {
 		t.Fatalf("node selector: %v", err)
+	}
+}
+
+func taskKeyword(keyword, value string) string {
+	return fmt.Sprintf(`{"object":"test/svc/web","node":"","keyword":%q,"value":%q}`, keyword, value)
+}
+
+func taskInfo(rid, session string, exitCode int) string {
+	return fmt.Sprintf(`%q:{"type":"task.host","label":"host","status":"n/a","disable":false,"monitor":false,"provisioned":{"state":"n/a","mtime":null},"info":{"last_run_at":"2026-10-23T12:51:01Z","last_run_exitcode":%d,"last_run_session_id":%q}}`, rid, exitCode, session)
+}
+
+func TestRunTaskReadsItsKeywordsThenItsLastRun(t *testing.T) {
+	zero := 0
+	types := taskKeyword("task#echo.type", "host") + "," + taskKeyword("task#touch.type", "host")
+	client := &instanceActionClient{
+		instances:    []string{instanceMonitorRecord("test/svc/web", "n1", "n/a", "idle")},
+		execs:        []string{execRecord("succeeded", &zero, true, "")},
+		taskTypes:    types,
+		taskKeywords: taskKeyword("task#echo.log", "true") + "," + taskKeyword("task#echo.confirmation", "") + "," + taskKeyword("task#touch.log@n2", "true"),
+		taskInfo:     taskInfo("task#echo", testSessionID, 0) + "," + taskInfo("task#touch", testSessionID, 0),
+	}
+	result, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionRun, InstanceActionOptions{Rids: []string{"task#echo", "task#touch"}, Env: []string{"MCP_VAR=hi", "OTHER=a=b"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.posts[0] != "/api/node/name/n1/instance/path/test/svc/web/action/run" || client.query.Get("rid") != "task#echo,task#touch" || strings.Join(client.query["env"], "|") != "MCP_VAR=hi|OTHER=a=b" {
+		t.Fatalf("posted %v %v", client.posts, client.query)
+	}
+	// log scoped to another node does not count.
+	if len(result.Tasks) != 2 || !result.Tasks[0].OutputLogged || result.Tasks[1].OutputLogged || !result.Tasks[0].ThisRun || *result.Tasks[0].LastRunExitCode != 0 || result.Tasks[0].LastRunAt == "" {
+		t.Fatalf("tasks %+v %s", result.Tasks, result.TasksError)
+	}
+	if out, _ := json.Marshal(result); strings.Contains(string(out), "MCP_VAR") {
+		t.Fatalf("an env variable was returned: %s", out)
+	}
+
+	// A run the task did not record, refused by max_parallel, leaves the
+	// last run of another session: this_run is false.
+	defer func(previous time.Duration) { taskRunReadAgainFor = previous }(taskRunReadAgainFor)
+	taskRunReadAgainFor = 300 * time.Millisecond
+	one := 1
+	client = &instanceActionClient{
+		instances: []string{instanceMonitorRecord("test/svc/web", "n1", "n/a", "idle")},
+		execs:     []string{execRecord("failed", &one, true, "exit status 1")},
+		logs:      []string{execLogEntry("error", "task#touch: run: task is already running 1 times")},
+		taskTypes: types, taskInfo: taskInfo("task#touch", "40000000-0000-0000-0000-0000000000ff", 0),
+	}
+	result, err = New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionRun, InstanceActionOptions{Rids: []string{"task#touch"}})
+	if err != nil || len(result.Tasks) != 1 || result.Tasks[0].ThisRun || len(result.LogTail) != 1 || !strings.Contains(result.LogTail[0].Message, "already running") {
+		t.Fatalf("not this run: %+v %v", result, err)
+	}
+}
+
+func TestRunTaskRefusesBeforeTheCall(t *testing.T) {
+	types := taskKeyword("task#echo.type", "host") + "," + taskKeyword("task#guarded.type", "host")
+	for name, tc := range map[string]struct {
+		options  InstanceActionOptions
+		keywords string
+		want     string
+	}{
+		"no rid":       {InstanceActionOptions{}, "", "one task#<name> at least"},
+		"not a task":   {InstanceActionOptions{Rids: []string{"fs#1"}}, "", "not a task"},
+		"unknown task": {InstanceActionOptions{Rids: []string{"task#zz"}}, "", "not a resource of the service"},
+		"confirmation": {InstanceActionOptions{Rids: []string{"task#guarded"}}, taskKeyword("task#guarded.confirmation", "yes"), "--confirm on n1"},
+		"scoped":       {InstanceActionOptions{Rids: []string{"task#echo"}}, taskKeyword("task#echo.confirmation", "false") + "," + taskKeyword("task#echo.confirmation@n1", "true"), "confirmation=true"},
+		"unreadable":   {InstanceActionOptions{Rids: []string{"task#echo"}}, taskKeyword("task#echo.confirmation", "{env.confirm}"), "confirmation=true"},
+		"ld preload":   {InstanceActionOptions{Rids: []string{"task#echo"}, Env: []string{"LD_PRELOAD=x"}}, "", "change what the command runs"},
+		"path":         {InstanceActionOptions{Rids: []string{"task#echo"}, Env: []string{"PATH=/tmp"}}, "", "change what the command runs"},
+		"opensvc":      {InstanceActionOptions{Rids: []string{"task#echo"}, Env: []string{"OPENSVC_RID=x"}}, "", "change what the command runs"},
+		"lower case":   {InstanceActionOptions{Rids: []string{"task#echo"}, Env: []string{"var=x"}}, "", "KEY=VALUE"},
+		"no value":     {InstanceActionOptions{Rids: []string{"task#echo"}, Env: []string{"VAR"}}, "", "KEY=VALUE"},
+		"new line":     {InstanceActionOptions{Rids: []string{"task#echo"}, Env: []string{"VAR=a\nb"}}, "", "one line"},
+		"twice":        {InstanceActionOptions{Rids: []string{"task#echo"}, Env: []string{"VAR=a", "VAR=b"}}, "", "twice"},
+		"too many":     {InstanceActionOptions{Rids: []string{"task#echo"}, Env: slices.Repeat([]string{"VAR=a"}, 33)}, "", "at most 32"},
+		"too long":     {InstanceActionOptions{Rids: []string{"task#echo"}, Env: []string{"VAR=" + strings.Repeat("x", 4096)}}, "", "4096 bytes"},
+	} {
+		client := &instanceActionClient{instances: []string{instanceMonitorRecord("test/svc/web", "n1", "n/a", "idle")}, taskTypes: types, taskKeywords: tc.keywords}
+		if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionRun, tc.options); err == nil || !strings.Contains(err.Error(), tc.want) || len(client.posts) != 0 {
+			t.Errorf("%s: %v, posts %v", name, err, client.posts)
+		}
+	}
+	client := &instanceActionClient{instances: []string{instanceMonitorRecord("test/svc/web", "n1", "down", "idle")}}
+	if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionStart, InstanceActionOptions{Env: []string{"VAR=a"}}); err == nil || !strings.Contains(err.Error(), "run action only") {
+		t.Errorf("env on a start: %v", err)
 	}
 }

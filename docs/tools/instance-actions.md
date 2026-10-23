@@ -7,6 +7,7 @@ tools:
   - freeze_instance
   - unfreeze_instance
   - clear_instance
+  - unprovision_instance
 stability: experimental
 ---
 
@@ -37,10 +38,12 @@ Implementation:
 | `freeze_instance` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/freeze` | svc, vol | No | Yes |
 | `unfreeze_instance` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/unfreeze` | svc, vol | Yes | Yes |
 | `clear_instance` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/clear` | svc, vol, cfg, nscfg, sec, usr | No | Yes |
+| `unprovision_instance` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/unprovision[?rid=…&leader=true]` | svc, vol | Yes | Yes |
 
-They require `operator` on the object namespace.
+They require `operator` on the object namespace, `unprovision_instance`
+`admin`.
 
-- The five actions fork `om <path> instance <action>` on the node, and the
+- The six actions fork `om <path> instance <action>` on the node, and the
   daemon answers at once with the `session_id` and the `exec_id` of the
   execution. The MCP then reads `GET /api/node/name/<node>/daemon/exec/id/<exec_id>`
   until the execution ends, `wait_seconds`, 10 by default, 60 at most, and
@@ -80,11 +83,21 @@ They require `operator` on the object namespace.
   action still running: the MCP reads the instance first, and accepts only
   the failed states, `boot failed`, `shutdown failed`, `start failed`,
   `stop failed`, `freeze failed`, `unfreeze failed`, `provision failed`,
-  `unprovision failed`, `delete failed`, `resize failed`, `cap failed` and
-  `prepare failed`. It reads the instance again for 10 seconds at most, and
+  `unprovision failed`, `delete failed`, `resize failed`, `cap failed`,
+  `prepare failed` and `purge failed`. It reads the instance again for 10 seconds at most, and
   returns `previous_state`, `current_state` and `cleared`. The daemon lifts a
   `start failed` itself when the object becomes up on another node: the clear
   serves when the object stays down.
+- `unprovision_instance` stops then unprovisions the resources of the
+  instance, or those of `rids`, triggers included, which destroys the data
+  of the disk and fs resources, outside of the orchestration of the object.
+  `leader: true` unprovisions the resources the instances share too, which
+  the other instances lose; by default they are left, and
+  `unprovision_object` unprovisions every node in order. The daemon looks at
+  nothing first: the MCP refuses an instance `up` or `warn`, `stop_instance`
+  first. `state_only`, which declares the instance unprovisioned without
+  touching it after a manual cleanup the agent cannot check, is not offered,
+  nor are `to`, `subset`, `tag`, `slaves`, `master` and `force`.
 
 ### Input and output
 

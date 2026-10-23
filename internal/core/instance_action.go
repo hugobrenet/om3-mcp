@@ -20,6 +20,9 @@ const (
 	InstanceActionRestart  InstanceAction = "restart"
 	InstanceActionFreeze   InstanceAction = "freeze"
 	InstanceActionUnfreeze InstanceAction = "unfreeze"
+	// An unprovision stops then unprovisions the resources of the instance,
+	// which destroys the data of its disk and fs resources.
+	InstanceActionUnprovision InstanceAction = "unprovision"
 )
 
 // instanceActionKinds are the object kinds the instance actions accept, as
@@ -41,12 +44,12 @@ const (
 // idle under it.
 var failedMonitorStates = []string{
 	"boot failed", "shutdown failed", "start failed", "stop failed", "freeze failed", "unfreeze failed",
-	"provision failed", "unprovision failed", "delete failed", "resize failed", "cap failed", "prepare failed",
+	"provision failed", "unprovision failed", "delete failed", "resize failed", "cap failed", "prepare failed", "purge failed",
 }
 
 type InstanceActionOptions struct {
-	// Rids are the exact ids of the resources a start, stop or restart
-	// applies to; none, the whole instance.
+	// Rids are the exact ids of the resources a start, stop, restart or
+	// unprovision applies to; none, the whole instance.
 	Rids []string
 	// DisableRollback has a start or a restart leave started the resources
 	// it started before a failure, rather than stopping them.
@@ -54,6 +57,9 @@ type InstanceActionOptions struct {
 	// InterruptSyncs has a stop end the syncs running on the instance
 	// instead of waiting for them to end.
 	InterruptSyncs bool
+	// Leader has an unprovision also unprovision the resources shared by the
+	// instances, which the leader of the placement holds.
+	Leader bool
 	// ConfigUpdatedAt has the action wait for the configuration written at
 	// that time, as update_object_config gives it, on the node.
 	ConfigUpdatedAt string
@@ -165,14 +171,14 @@ func validateInstanceTarget(path string, node string, action string, kinds []str
 // and gives the query of the action.
 func instanceActionQuery(action InstanceAction, options InstanceActionOptions) (url.Values, error) {
 	switch action {
-	case InstanceActionStart, InstanceActionStop, InstanceActionRestart, InstanceActionFreeze, InstanceActionUnfreeze:
+	case InstanceActionStart, InstanceActionStop, InstanceActionRestart, InstanceActionFreeze, InstanceActionUnfreeze, InstanceActionUnprovision:
 	default:
 		return nil, fmt.Errorf("unsupported instance action %q", action)
 	}
 	query := url.Values{}
 	if len(options.Rids) > 0 {
 		if action == InstanceActionFreeze || action == InstanceActionUnfreeze {
-			return nil, fmt.Errorf("rids apply to the start, stop and restart actions only")
+			return nil, fmt.Errorf("rids apply to the start, stop, restart and unprovision actions only")
 		}
 		if len(options.Rids) > maxEnableResources {
 			return nil, fmt.Errorf("at most %d resource ids are accepted", maxEnableResources)
@@ -196,6 +202,12 @@ func instanceActionQuery(action InstanceAction, options InstanceActionOptions) (
 		}
 		query.Set("interrupt_syncs", "true")
 	}
+	if options.Leader {
+		if action != InstanceActionUnprovision {
+			return nil, fmt.Errorf("leader applies to the unprovision action only")
+		}
+		query.Set("leader", "true")
+	}
 	if options.ConfigUpdatedAt != "" {
 		if _, err := time.Parse(time.RFC3339Nano, options.ConfigUpdatedAt); err != nil {
 			return nil, fmt.Errorf("config_updated_at must be an RFC 3339 time, the last_modified update_object_config gives")
@@ -209,7 +221,8 @@ func instanceActionQuery(action InstanceAction, options InstanceActionOptions) (
 // node must exist. The daemon starts an instance of a failover service while
 // another runs on a peer, which would run it twice, on the same shared
 // storage: a start or a restart is refused when another instance is up or
-// warn.
+// warn. The daemon stops an instance up, then destroys its data, on an
+// unprovision: it is refused when the instance is up or warn.
 func (s *Service) refuseInstanceAction(ctx context.Context, reference ClusterObjectReference, node string, action InstanceAction) (ObjectInstanceStatus, error) {
 	instances, err := s.ListObjectInstances(ctx, ListObjectInstancesOptions{Path: reference.Path, Limit: maxListObjectInstancesLimit})
 	if err != nil {
@@ -218,6 +231,9 @@ func (s *Service) refuseInstanceAction(ctx context.Context, reference ClusterObj
 	index := slices.IndexFunc(instances.Instances, func(instance ObjectInstanceStatus) bool { return instance.Node == node })
 	if index < 0 {
 		return ObjectInstanceStatus{}, fmt.Errorf("%s instance %s on %s: the object has no instance on that node, or it is not visible to the caller", action, reference.Path, node)
+	}
+	if instance := instances.Instances[index]; action == InstanceActionUnprovision && (instance.Availability == "up" || instance.Availability == "warn") {
+		return ObjectInstanceStatus{}, fmt.Errorf("unprovision instance %s on %s: the instance is %s: stop it first, stop_instance; the unprovision destroys the data of its disk and fs resources", reference.Path, node, instance.Availability)
 	}
 	if action != InstanceActionStart && action != InstanceActionRestart {
 		return instances.Instances[index], nil

@@ -142,6 +142,8 @@ func TestRunInstanceActionSendsItsOptionsAndReadsTheExecution(t *testing.T) {
 		{InstanceActionRestart, InstanceActionOptions{}, ""},
 		{InstanceActionFreeze, InstanceActionOptions{}, ""},
 		{InstanceActionUnfreeze, InstanceActionOptions{}, ""},
+		{InstanceActionUnprovision, InstanceActionOptions{Rids: []string{"fs#1"}, Leader: true}, "leader=true&rid=fs%231"},
+		{InstanceActionUnprovision, InstanceActionOptions{}, ""},
 	} {
 		client := &instanceActionClient{
 			instances: []string{instanceMonitorRecord("test/svc/web", "n1", "down", "idle")},
@@ -230,7 +232,8 @@ func TestRunInstanceActionRefusesBeforeTheCall(t *testing.T) {
 		{"kind", "test/cfg/web", "n1", InstanceActionStart, InstanceActionOptions{}, nil, "", "svc, vol objects only"},
 		{"node alias", "test/svc/web", "_", InstanceActionStart, InstanceActionOptions{}, nil, "", "the _ alias"},
 		{"rid selector", "test/svc/web", "n1", InstanceActionStart, InstanceActionOptions{Rids: []string{"fs"}}, nil, "", "one exact resource id"},
-		{"rids on freeze", "test/svc/web", "n1", InstanceActionFreeze, InstanceActionOptions{Rids: []string{"fs#1"}}, nil, "", "start, stop and restart actions only"},
+		{"rids on freeze", "test/svc/web", "n1", InstanceActionFreeze, InstanceActionOptions{Rids: []string{"fs#1"}}, nil, "", "start, stop, restart and unprovision actions only"},
+		{"leader on stop", "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{Leader: true}, nil, "", "unprovision action only"},
 		{"rollback on stop", "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{DisableRollback: true}, nil, "", "start and restart actions only"},
 		{"syncs on start", "test/svc/web", "n1", InstanceActionStart, InstanceActionOptions{InterruptSyncs: true}, nil, "", "stop action only"},
 		{"config time", "test/svc/web", "n1", InstanceActionStart, InstanceActionOptions{ConfigUpdatedAt: "yesterday"}, nil, "", "RFC 3339"},
@@ -238,6 +241,8 @@ func TestRunInstanceActionRefusesBeforeTheCall(t *testing.T) {
 		{"no instance", "test/svc/web", "n3", InstanceActionStop, InstanceActionOptions{}, []string{down, up}, "", "no instance on that node"},
 		{"failover start", "test/svc/web", "n1", InstanceActionStart, InstanceActionOptions{}, []string{down, up}, "failover", "its instance on n2 is up"},
 		{"failover restart", "test/svc/web", "n1", InstanceActionRestart, InstanceActionOptions{Rids: []string{"fs#1"}}, []string{down, instanceMonitorRecord("test/svc/web", "n2", "warn", "idle")}, "failover", "its instance on n2 is warn"},
+		{"unprovision up", "test/svc/web", "n2", InstanceActionUnprovision, InstanceActionOptions{}, []string{down, up}, "", "stop it first, stop_instance"},
+		{"unprovision warn", "test/svc/web", "n2", InstanceActionUnprovision, InstanceActionOptions{Leader: true}, []string{down, instanceMonitorRecord("test/svc/web", "n2", "warn", "idle")}, "", "the instance is warn"},
 	} {
 		client := &instanceActionClient{instances: tc.instances, topology: tc.topology}
 		_, err := New(client).RunInstanceAction(context.Background(), tc.path, tc.node, tc.action, tc.options)
@@ -250,7 +255,7 @@ func TestRunInstanceActionRefusesBeforeTheCall(t *testing.T) {
 	for _, tc := range []struct {
 		action   InstanceAction
 		topology string
-	}{{InstanceActionStart, "flex"}, {InstanceActionStop, "failover"}, {InstanceActionFreeze, "failover"}} {
+	}{{InstanceActionStart, "flex"}, {InstanceActionStop, "failover"}, {InstanceActionFreeze, "failover"}, {InstanceActionUnprovision, "failover"}} {
 		client := &instanceActionClient{instances: []string{down, up}, topology: tc.topology, execs: []string{execRecord("succeeded", new(int), true, "")}}
 		if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", tc.action, InstanceActionOptions{}); err != nil || len(client.posts) != 1 {
 			t.Fatalf("%s %s: %v", tc.action, tc.topology, err)

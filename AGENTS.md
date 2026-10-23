@@ -12,9 +12,9 @@ Most tools are read-only. `refresh_instance_status` is an explicit,
 non-destructive active probe; it executes status drivers and updates daemon
 state. Action tools, which change the cluster state, are registered only when
 `OPENSVC_MCP_ACTIONS=enabled`, on both listeners. Add an action only at user
-direction, one tool per action, and keep destructive data operations
-(unprovision, purge, delete) and daemon or heartbeat control out of scope
-unless explicitly decided.
+direction, one tool per action: a destructive data operation, such as
+unprovision, purge or delete, or a daemon or heartbeat control, only once
+explicitly decided, as those offered were.
 
 Module and binary: `github.com/opensvc/om3-mcp` and `om3-mcp`.
 Use Go, the standard library, `github.com/modelcontextprotocol/go-sdk` and

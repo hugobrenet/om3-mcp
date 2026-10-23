@@ -9,8 +9,8 @@ import (
 
 func TestActionToolsAreRegisteredOnlyWhenEnabled(t *testing.T) {
 	actions := []string{"freeze_object", "unfreeze_object", "abort_object_orchestration", "start_object", "stop_object", "restart_object", "switch_object", "giveback_object", "update_object_config", "create_object",
-		"provision_object", "resize_object", "cap_object", "enable_object", "disable_object", "delete_object",
-		"start_instance", "stop_instance", "restart_instance", "freeze_instance", "unfreeze_instance", "clear_instance",
+		"provision_object", "resize_object", "cap_object", "enable_object", "disable_object", "delete_object", "unprovision_object", "purge_object",
+		"start_instance", "stop_instance", "restart_instance", "freeze_instance", "unfreeze_instance", "clear_instance", "unprovision_instance",
 		"freeze_node", "unfreeze_node", "drain_node", "abort_node", "clear_node",
 		"set_object_data_key", "delete_object_data_key", "create_object_certificate", "renew_object_certificate", "update_node_config",
 		"freeze_cluster", "unfreeze_cluster", "abort_cluster_orchestration",

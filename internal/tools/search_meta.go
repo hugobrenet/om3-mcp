@@ -90,6 +90,7 @@ var toolKeywords = map[string][]string{
 	"list_storage_pools":          {"storage pool", "capacity", "free space", "pool usage", "thin provisioning"},
 	"probe_node_reachability":     {"ping", "reachable", "connectivity", "node answers", "health check"},
 	"provision_object":            {"provision", "create storage", "format", "deploy", "allocate", "first start"},
+	"purge_object":                {"purge", "remove provisioned", "destroy service", "decommission", "wipe object", "delete data"},
 	"refresh_instance_status":     {"refresh", "update status", "status probe", "resync status"},
 	"renew_object_certificate":    {"renew certificate", "acme", "letsencrypt", "certificate expiry", "rotate certificate"},
 	"resize_object":               {"grow", "extend volume", "enlarge", "increase size", "expand"},
@@ -110,6 +111,8 @@ var toolKeywords = map[string][]string{
 	"unfreeze_instance":           {"unfreeze node instance", "thaw instance", "resume instance"},
 	"unfreeze_node":               {"unfreeze node", "end node maintenance", "resume node", "thaw node"},
 	"unfreeze_object":             {"unfreeze", "thaw", "resume automation", "end maintenance"},
+	"unprovision_instance":        {"unprovision on node", "deprovision instance", "local unprovision", "free node storage"},
+	"unprovision_object":          {"unprovision", "deprovision", "free storage", "destroy data", "release resources", "teardown"},
 	"update_node_config":          {"set node setting", "change node config", "edit node.conf", "configure heartbeat", "set node env"},
 	"update_object_config":        {"edit config", "change setting", "set keyword", "modify configuration", "configure", "unset", "set cluster", "cluster config"},
 }

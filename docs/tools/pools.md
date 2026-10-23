@@ -76,7 +76,7 @@ those of one node only, as the daemon keeps the last node it reads: use
 ### `list_pool_volumes`
 
 Lists the volumes the pools serve. Use it to find what takes the space of a
-pool, or the volumes no object uses any more.
+pool, or the volumes no object uses any more: those with empty `children`.
 
 #### OpenSVC API, authorization, and freshness
 
@@ -91,7 +91,7 @@ The daemon requires the global `root` grant.
 | Input | Meaning |
 |---|---|
 | `pool` | Optional exact pool name; omitted for the volumes of every pool |
-| `orphans_only` | Optional; `true` keeps only the volumes no object uses |
+| `orphans_only` | Optional; `true` keeps only the orphan volumes, whose pool the cluster no longer knows |
 | `limit` | Optional page size between 1 and 200; defaults to 100 |
 | `cursor` | Optional `next_cursor` of a previous call |
 
@@ -106,5 +106,13 @@ The daemon requires the global `root` grant.
 | `next_cursor`, `truncated` | Continuation of the page |
 
 Each volume holds `path`, `pool`, `size_bytes` (the size the pool served),
-`is_orphan`, `children` (the object paths using the volume, at most 32), and
-`charges`: the bytes it takes of other pools, sorted by pool, at most 32.
+`is_orphan`, `children` and `charges`: the bytes it takes of other pools,
+sorted by pool, at most 32.
+
+`children` is the `children` keyword of the vol, which the volume resource
+of a svc merges, `<path>@<node>`, when it claims the volume at its
+provision, and removes when it releases it at its unprovision, as seen on
+dev5 on 2026-10-23: empty, no object uses the volume. At most 32 are
+returned. `is_orphan` is the daemon's: the pool the volume was served by is
+no longer among the pools the cluster knows. It does not tell whether an
+object uses the volume.

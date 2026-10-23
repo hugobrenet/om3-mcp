@@ -33,6 +33,15 @@ type FreezeInstanceInput struct {
 	WaitSeconds     int    `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
 }
 
+type UnprovisionInstanceInput struct {
+	Path            string   `json:"path" jsonschema:"the exact canonical OpenSVC svc or vol object path; no wildcard or selector"`
+	Node            string   `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
+	Rids            []string `json:"rids,omitempty" jsonschema:"optional exact resource ids, such as fs#1, at most 50; omitted, the whole instance; the daemon refuses an id the object has not"`
+	Leader          bool     `json:"leader,omitempty" jsonschema:"optional; true also unprovisions the resources the instances share, such as a shared disk, which the leader of the placement holds; false by default, the shared resources left for the other instances"`
+	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time, the last_modified update_object_config gives: the daemon refuses with 409 a node whose configuration is older"`
+	WaitSeconds     int      `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
+}
+
 type ClearInstanceInput struct {
 	Path string `json:"path" jsonschema:"the exact canonical OpenSVC object path; no wildcard or selector"`
 	Node string `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
@@ -42,12 +51,14 @@ type InstanceActionOutput = core.InstanceActionResult
 
 type InstanceClearOutput = core.InstanceClearResult
 
-// instanceActionFollowUp tells the agent what the result of an instance
+// instanceExecutionFollowUp tells the agent what the result of an instance
 // action holds, and how to follow an execution still running.
-const instanceActionFollowUp = "The node runs the action at once, outside of the orchestration of the object: the MCP waits for the end of the execution, wait_seconds, and returns completed with its state, exit_code and error; an execution still running returns completed false, to follow with list_daemon_executions and get_node_logs on the node, filtered on exec_id. " +
+const instanceExecutionFollowUp = "The node runs the action at once, outside of the orchestration of the object: the MCP waits for the end of the execution, wait_seconds, and returns completed with its state, exit_code and error; an execution still running returns completed false, to follow with list_daemon_executions and get_node_logs on the node, filtered on exec_id. " +
 	"An execution that failed returns log_tail, the end of its journal on the node, where its cause is; get_node_logs with exec_id gives more. " +
-	"Reading the execution and its journal requires root access: for an operator, execution_error says so, and get_instance_status gives the outcome. A 410 in execution_error is an execution the daemon ran and has dropped since. " +
-	"Requires operator access on the object namespace."
+	"Reading the execution and its journal requires root access: for an operator, execution_error says so, and get_instance_status gives the outcome. A 410 in execution_error is an execution the daemon ran and has dropped since. "
+
+// instanceActionFollowUp adds the role the instance actions require.
+const instanceActionFollowUp = instanceExecutionFollowUp + "Requires operator access on the object namespace."
 
 // RegisterInstanceActionTools registers the tools of the actions on one
 // instance of an object. They are registered only when actions are enabled.
@@ -106,6 +117,23 @@ func RegisterInstanceActionTools(registrar *Registrar, service *core.Service) er
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input StartInstanceInput) (*mcp.CallToolResult, InstanceActionOutput, error) {
 			return run(ctx, input.Path, input.Node, core.InstanceActionRestart, core.InstanceActionOptions{Rids: input.Rids, DisableRollback: input.DisableRollback, ConfigUpdatedAt: input.ConfigUpdatedAt}, input.WaitSeconds)
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "unprovision_instance",
+			Title: "Unprovision instance",
+			Description: "Unprovision the instance of one OpenSVC svc or vol object on one node, or some of its resources: the daemon of that node stops then unprovisions them, triggers included, which destroys the data the disk and fs resources hold, outside of the orchestration of the object. " +
+				"Without leader, the resources the instances share are left; with leader, they are unprovisioned too, which the other instances lose: unprovision_object unprovisions every node in order. " +
+				"The daemon does not look at what the instance runs: the MCP refuses an instance up or warn; stop it first, stop_instance. A resource with unprovision=false fails the action. " +
+				instanceExecutionFollowUp + "Requires admin on the object namespace.",
+			Annotations: actionAnnotations(true, true),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input UnprovisionInstanceInput) (*mcp.CallToolResult, InstanceActionOutput, error) {
+			return run(ctx, input.Path, input.Node, core.InstanceActionUnprovision, core.InstanceActionOptions{Rids: input.Rids, Leader: input.Leader, ConfigUpdatedAt: input.ConfigUpdatedAt}, input.WaitSeconds)
 		},
 	); err != nil {
 		return err

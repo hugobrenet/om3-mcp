@@ -36,8 +36,16 @@ type ObjectEnableOutput = core.ObjectEnableResult
 const lifecycleFollowUp = "Returns as soon as the daemon queued the orchestration, with its orchestration_id: follow it with list_daemon_orchestrations and get_node_logs filtered on that id, and check the outcome with get_object_status. " +
 	"Requires admin on the object namespace."
 
+// unprovisionEffect tells what an unprovision destroys and what it leaves,
+// shared by unprovision_object and purge_object.
+const unprovisionEffect = "Each instance stops then unprovisions its resources, pre and post unprovision triggers included, which destroys the data the disk and fs resources hold: filesystems, logical volumes, volume groups. The non-leader instances go first, then the leader of the placement unprovisions the resources they share. " +
+	"The vol objects a svc uses are released, not unprovisioned: they keep their data. Each instance first waits for the objects depending on it to be down, without a time limit: list_daemon_orchestrations shows the wait. " +
+	"The daemon does not look at what the object runs: the MCP refuses an object an instance of which is up or warn; stop it first, stop_object. " +
+	"A resource with unprovision=false fails the instance; a failure leaves its monitor state failed, which clear_instance lifts. The daemon refuses with 409 an object whose orchestration runs. "
+
 // RegisterObjectLifecycleTools registers the tools of the lifecycle of an
-// object: provision, resize, cap, enable, disable and delete. They are
+// object: provision, resize, cap, unprovision, purge, enable, disable and
+// delete. They are
 // registered only when actions are enabled.
 func RegisterObjectLifecycleTools(registrar *Registrar, service *core.Service) error {
 	if err := addTool(
@@ -108,13 +116,56 @@ func RegisterObjectLifecycleTools(registrar *Registrar, service *core.Service) e
 			Name:  "delete_object",
 			Title: "Delete object",
 			Description: "Delete one OpenSVC svc, vol, cfg, sec or usr object: the daemon removes its configuration and the files of every instance. " +
-				"The daemon does not look at what the object runs or holds: the MCP refuses to delete an object an instance of which is not down, or, for a svc or a vol, holds provisioned resources, which would stay mounted, or the storage held by nothing. Stop it, then unprovision it, before deleting it. " +
+				"The daemon does not look at what the object runs or holds: the MCP refuses to delete an object an instance of which is not down, or, for a svc or a vol, holds provisioned resources, which would stay mounted, or the storage held by nothing. A provisioned object is purged, purge_object, once stopped. " +
 				"An object deleted is gone: a second delete is refused. " +
 				lifecycleFollowUp,
 			Annotations: actionAnnotations(true, false),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input ObjectActionInput) (*mcp.CallToolResult, ObjectActionOutput, error) {
 			result, err := service.SubmitObjectAction(ctx, input.Path, core.ObjectActionDelete, core.ObjectActionOptions{})
+			if err != nil {
+				return nil, ObjectActionOutput{}, err
+			}
+			return nil, result, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "unprovision_object",
+			Title: "Unprovision object",
+			Description: "Unprovision one OpenSVC svc or vol object on every node: the object stays configured, its resources removed, and provision_object provisions it again, empty. " +
+				unprovisionEffect +
+				"An object unprovisioned already reaches the goal at once. " +
+				lifecycleFollowUp,
+			Annotations: actionAnnotations(true, true),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ObjectActionInput) (*mcp.CallToolResult, ObjectActionOutput, error) {
+			result, err := service.SubmitObjectAction(ctx, input.Path, core.ObjectActionUnprovision, core.ObjectActionOptions{})
+			if err != nil {
+				return nil, ObjectActionOutput{}, err
+			}
+			return nil, result, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "purge_object",
+			Title: "Purge object",
+			Description: "Purge one OpenSVC svc or vol object: the daemon unprovisions it on every node, then deletes it, its configuration and the files of every instance. This is how a provisioned object is removed; delete_object removes one holding nothing. The orchestration ends when the object is gone: get_object_status then answers it is not found. " +
+				unprovisionEffect +
+				"A purge that fails leaves the object, partly unprovisioned. A cfg, sec or usr holds nothing to unprovision: it is removed with delete_object. " +
+				"Before purging a vol, list_pool_volumes tells the objects using it, children, or get_instance_status on its node: empty children, no object uses it. " +
+				lifecycleFollowUp,
+			Annotations: actionAnnotations(true, false),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ObjectActionInput) (*mcp.CallToolResult, ObjectActionOutput, error) {
+			result, err := service.SubmitObjectAction(ctx, input.Path, core.ObjectActionPurge, core.ObjectActionOptions{})
 			if err != nil {
 				return nil, ObjectActionOutput{}, err
 			}

@@ -25,7 +25,7 @@ type ListPoolVolumesOptions struct {
 type PoolVolumeList struct {
 	Provenance  Provenance   `json:"provenance" jsonschema:"API source and MCP collection time of this result"`
 	PoolFilter  string       `json:"pool_filter,omitempty" jsonschema:"the optional exact pool name used for the daemon request"`
-	OrphansOnly bool         `json:"orphans_only" jsonschema:"whether only volumes no object uses are listed"`
+	OrphansOnly bool         `json:"orphans_only" jsonschema:"whether only orphan volumes, whose pool the cluster no longer knows, are listed"`
 	Total       int          `json:"total" jsonschema:"the number of volumes matching the filters"`
 	Count       int          `json:"count" jsonschema:"the number of volumes returned in this page"`
 	Volumes     []PoolVolume `json:"volumes" jsonschema:"the volumes sorted by pool then volume path"`
@@ -37,8 +37,8 @@ type PoolVolume struct {
 	Path              string       `json:"path" jsonschema:"the OpenSVC volume object path"`
 	Pool              string       `json:"pool" jsonschema:"the pool that served the volume"`
 	SizeBytes         int64        `json:"size_bytes" jsonschema:"the size the pool served the volume with"`
-	IsOrphan          bool         `json:"is_orphan" jsonschema:"whether no object uses the volume"`
-	Children          []string     `json:"children" jsonschema:"the object paths using the volume, at most 32"`
+	IsOrphan          bool         `json:"is_orphan" jsonschema:"whether the pool the volume was served by is no longer known to the cluster; not whether an object uses it, which children tells"`
+	Children          []string     `json:"children" jsonschema:"the objects using the volume, at most 32, each <path>@<node> for a volume resource of a svc; empty, no object uses it"`
 	ChildrenTruncated bool         `json:"children_truncated" jsonschema:"whether children were omitted after 32 entries"`
 	Charges           []PoolCharge `json:"charges" jsonschema:"what the volume takes of pools other than the one that served it, sorted by pool"`
 	ChargesTruncated  bool         `json:"charges_truncated" jsonschema:"whether charges were omitted after 32 entries"`

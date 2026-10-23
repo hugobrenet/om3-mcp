@@ -17,7 +17,7 @@ type ListStoragePoolsOutput = core.StoragePoolList
 
 type ListPoolVolumesInput struct {
 	Pool        string `json:"pool,omitempty" jsonschema:"optional exact pool name; omit for the volumes of every pool"`
-	OrphansOnly bool   `json:"orphans_only,omitempty" jsonschema:"optional; true lists only the volumes no object uses"`
+	OrphansOnly bool   `json:"orphans_only,omitempty" jsonschema:"optional; true lists only the orphan volumes, whose pool the cluster no longer knows"`
 	Limit       int    `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
 	Cursor      string `json:"cursor,omitempty" jsonschema:"optional next_cursor returned by a previous call"`
 }
@@ -51,7 +51,8 @@ func RegisterPoolTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:  "list_pool_volumes",
 			Title: "List pool volumes",
-			Description: "List the volumes the OpenSVC storage pools serve, with their size, the objects using them, whether they are orphans, and the storage they take of other pools. " +
+			Description: "List the volumes the OpenSVC storage pools serve, with their size, the objects using them, children, and the storage they take of other pools. " +
+				"children names each svc whose volume resource holds the volume, <path>@<node>; empty, no object uses it. is_orphan tells a volume whose pool the cluster no longer knows, not one unused. " +
 				"Requires root access to the daemon endpoint.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},

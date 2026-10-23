@@ -30,7 +30,7 @@ documents describe the implemented tool contracts.
 | Auth | `get_caller_identity` | [Auth tools](auth.md) |
 | Actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_object`, `unfreeze_object`, `abort_object_orchestration`, `start_object`, `stop_object`, `restart_object`, `switch_object`, `giveback_object`, `provision_object`, `resize_object`, `cap_object`, `enable_object`, `disable_object`, `delete_object`, `unprovision_object`, `purge_object` | [Action tools](actions.md) |
 | Configuration writes (`OPENSVC_MCP_ACTIONS=enabled`) | `update_object_config`, `create_object`, `update_node_config` | [Configuration write tools](config-writes.md) |
-| Instance actions (`OPENSVC_MCP_ACTIONS=enabled`) | `start_instance`, `stop_instance`, `restart_instance`, `freeze_instance`, `unfreeze_instance`, `clear_instance`, `unprovision_instance` | [Instance action tools](instance-actions.md) |
+| Instance actions (`OPENSVC_MCP_ACTIONS=enabled`) | `start_instance`, `stop_instance`, `restart_instance`, `freeze_instance`, `unfreeze_instance`, `clear_instance`, `unprovision_instance`, `mark_instance_unprovisioned` | [Instance action tools](instance-actions.md) |
 | Node actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_node`, `unfreeze_node`, `drain_node`, `abort_node`, `clear_node` | [Node action tools](node-actions.md) |
 | Data writes (`OPENSVC_MCP_ACTIONS=enabled`) | `set_object_data_key`, `delete_object_data_key`, `create_object_certificate`, `renew_object_certificate` | [Data write tools](data-writes.md) |
 | Cluster actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_cluster`, `unfreeze_cluster`, `abort_cluster_orchestration` | [Cluster action tools](cluster-actions.md) |
@@ -189,6 +189,7 @@ are representative and will differ between calls.
 | `unfreeze_instance` | No | Yes | `operator` on the object namespace |
 | `clear_instance` | No | No | `operator` on the object namespace |
 | `unprovision_instance` | No | Yes | `admin` on the object namespace |
+| `mark_instance_unprovisioned` | No | No | `admin` on the object namespace |
 | `freeze_node` | No | No | `root` |
 | `unfreeze_node` | No | Yes | `root` |
 | `drain_node` | No | Yes | `root` |

@@ -157,7 +157,7 @@ func RegisterObjectLifecycleTools(registrar *Registrar, service *core.Service) e
 		&mcp.Tool{
 			Name:  "purge_object",
 			Title: "Purge object",
-			Description: "Purge one OpenSVC svc or vol object: the daemon unprovisions it on every node, then deletes it, its configuration and the files of every instance. This is how a provisioned object is removed; delete_object removes one holding nothing. The orchestration ends when the object is gone: get_object_status then answers it is not found. " +
+			Description: "Purge one OpenSVC svc or vol object: the daemon unprovisions it on every node, then deletes it, its configuration and the files of every instance. This is how a provisioned object is removed, only when the removal of the object is asked: to free the storage of one node, unprovision_instance; of every node, the object kept, unprovision_object. delete_object removes an object holding nothing. The orchestration ends when the object is gone: get_object_status then answers it is not found. " +
 				unprovisionEffect +
 				"A purge that fails leaves the object, partly unprovisioned. A cfg, sec or usr holds nothing to unprovision: it is removed with delete_object. " +
 				"Before purging a vol, list_pool_volumes tells the objects using it, children, or get_instance_status on its node: empty children, no object uses it. " +

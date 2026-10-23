@@ -42,6 +42,14 @@ type UnprovisionInstanceInput struct {
 	WaitSeconds     int      `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
 }
 
+type MarkInstanceUnprovisionedInput struct {
+	Path            string   `json:"path" jsonschema:"the exact canonical OpenSVC svc or vol object path; no wildcard or selector"`
+	Node            string   `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
+	Rids            []string `json:"rids,omitempty" jsonschema:"optional exact resource ids, such as fs#1 or disk#1, at most 50: the resources freed by hand; omitted, the whole instance"`
+	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time, the last_modified update_object_config gives: the daemon refuses with 409 a node whose configuration is older"`
+	WaitSeconds     int      `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
+}
+
 type ClearInstanceInput struct {
 	Path string `json:"path" jsonschema:"the exact canonical OpenSVC object path; no wildcard or selector"`
 	Node string `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
@@ -126,7 +134,10 @@ func RegisterInstanceActionTools(registrar *Registrar, service *core.Service) er
 		&mcp.Tool{
 			Name:  "unprovision_instance",
 			Title: "Unprovision instance",
-			Description: "Unprovision the instance of one OpenSVC svc or vol object on one node, or some of its resources: the daemon of that node stops then unprovisions them, triggers included, which destroys the data the disk and fs resources hold, outside of the orchestration of the object. " +
+			Description: "Unprovision the instance of one OpenSVC svc or vol object on one node, or some of its resources, destroying the data its disk and fs resources hold, to free the storage of that node: it always acts on them, and cannot mark an instance unprovisioned without touching it. " +
+				"The object and its other instances are left: it is not stopped, nor purged. " +
+				"To record as unprovisioned resources a sysadmin freed by hand, touching nothing, call mark_instance_unprovisioned instead. " +
+				"The daemon of that node stops then unprovisions them, triggers included, outside of the orchestration of the object. " +
 				"Without leader, the resources the instances share are left; with leader, they are unprovisioned too, which the other instances lose: unprovision_object unprovisions every node in order. " +
 				"The daemon does not look at what the instance runs: the MCP refuses an instance up or warn; stop it first, stop_instance. A resource with unprovision=false fails the action. " +
 				instanceExecutionFollowUp + "Requires admin on the object namespace.",
@@ -134,6 +145,23 @@ func RegisterInstanceActionTools(registrar *Registrar, service *core.Service) er
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input UnprovisionInstanceInput) (*mcp.CallToolResult, InstanceActionOutput, error) {
 			return run(ctx, input.Path, input.Node, core.InstanceActionUnprovision, core.InstanceActionOptions{Rids: input.Rids, Leader: input.Leader, ConfigUpdatedAt: input.ConfigUpdatedAt}, input.WaitSeconds)
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "mark_instance_unprovisioned",
+			Title: "Mark instance unprovisioned",
+			Description: "Record the resources of the instance of one OpenSVC svc or vol object on one node, or some of them, as unprovisioned, touching nothing: for a sysadmin who freed them by hand, such as a logical volume removed or a filesystem destroyed. " +
+				"The resources still there are then orphaned: nothing frees them later, and a disk or a filesystem may outlive the object. The record is undone by provisioning again, provision_object, with adopt for resources still there. To unprovision for real, destroying the data, unprovision_instance. " +
+				"Nothing is stopped: the MCP does not refuse an instance up, whose resources keep running, recorded unprovisioned. " +
+				instanceExecutionFollowUp + "Requires admin on the object namespace.",
+			Annotations: actionAnnotations(false, true),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input MarkInstanceUnprovisionedInput) (*mcp.CallToolResult, InstanceActionOutput, error) {
+			return run(ctx, input.Path, input.Node, core.InstanceActionUnprovision, core.InstanceActionOptions{Rids: input.Rids, StateOnly: true, ConfigUpdatedAt: input.ConfigUpdatedAt}, input.WaitSeconds)
 		},
 	); err != nil {
 		return err

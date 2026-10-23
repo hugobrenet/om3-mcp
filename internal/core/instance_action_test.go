@@ -144,6 +144,7 @@ func TestRunInstanceActionSendsItsOptionsAndReadsTheExecution(t *testing.T) {
 		{InstanceActionUnfreeze, InstanceActionOptions{}, ""},
 		{InstanceActionUnprovision, InstanceActionOptions{Rids: []string{"fs#1"}, Leader: true}, "leader=true&rid=fs%231"},
 		{InstanceActionUnprovision, InstanceActionOptions{}, ""},
+		{InstanceActionUnprovision, InstanceActionOptions{Rids: []string{"fs#1"}, StateOnly: true}, "rid=fs%231&state_only=true"},
 	} {
 		client := &instanceActionClient{
 			instances: []string{instanceMonitorRecord("test/svc/web", "n1", "down", "idle")},
@@ -234,6 +235,8 @@ func TestRunInstanceActionRefusesBeforeTheCall(t *testing.T) {
 		{"rid selector", "test/svc/web", "n1", InstanceActionStart, InstanceActionOptions{Rids: []string{"fs"}}, nil, "", "one exact resource id"},
 		{"rids on freeze", "test/svc/web", "n1", InstanceActionFreeze, InstanceActionOptions{Rids: []string{"fs#1"}}, nil, "", "start, stop, restart and unprovision actions only"},
 		{"leader on stop", "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{Leader: true}, nil, "", "unprovision action only"},
+		{"state only on stop", "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{StateOnly: true}, nil, "", "unprovision action only"},
+		{"state only and leader", "test/svc/web", "n1", InstanceActionUnprovision, InstanceActionOptions{StateOnly: true, Leader: true}, nil, "", "exclusive"},
 		{"rollback on stop", "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{DisableRollback: true}, nil, "", "start and restart actions only"},
 		{"syncs on start", "test/svc/web", "n1", InstanceActionStart, InstanceActionOptions{InterruptSyncs: true}, nil, "", "stop action only"},
 		{"config time", "test/svc/web", "n1", InstanceActionStart, InstanceActionOptions{ConfigUpdatedAt: "yesterday"}, nil, "", "RFC 3339"},
@@ -262,8 +265,14 @@ func TestRunInstanceActionRefusesBeforeTheCall(t *testing.T) {
 		}
 	}
 
+	// A record of the state touches nothing: an instance up is not refused.
+	client := &instanceActionClient{instances: []string{down, up}, execs: []string{execRecord("succeeded", new(int), true, "")}}
+	if result, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n2", InstanceActionUnprovision, InstanceActionOptions{StateOnly: true}); err != nil || len(client.posts) != 1 || client.query.Get("state_only") != "true" || !result.StateOnly {
+		t.Fatalf("state only on an instance up: %+v %v", result, err)
+	}
+
 	// The refusal of the daemon is given as it says it.
-	client := &instanceActionClient{instances: []string{down}, postErr: daemonProblemError{status: http.StatusConflict, detail: "config is older"}}
+	client = &instanceActionClient{instances: []string{down}, postErr: daemonProblemError{status: http.StatusConflict, detail: "config is older"}}
 	if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{}); err == nil || !strings.Contains(err.Error(), "config is older") {
 		t.Fatalf("daemon refusal: %v", err)
 	}

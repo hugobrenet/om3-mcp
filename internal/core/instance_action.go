@@ -60,6 +60,9 @@ type InstanceActionOptions struct {
 	// Leader has an unprovision also unprovision the resources shared by the
 	// instances, which the leader of the placement holds.
 	Leader bool
+	// StateOnly has an unprovision record the resources as unprovisioned,
+	// touching nothing, for resources a sysadmin freed by hand.
+	StateOnly bool
 	// ConfigUpdatedAt has the action wait for the configuration written at
 	// that time, as update_object_config gives it, on the node.
 	ConfigUpdatedAt string
@@ -74,6 +77,7 @@ type InstanceActionResult struct {
 	Node       string                 `json:"node" jsonschema:"the node of the instance"`
 	Action     string                 `json:"action" jsonschema:"the instance action run"`
 	Resources  []string               `json:"resources" jsonschema:"the resource ids the action applies to; empty for the whole instance"`
+	StateOnly  bool                   `json:"state_only,omitempty" jsonschema:"for an unprovision, whether the resources were only recorded as unprovisioned, touched by nothing"`
 	SessionID  string                 `json:"session_id" jsonschema:"the session the execution belongs to"`
 	ExecID     string                 `json:"exec_id" jsonschema:"the execution the node forked for the action; pass it, with the node, to list_daemon_executions and get_node_logs"`
 	// Instance is the instance as read before the action.
@@ -118,7 +122,7 @@ func (s *Service) RunInstanceAction(ctx context.Context, path string, node strin
 	if !ok {
 		return InstanceActionResult{}, fmt.Errorf("OpenSVC daemon client does not support POST requests")
 	}
-	instance, err := s.refuseInstanceAction(ctx, reference, node, action)
+	instance, err := s.refuseInstanceAction(ctx, reference, node, action, options)
 	if err != nil {
 		return InstanceActionResult{}, err
 	}
@@ -135,6 +139,7 @@ func (s *Service) RunInstanceAction(ctx context.Context, path string, node strin
 		Node:      node,
 		Action:    string(action),
 		Resources: append([]string{}, options.Rids...),
+		StateOnly: options.StateOnly,
 		SessionID: strings.ToLower(accepted.SessionID),
 		ExecID:    strings.ToLower(accepted.ExecID),
 		Instance:  instance,
@@ -208,6 +213,15 @@ func instanceActionQuery(action InstanceAction, options InstanceActionOptions) (
 		}
 		query.Set("leader", "true")
 	}
+	if options.StateOnly {
+		if action != InstanceActionUnprovision {
+			return nil, fmt.Errorf("state_only applies to the unprovision action only")
+		}
+		if options.Leader {
+			return nil, fmt.Errorf("leader and state_only are exclusive: a record touches nothing, shared or not")
+		}
+		query.Set("state_only", "true")
+	}
 	if options.ConfigUpdatedAt != "" {
 		if _, err := time.Parse(time.RFC3339Nano, options.ConfigUpdatedAt); err != nil {
 			return nil, fmt.Errorf("config_updated_at must be an RFC 3339 time, the last_modified update_object_config gives")
@@ -222,8 +236,9 @@ func instanceActionQuery(action InstanceAction, options InstanceActionOptions) (
 // another runs on a peer, which would run it twice, on the same shared
 // storage: a start or a restart is refused when another instance is up or
 // warn. The daemon stops an instance up, then destroys its data, on an
-// unprovision: it is refused when the instance is up or warn.
-func (s *Service) refuseInstanceAction(ctx context.Context, reference ClusterObjectReference, node string, action InstanceAction) (ObjectInstanceStatus, error) {
+// unprovision: it is refused when the instance is up or warn, unless it only
+// records the state, which touches nothing.
+func (s *Service) refuseInstanceAction(ctx context.Context, reference ClusterObjectReference, node string, action InstanceAction, options InstanceActionOptions) (ObjectInstanceStatus, error) {
 	instances, err := s.ListObjectInstances(ctx, ListObjectInstancesOptions{Path: reference.Path, Limit: maxListObjectInstancesLimit})
 	if err != nil {
 		return ObjectInstanceStatus{}, fmt.Errorf("%s instance %s on %s: read its instances: %w", action, reference.Path, node, err)
@@ -232,7 +247,7 @@ func (s *Service) refuseInstanceAction(ctx context.Context, reference ClusterObj
 	if index < 0 {
 		return ObjectInstanceStatus{}, fmt.Errorf("%s instance %s on %s: the object has no instance on that node, or it is not visible to the caller", action, reference.Path, node)
 	}
-	if instance := instances.Instances[index]; action == InstanceActionUnprovision && (instance.Availability == "up" || instance.Availability == "warn") {
+	if instance := instances.Instances[index]; action == InstanceActionUnprovision && !options.StateOnly && (instance.Availability == "up" || instance.Availability == "warn") {
 		return ObjectInstanceStatus{}, fmt.Errorf("unprovision instance %s on %s: the instance is %s: stop it first, stop_instance; the unprovision destroys the data of its disk and fs resources", reference.Path, node, instance.Availability)
 	}
 	if action != InstanceActionStart && action != InstanceActionRestart {

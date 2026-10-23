@@ -92,7 +92,9 @@ query, applied by the daemon in this order:
   the set and unset operations name, read again with `get_object_config`:
   the daemon reads an unset keyword back with an empty value, as it does a
   keyword never set. A read that fails gives `keywords_error`, the write
-  being done.
+  being done. A secret keyword written, `cluster.secret` or `node.uuid`, is
+  left out of that read and counted in `secrets_omitted`: written, its value
+  is never returned.
 - **Wait.** `wait_seconds` is held under the request timeout of the cluster,
   less 3 seconds, or not sent when that leaves less than a second. A wait
   that expires, a 408, is a write done: `outcome` `written`, and

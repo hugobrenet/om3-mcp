@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -38,6 +39,35 @@ type ObjectConfig struct {
 	// values are secrets, encrypted, which the model has no use for.
 	DataKeysOmitted int    `json:"data_keys_omitted,omitempty" jsonschema:"for a sec or usr object, the number of data.* keywords left out: the keys of a secret are never returned; list_object_data_keys gives their names"`
 	DataKeysNote    string `json:"data_keys_note,omitempty" jsonschema:"why the data keys were left out, and where their names are"`
+	// SecretsOmitted counts the secret keywords left out, set but not
+	// returned: an empty list does not mean they are not set.
+	SecretsOmitted int `json:"secrets_omitted,omitempty" jsonschema:"the number of secret keywords left out, cluster.secret and node.uuid: they are set, their values are never returned"`
+}
+
+// secretKeywords are the keywords om3 declares secret, RedactSecret: the
+// daemon returns them in clear to root through the keyword reads, which
+// take no redact-secrets parameter. They are left out of every keyword read.
+var secretKeywords = []string{"cluster.secret", "node.uuid"}
+
+// isSecretKeyword says whether a keyword is a secret, whatever its case.
+func isSecretKeyword(keyword string) bool {
+	return slices.Contains(secretKeywords, strings.ToLower(keyword))
+}
+
+// omitSecretKeywords leaves the secret keywords out of items, and counts
+// them. A read calls it before its sort and its bound, so that total and
+// truncated count what is returned.
+func omitSecretKeywords(items []daemonObjectConfigItem) ([]daemonObjectConfigItem, int) {
+	kept := items[:0]
+	omitted := 0
+	for _, item := range items {
+		if isSecretKeyword(item.Keyword) {
+			omitted++
+			continue
+		}
+		kept = append(kept, item)
+	}
+	return kept, omitted
 }
 
 // secretDataKeysNote tells why the keys of a sec or usr are left out.
@@ -120,8 +150,11 @@ func (s *Service) GetObjectConfig(ctx context.Context, options GetObjectConfigOp
 			return ObjectConfig{}, fmt.Errorf("object config unexpectedly returned evaluated data for keyword %q", item.Keyword)
 		}
 	}
-	// The data keys of a sec or usr are left out before the sort and the
-	// bound, for total and truncated to count what is returned.
+	// The secret keywords, and the data keys of a sec or usr, are left out
+	// before the sort and the bound, for total and truncated to count what
+	// is returned.
+	var secrets int
+	response.Items, secrets = omitSecretKeywords(response.Items)
 	omitted := 0
 	if secretDataKeys(reference.Kind) {
 		kept := response.Items[:0]
@@ -174,6 +207,7 @@ func (s *Service) GetObjectConfig(ctx context.Context, options GetObjectConfigOp
 		ValuesTruncated: valuesTruncated,
 		DataKeysOmitted: omitted,
 		DataKeysNote:    note,
+		SecretsOmitted:  secrets,
 	}, nil
 }
 

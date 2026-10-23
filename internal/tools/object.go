@@ -120,7 +120,8 @@ func RegisterObjectTools(registrar *Registrar, service *core.Service) error {
 			Name:  "list_cluster_objects",
 			Title: "List cluster objects",
 			Description: "Discover OpenSVC object paths visible to the authenticated OpenSVC user using a native selector and bounded cursor pagination. " +
-				"Use returned paths as identifiers for object-specific tools; no status or configuration is returned.",
+				"Use returned paths as identifiers for object-specific tools; no status or configuration is returned. " +
+				"For the state of many objects at once, such as the stopped services, read get_cluster_status, which lists the state of the visible actor objects, rather than one get_object_status per object.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input ListClusterObjectsInput) (*mcp.CallToolResult, ListClusterObjectsOutput, error) {

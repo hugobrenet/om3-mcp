@@ -232,7 +232,7 @@ func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catal
 	for _, register := range []func(*tools.Registrar, *core.Service) error{
 		tools.RegisterDaemonTools, tools.RegisterClusterTools, tools.RegisterNodeTools,
 		tools.RegisterObjectTools, tools.RegisterInstanceTools, tools.RegisterResourceTools, tools.RegisterScheduleTools,
-		tools.RegisterPoolTools, tools.RegisterNetworkTools, tools.RegisterAuthTools, tools.RegisterNodeConfigTools, tools.RegisterClusterLockTools,
+		tools.RegisterPoolTools, tools.RegisterNetworkTools, tools.RegisterAuthTools, tools.RegisterNodeConfigTools, tools.RegisterClusterLockTools, tools.RegisterDaemonLogTools,
 	} {
 		if err := register(registrar, service); err != nil {
 			return nil, err
@@ -261,6 +261,9 @@ func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catal
 			return nil, err
 		}
 		if err := tools.RegisterClusterActionTools(registrar, service); err != nil {
+			return nil, err
+		}
+		if err := tools.RegisterDaemonActionTools(registrar, service); err != nil {
 			return nil, err
 		}
 	}

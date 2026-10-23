@@ -4,6 +4,7 @@ tools:
   - list_daemon_executions
   - list_daemon_orchestrations
   - list_dns_records
+  - get_daemon_log_level
 stability: experimental
 ---
 
@@ -287,3 +288,17 @@ zone), `total` (matching records), `count`, `records`, `next_cursor` and
 `truncated`. Each record holds `name`, `type`, `ttl` and `content`. Records are
 sorted by name, type and content; records the daemon repeats, such as one
 `SOA` per nameserver, are listed once.
+
+## `get_daemon_log_level`
+
+Reads the level below which the daemon of one node does not emit its log.
+
+```text
+GET /api/node/name/<node>/daemon/log/control
+```
+
+The level is `info`, `warn`, `error` or `none`. The daemon writes its log to
+journald through a writer that drops what is below `info`: `info` is the most
+verbose level of that log, and the debug and trace feed is
+`POST /api/node/name/<node>/daemon/audit`, a stream this MCP does not offer.
+The daemon relays the read to the node. Requires `root`.

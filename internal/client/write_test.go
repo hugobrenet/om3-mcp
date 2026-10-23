@@ -167,3 +167,23 @@ func TestGetBlobGivesTextBytesOrNothing(t *testing.T) {
 		t.Fatalf("relayed: %q %q %v", payload, mediaType, err)
 	}
 }
+
+// A heartbeat name holds a #, which reaches the daemon as part of the path,
+// not as a fragment.
+func TestPostJSONEscapesTheHashOfAHeartbeatName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/node/name/n2/daemon/hb/name/hb#1.tx/action/stop" || request.URL.Fragment != "" {
+			t.Errorf("got path %q fragment %q raw %q", request.URL.Path, request.URL.Fragment, request.RequestURI)
+		}
+		response.Header().Set("Content-Type", "application/problem+json")
+		_, _ = io.WriteString(response, `{"title":"daemon action queued","detail":"stop hb#1.tx","status":200}`)
+	}))
+	defer server.Close()
+	api, _ := New(server.URL, server.Client())
+	var queued struct {
+		Detail string `json:"detail"`
+	}
+	if err := api.PostJSON(context.Background(), "/api/node/name/n2/daemon/hb/name/hb#1.tx/action/stop", nil, nil, &queued); err != nil || queued.Detail != "stop hb#1.tx" {
+		t.Fatalf("%+v %v", queued, err)
+	}
+}

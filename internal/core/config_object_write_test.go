@@ -248,4 +248,16 @@ func TestUpdateObjectConfigCountsTheSecretWritten(t *testing.T) {
 	if out, _ := json.Marshal(result); strings.Contains(string(out), "n3w-s3cret") {
 		t.Fatalf("the secret was returned: %s", out)
 	}
+	// A secret scoped to a node, cluster.secret is scopable.
+	client = &configWriteClient{
+		response: `{"is_changed":true}`, header: http.Header{},
+		keywords: `{"object":"cluster","node":"","keyword":"cluster.secret@dev5n1","value":"sc0ped-s3cret"}`,
+	}
+	result, err = New(client).UpdateObjectConfig(context.Background(), UpdateObjectConfigOptions{Path: "cluster", Set: []string{"cluster.secret@dev5n1=sc0ped-s3cret"}})
+	if err != nil || len(result.Keywords) != 0 || result.SecretsOmitted != 1 {
+		t.Fatalf("scoped: %+v %v", result, err)
+	}
+	if out, _ := json.Marshal(result); strings.Contains(string(out), "sc0ped-s3cret") {
+		t.Fatalf("the scoped secret was returned: %s", out)
+	}
 }

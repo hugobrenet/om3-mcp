@@ -450,7 +450,10 @@ cluster`, its `hb` and `arbitrator` sections included; `get_cluster_config`
 reads its file, redacted.
 
 The two keywords om3 declares secret, `cluster.secret` and `node.uuid`, are
-never returned either. The daemon gives them in clear to `root` through the
+never returned either, whatever their scope: `cluster.secret` is scopable,
+and the daemon gives a value scoped to a node in the keyword itself,
+`cluster.secret@n1`, which the MCP compares without its scope, as the daemon
+redaction of a file compares the base option. The daemon gives them in clear to `root` through the
 keyword reads, which take no `redact-secrets` parameter, unlike the file
 reads `get_cluster_config` and `get_node_config` use. The tool leaves them
 out before the sort and the bound and counts them in `secrets_omitted`: a

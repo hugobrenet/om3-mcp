@@ -31,7 +31,10 @@ writes it: `<ns>/<kind>/<name>`, without the root namespace, and there
 without the `svc` and `ccfg` kinds, `web` and `cfg/app`; `cluster` for the
 cluster configuration; `<ns>/` for a namespace configuration. The MCP
 compares what the daemon answers to that form.
-Use `get_object_status` after selecting one exact path. Continue with
+Use `get_object_status` after selecting one exact path. For the state of
+many objects at once, such as the stopped services, read `get_cluster_status`,
+which lists the state of the visible actor objects, rather than one
+`get_object_status` per object. Continue with
 `list_object_instances` when an aggregate object state requires node-level
 diagnosis. Use `get_object_config` when the diagnosis requires declared driver,
 resource, placement, or orchestration settings.

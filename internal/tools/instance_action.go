@@ -59,6 +59,14 @@ type RunTaskInput struct {
 	WaitSeconds     int      `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
 }
 
+type InstanceResourcesInput struct {
+	Path            string   `json:"path" jsonschema:"the exact canonical OpenSVC svc or vol object path; no wildcard or selector"`
+	Node            string   `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
+	Rids            []string `json:"rids,omitempty" jsonschema:"optional exact resource ids, such as fs#1 or app#2, at most 50; omitted, the whole instance; the daemon refuses an id the object has not"`
+	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time, the last_modified update_object_config gives: the daemon refuses with 409 a node whose configuration is older"`
+	WaitSeconds     int      `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
+}
+
 type ClearInstanceInput struct {
 	Path string `json:"path" jsonschema:"the exact canonical OpenSVC object path; no wildcard or selector"`
 	Node string `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
@@ -94,6 +102,7 @@ func RegisterInstanceActionTools(registrar *Registrar, service *core.Service) er
 			Name:  "start_instance",
 			Title: "Start instance",
 			Description: "Start the instance of one OpenSVC svc or vol object on one node, or some of its resources: the daemon of that node runs the start, and lifts the stopped flag of the instance. " +
+				"The standby resources of a passive node, standby=true, are started by start_instance_standby instead, without starting the service there. " +
 				"The MCP refuses to start an instance of a failover service while another of its instances is up or warn: the daemon would run it on two nodes at once; switch_object moves it. " +
 				"On a flex service above its target number of instances, the daemon stops a non-leader instance in return. The daemon refuses with 403 a start beyond the claims of the namespace. " +
 				instanceActionFollowUp,
@@ -112,6 +121,7 @@ func RegisterInstanceActionTools(registrar *Registrar, service *core.Service) er
 			Title: "Stop instance",
 			Description: "Stop the instance of one OpenSVC svc or vol object on one node, or some of its resources: the daemon of that node runs the stop. " +
 				"Without rids, on a service orchestrated ha or start, the stop sets the stopped flag of this instance only: the daemon does not start it again here, but on an unfrozen ha failover service another instance becomes candidate and the daemon starts the service there, a failover. To stop the service everywhere, stop_object; to stop this instance without the daemon acting, freeze_object first. " +
+				"A stop leaves the standby resources up: before a reboot or the shutdown of the node, shutdown_instance stops them too. " +
 				"By default, a stop waits for the data syncs running on the instance to end; interrupt_syncs ends them instead. " +
 				instanceActionFollowUp,
 			Annotations: actionAnnotations(true, true),
@@ -192,6 +202,74 @@ func RegisterInstanceActionTools(registrar *Registrar, service *core.Service) er
 		},
 	); err != nil {
 		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "start_instance_standby",
+			Title: "Start instance standby resources",
+			Description: "Start the standby resources of the instance of one OpenSVC svc or vol object on one node, those standby=true, such as a disk or a filesystem kept up on a passive node, or some of them: the other resources are left as they are. " +
+				"The daemon also lifts the stopped flag of every resource of the instance, the flag a stop with rids sets, which gives back to the daemon the right to start again a resource stopped that way. The instance is not flagged started, nor its stopped flag lifted: the orchestration of the object is unchanged. " +
+				instanceActionFollowUp,
+			Annotations: actionAnnotations(false, true),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input StartInstanceInput) (*mcp.CallToolResult, InstanceActionOutput, error) {
+			return run(ctx, input.Path, input.Node, core.InstanceActionStartStandby, core.InstanceActionOptions{Rids: input.Rids, DisableRollback: input.DisableRollback, ConfigUpdatedAt: input.ConfigUpdatedAt}, input.WaitSeconds)
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "shutdown_instance",
+			Title: "Shutdown instance",
+			Description: "Shut down the instance of one OpenSVC svc or vol object on one node, or some of its resources, as before the shutdown of the node: the daemon of that node stops every resource, the standby ones a stop leaves up too, interrupts the data syncs, and runs the pre and post shutdown triggers. " +
+				"Unlike stop_instance, it does not flag the instance stopped: on an object orchestrated ha, the daemon would start it again here, or fail over, at once. The MCP refuses it there unless the object, the instance or the node is frozen: freeze_object or freeze_node first, as a drain does, then shutdown_instance again; stop_instance flags the instance stopped but leaves the standby resources up. Without rids, it also lifts the stopped flag of the resources. " +
+				instanceActionFollowUp,
+			Annotations: actionAnnotations(true, true),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input InstanceResourcesInput) (*mcp.CallToolResult, InstanceActionOutput, error) {
+			return run(ctx, input.Path, input.Node, core.InstanceActionShutdown, core.InstanceActionOptions{Rids: input.Rids, ConfigUpdatedAt: input.ConfigUpdatedAt}, input.WaitSeconds)
+		},
+	); err != nil {
+		return err
+	}
+	for _, declared := range []struct {
+		action      core.InstanceAction
+		name, title string
+		description string
+		destructive bool
+	}{
+		{
+			action: core.InstanceActionPGUpdate, name: "update_instance_caps", title: "Update instance caps",
+			description: "Apply the resource limits of the configuration, the pg_* keywords, to the instance of one OpenSVC svc or vol object on one node, or to some of its resources: the daemon writes them in the cgroups of the instance on that node, as a start does. A memory limit lowered under what the instance uses ends its processes. " +
+				"To change a value first, update_object_config; to apply the limits on every node by orchestration, cap_object. " +
+				"The writes are not atomic: an execution that fails may have written part of the limits; log_tail names the file refused, the others are applied. ",
+			destructive: true,
+		},
+		{
+			action: core.InstanceActionPGReset, name: "reset_instance_caps", title: "Reset instance caps",
+			description: "Lift every limit on the cgroups of the instance of one OpenSVC svc or vol object on one node, or of some of its resources, within the slice of the object: the daemon writes what a node that never capped anything holds, including a capping the configuration does not know, left by an older agent, by systemd or by hand. " +
+				"The instance runs without limits until the next update_instance_caps or start, which writes the pg_* keywords configured again; to lift one for good, set it to default with cap_object. " +
+				"The writes are not atomic: an execution that fails may have lifted part of the limits; log_tail names the file refused, the others are lifted. ",
+		},
+	} {
+		declared := declared
+		if err := addTool(
+			registrar,
+			&mcp.Tool{
+				Name:        declared.name,
+				Title:       declared.title,
+				Description: declared.description + instanceExecutionFollowUp + "Requires admin on the object namespace.",
+				Annotations: actionAnnotations(declared.destructive, true),
+			},
+			func(ctx context.Context, _ *mcp.CallToolRequest, input InstanceResourcesInput) (*mcp.CallToolResult, InstanceActionOutput, error) {
+				return run(ctx, input.Path, input.Node, declared.action, core.InstanceActionOptions{Rids: input.Rids, ConfigUpdatedAt: input.ConfigUpdatedAt}, input.WaitSeconds)
+			},
+		); err != nil {
+			return err
+		}
 	}
 	for _, declared := range []struct {
 		action      core.InstanceAction

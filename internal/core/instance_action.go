@@ -26,6 +26,16 @@ const (
 	// A run runs tasks of the instance, task#<name> resources, each the
 	// command its configuration names.
 	InstanceActionRun InstanceAction = "run"
+	// A start of the standby resources starts the resources standby=true
+	// only, and lifts the stopped flag of every resource.
+	InstanceActionStartStandby InstanceAction = "startstandby"
+	// A shutdown stops every resource, the standby ones too, and flags the
+	// instance stopped no more than a start does.
+	InstanceActionShutdown InstanceAction = "shutdown"
+	// The caps updated write the pg_* keywords in the cgroups of the
+	// instance; reset, they lift every capping of the object slice.
+	InstanceActionPGUpdate InstanceAction = "pg/update"
+	InstanceActionPGReset  InstanceAction = "pg/reset"
 )
 
 // instanceActionKinds are the object kinds the instance actions accept, as
@@ -198,7 +208,8 @@ func validateInstanceTarget(path string, node string, action string, kinds []str
 // and gives the query of the action.
 func instanceActionQuery(action InstanceAction, options InstanceActionOptions) (url.Values, error) {
 	switch action {
-	case InstanceActionStart, InstanceActionStop, InstanceActionRestart, InstanceActionFreeze, InstanceActionUnfreeze, InstanceActionUnprovision, InstanceActionRun:
+	case InstanceActionStart, InstanceActionStop, InstanceActionRestart, InstanceActionFreeze, InstanceActionUnfreeze, InstanceActionUnprovision, InstanceActionRun,
+		InstanceActionStartStandby, InstanceActionShutdown, InstanceActionPGUpdate, InstanceActionPGReset:
 	default:
 		return nil, fmt.Errorf("unsupported instance action %q", action)
 	}
@@ -226,7 +237,7 @@ func instanceActionQuery(action InstanceAction, options InstanceActionOptions) (
 	}
 	if len(options.Rids) > 0 {
 		if action == InstanceActionFreeze || action == InstanceActionUnfreeze {
-			return nil, fmt.Errorf("rids apply to the start, stop, restart, unprovision and run actions only")
+			return nil, fmt.Errorf("rids do not apply to the freeze and unfreeze actions")
 		}
 		if len(options.Rids) > maxEnableResources {
 			return nil, fmt.Errorf("at most %d resource ids are accepted", maxEnableResources)
@@ -239,8 +250,8 @@ func instanceActionQuery(action InstanceAction, options InstanceActionOptions) (
 		query.Set("rid", strings.Join(options.Rids, ","))
 	}
 	if options.DisableRollback {
-		if action != InstanceActionStart && action != InstanceActionRestart {
-			return nil, fmt.Errorf("disable_rollback applies to the start and restart actions only")
+		if action != InstanceActionStart && action != InstanceActionRestart && action != InstanceActionStartStandby {
+			return nil, fmt.Errorf("disable_rollback applies to the start, restart and startstandby actions only")
 		}
 		query.Set("disable_rollback", "true")
 	}
@@ -293,6 +304,11 @@ func (s *Service) refuseInstanceAction(ctx context.Context, reference ClusterObj
 	if instance := instances.Instances[index]; action == InstanceActionUnprovision && !options.StateOnly && (instance.Availability == "up" || instance.Availability == "warn") {
 		return ObjectInstanceStatus{}, fmt.Errorf("unprovision instance %s on %s: the instance is %s: stop it first, stop_instance; the unprovision destroys the data of its disk and fs resources", reference.Path, node, instance.Availability)
 	}
+	if action == InstanceActionShutdown {
+		if err := s.refuseShutdownUnflagged(ctx, reference, node, instances.Instances[index]); err != nil {
+			return ObjectInstanceStatus{}, err
+		}
+	}
 	if action != InstanceActionStart && action != InstanceActionRestart {
 		return instances.Instances[index], nil
 	}
@@ -309,6 +325,29 @@ func (s *Service) refuseInstanceAction(ctx context.Context, reference ClusterObj
 		}
 	}
 	return instances.Instances[index], nil
+}
+
+// refuseShutdownUnflagged refuses a shutdown the daemon would undo at once.
+// A shutdown, unlike a stop, does not flag the instance stopped: on an
+// object orchestrated ha, the daemon seeing the instance down without the
+// flag starts it again here, or fails over. It is refused unless the object,
+// the instance or the node is frozen, as a drain freezes the node first.
+func (s *Service) refuseShutdownUnflagged(ctx context.Context, reference ClusterObjectReference, node string, instance ObjectInstanceStatus) error {
+	status, err := s.GetObjectStatus(ctx, reference.Path)
+	if err != nil {
+		return fmt.Errorf("shutdown instance %s on %s: read its orchestration: %w", reference.Path, node, err)
+	}
+	if status.Orchestrate != "ha" || status.Frozen == "frozen" || isSetTime(instance.FrozenAt) {
+		return nil
+	}
+	nodeStatus, err := s.GetNodeStatus(ctx, node)
+	if err != nil {
+		return fmt.Errorf("shutdown instance %s on %s: read whether the node is frozen: %w", reference.Path, node, err)
+	}
+	if isSetTime(nodeStatus.Status.FrozenAt) {
+		return nil
+	}
+	return fmt.Errorf("shutdown instance %s on %s: the object is orchestrated ha and neither it nor the node is frozen: a shutdown does not flag the instance stopped, and the daemon would start it again here, or fail over, at once; freeze_object or freeze_node first, as a drain does, then shutdown_instance again; stop_instance would flag the instance stopped, but leaves the standby resources up", reference.Path, node)
 }
 
 // ClearInstance lifts the failed monitor state of the instance of one exact

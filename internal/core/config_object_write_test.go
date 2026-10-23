@@ -234,3 +234,18 @@ func TestOrchestratesOnItsOwn(t *testing.T) {
 		}
 	}
 }
+
+// A secret keyword written is left out of the read back, and counted.
+func TestUpdateObjectConfigCountsTheSecretWritten(t *testing.T) {
+	client := &configWriteClient{
+		response: `{"is_changed":true}`, header: http.Header{},
+		keywords: `{"object":"cluster","node":"","keyword":"cluster.secret","value":"n3w-s3cret"}`,
+	}
+	result, err := New(client).UpdateObjectConfig(context.Background(), UpdateObjectConfigOptions{Path: "cluster", Set: []string{"cluster.secret=n3w-s3cret"}})
+	if err != nil || len(result.Keywords) != 0 || result.SecretsOmitted != 1 || result.KeywordsError != "" {
+		t.Fatalf("%+v %v", result, err)
+	}
+	if out, _ := json.Marshal(result); strings.Contains(string(out), "n3w-s3cret") {
+		t.Fatalf("the secret was returned: %s", out)
+	}
+}

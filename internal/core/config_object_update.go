@@ -55,6 +55,9 @@ type ObjectConfigUpdate struct {
 	// Keywords are the keywords the operations set or unset, read again.
 	Keywords      []ObjectConfigKeyword `json:"keywords" jsonschema:"the keywords the set and unset operations name, read again after the write: the daemon reads an unset keyword back with an empty value, as it does a keyword never set"`
 	KeywordsError string                `json:"keywords_error,omitempty" jsonschema:"why the keywords could not be read again; the write itself is done"`
+	// SecretsOmitted counts the secret keywords written and left out of
+	// the read back: written, never returned.
+	SecretsOmitted int `json:"secrets_omitted,omitempty" jsonschema:"the number of secret keywords the operations name, cluster.secret and node.uuid, left out of the keywords read again: written, their values are never returned"`
 }
 
 // daemonProblem is an error answer of the daemon, its status and the detail
@@ -162,6 +165,7 @@ func (s *Service) UpdateObjectConfig(ctx context.Context, options UpdateObjectCo
 			result.KeywordsError = err.Error()
 		} else {
 			result.Keywords = config.Items
+			result.SecretsOmitted = config.SecretsOmitted
 		}
 	}
 	result.Provenance = s.newProvenance()

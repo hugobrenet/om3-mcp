@@ -438,6 +438,17 @@ items. The tool leaves them out before the sort and the bound, so that
 `list_object_data_keys`, and refuses a `keywords` filter naming one before
 the call. The data keys of a cfg, plain text, are returned.
 
+The two keywords om3 declares secret, `cluster.secret` and `node.uuid`, are
+never returned either. The daemon gives them in clear to `root` through the
+keyword reads, which take no `redact-secrets` parameter, unlike the file
+reads `get_cluster_config` and `get_node_config` use. The tool leaves them
+out before the sort and the bound and counts them in `secrets_omitted`: a
+filter naming `cluster.secret` answers an empty list with `secrets_omitted:
+1`, set but not returned, rather than `total: 0` alone, which would read as
+not set. The read back of `update_object_config` goes through the same read,
+and returns the same count in its own `secrets_omitted`: a secret written is
+not read back.
+
 ## Errors
 
 | Condition | Result |

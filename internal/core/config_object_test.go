@@ -195,3 +195,23 @@ func TestGetObjectConfigLeavesOutTheKeysOfASecret(t *testing.T) {
 		t.Fatalf("cfg: %+v %v", result, err)
 	}
 }
+
+// The secret keywords are left out of the response and counted, set but
+// not returned; the others stay.
+func TestGetObjectConfigLeavesOutTheSecretKeywords(t *testing.T) {
+	payload := `{"kind":"KeywordList","items":[
+		{"object":"cluster","node":"","keyword":"cluster.secret","value":"s3cr3t-value","evaluated_as":""},
+		{"object":"cluster","node":"","keyword":"node.uuid","value":"0f5c3a1e-uuid-value","evaluated_as":""},
+		{"object":"cluster","node":"","keyword":"cluster.name","value":"dev5","evaluated_as":""}]}`
+	client := &recordingJSONGetter{t: t, path: "/api/object/path/root/ccfg/cluster/config", query: url.Values{"evaluate": {"false"}}, payload: payload}
+	result, err := New(client).GetObjectConfig(context.Background(), GetObjectConfigOptions{Path: "cluster"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 || result.Count != 1 || result.Truncated || result.Items[0].Keyword != "cluster.name" || result.SecretsOmitted != 2 {
+		t.Fatalf("got %+v", result)
+	}
+	if out, _ := json.Marshal(result); strings.Contains(string(out), "s3cr3t-value") || strings.Contains(string(out), "uuid-value") {
+		t.Fatalf("a secret was returned: %s", out)
+	}
+}

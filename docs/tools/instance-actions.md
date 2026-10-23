@@ -8,6 +8,7 @@ tools:
   - unfreeze_instance
   - clear_instance
   - unprovision_instance
+  - mark_instance_unprovisioned
 stability: experimental
 ---
 
@@ -39,11 +40,12 @@ Implementation:
 | `unfreeze_instance` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/unfreeze` | svc, vol | Yes | Yes |
 | `clear_instance` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/clear` | svc, vol, cfg, nscfg, sec, usr | No | Yes |
 | `unprovision_instance` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/unprovision[?rid=…&leader=true]` | svc, vol | Yes | Yes |
+| `mark_instance_unprovisioned` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/unprovision?state_only=true[&rid=…]` | svc, vol | No | Yes |
 
-They require `operator` on the object namespace, `unprovision_instance`
-`admin`.
+They require `operator` on the object namespace, `unprovision_instance` and
+`mark_instance_unprovisioned` `admin`.
 
-- The six actions fork `om <path> instance <action>` on the node, and the
+- The seven actions fork `om <path> instance <action>` on the node, and the
   daemon answers at once with the `session_id` and the `exec_id` of the
   execution. The MCP then reads `GET /api/node/name/<node>/daemon/exec/id/<exec_id>`
   until the execution ends, `wait_seconds`, 10 by default, 60 at most, and
@@ -95,9 +97,25 @@ They require `operator` on the object namespace, `unprovision_instance`
   the other instances lose; by default they are left, and
   `unprovision_object` unprovisions every node in order. The daemon looks at
   nothing first: the MCP refuses an instance `up` or `warn`, `stop_instance`
-  first. `state_only`, which declares the instance unprovisioned without
-  touching it after a manual cleanup the agent cannot check, is not offered,
-  nor are `to`, `subset`, `tag`, `slaves`, `master` and `force`.
+  first. `to`, `subset`, `tag`, `slaves`, `master` and `force` are not
+  offered.
+- `mark_instance_unprovisioned` sends the same unprovision with
+  `state_only=true`: the daemon records each resource, or those of `rids`, as
+  unprovisioned, its provisioned value and record, and touches nothing,
+  stops nothing. It serves a sysadmin who freed the resources by hand; the
+  resources still there are then orphaned, nothing frees them later. It is
+  not destructive, and an instance up is not refused. `leader` does not
+  apply. The record is undone by provisioning again, `provision_object`,
+  with `adopt` for resources still there.
+- Why a tool of its own: asked on 2026-10-23 to mark an instance
+  unprovisioned "without touching anything", a model called
+  `unprovision_instance`, the name matching the request, before reading its
+  description, two times out of three even once its first sentence said it
+  always acts on the resources; only the guard on the instance up stopped
+  it. A record without a real cleanup leaves an orphan; an unprovision in
+  place of a record destroys the data. A name matching the request better
+  steers the model to the lesser, reversible, one, and
+  `unprovision_instance` points to it.
 
 ### Input and output
 

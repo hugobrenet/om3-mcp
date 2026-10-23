@@ -88,6 +88,7 @@ var toolKeywords = map[string][]string{
 	"list_resource_info":          {"resource info", "key value", "driver details", "cached information"},
 	"list_schedules":              {"schedule", "cron", "scheduled tasks", "next run", "last run"},
 	"list_storage_pools":          {"storage pool", "capacity", "free space", "pool usage", "thin provisioning"},
+	"mark_instance_unprovisioned": {"state only", "mark unprovisioned", "without touching", "déjà libéré", "freed by hand", "update provisioned state"},
 	"probe_node_reachability":     {"ping", "reachable", "connectivity", "node answers", "health check"},
 	"provision_object":            {"provision", "create storage", "format", "deploy", "allocate", "first start"},
 	"purge_object":                {"purge", "remove provisioned", "destroy service", "decommission", "wipe object", "delete data"},

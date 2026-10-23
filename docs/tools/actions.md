@@ -15,6 +15,8 @@ tools:
   - enable_object
   - disable_object
   - delete_object
+  - unprovision_object
+  - purge_object
 stability: experimental
 ---
 
@@ -68,6 +70,8 @@ To follow an action, pass its `orchestration_id` to
 | `enable_object` | `POST /api/object/path/<ns>/svc/<name>/enable[?rid=…]` | svc | No | Yes |
 | `disable_object` | `POST /api/object/path/<ns>/svc/<name>/disable[?rid=…]` | svc | Yes | Yes |
 | `delete_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/delete` | svc, vol, cfg, sec, usr | Yes | No |
+| `unprovision_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/unprovision` | svc, vol | Yes | Yes |
+| `purge_object` | `POST /api/object/path/<ns>/<kind>/<name>/action/purge` | svc, vol | Yes | No |
 
 - `freeze_object` stops the automatic actions of the daemon on the object on
   all its nodes, such as an ha failover or the restart of a degraded monitored
@@ -114,8 +118,7 @@ To follow an action, pass its `orchestration_id` to
 
 ### Lifecycle actions
 
-They require `admin` on the object namespace. `unprovision` and `purge`,
-which delete the data, are not offered.
+They require `admin` on the object namespace.
 
 - `provision_object` creates what the resources of the object hold, a
   volume, a filesystem, a disk, then starts the leader instance, and lifts the
@@ -165,9 +168,40 @@ which delete the data, are not offered.
   every instance. The daemon does not look at what the object runs or holds:
   the MCP reads its instances first, and refuses when one is not `down` or
   `n/a`, or, for a svc or a vol, is provisioned, `true` or `mixed`, which
-  would leave the resources mounted, or the storage, held by nothing. A
-  namespace configuration, `nscfg`, whose deletion touches the namespace, is
-  not offered.
+  would leave the resources mounted, or the storage, held by nothing: a
+  provisioned object is purged, `purge_object`, once stopped. A namespace
+  configuration, `nscfg`, whose deletion touches the namespace, is not
+  offered.
+- `unprovision_object` sets the global expect `unprovisioned`. Each instance
+  first waits for its children, the objects depending on it, to be down,
+  without a time limit, a wait `list_daemon_orchestrations` shows; the
+  non-leader instances then unprovision, and the leader of the placement,
+  once no other instance is provisioned, unprovisions with the resources
+  they share. Each resource is stopped, then unprovisioned, pre and post
+  triggers included: the data of the disk and fs resources is destroyed,
+  "unprovision usually deletes the data", the API says. The vol objects a
+  svc uses are released, not unprovisioned: they keep their data. An
+  instance reaches the goal at `provisioned: false` or `n/a`, or `avail:
+  n/a`; an object unprovisioned already reaches it at once. A resource with
+  `unprovision=false` fails the instance, pointing to a manual unprovision
+  and `--state-only`, not offered; a failure leaves `unprovision failed`,
+  which `clear_instance` lifts.
+- `purge_object` runs the same unprovision, then deletes the instance on
+  each node; the orchestration ends when the monitors of the instances are
+  gone, `get_object_status` then answering not found. A failure leaves
+  `purge failed` and the object, partly unprovisioned. The daemon purges a
+  cfg, a sec or a usr by deleting it: the MCP refuses them, pointing to
+  `delete_object`. The description points, before the purge of a vol, to the
+  objects using it: `children` in `list_pool_volumes`, or in
+  `get_instance_status` on its node; empty, none does.
+- The daemon looks at nothing before an unprovision or a purge: it stops an
+  instance up, then destroys its data, where an operator expects a service
+  running to be refused. The MCP reads the instances first and refuses when
+  one is `up` or `warn`: `stop_object` first. It does not look at the
+  children: their wait is visible, and the purge of a vol a svc holds is one
+  to see wait. The daemon refuses with 409 an object whose orchestration
+  runs, and with 408 a monitor busy with an action. The daemon API tags both
+  routes for svc and vol, and its handler takes any kind.
 
 ### Input and output
 

@@ -29,6 +29,11 @@ const (
 	ObjectActionResize    ObjectAction = "resize"
 	ObjectActionCap       ObjectAction = "cap"
 	ObjectActionDelete    ObjectAction = "delete"
+	// An unprovision stops then unprovisions the resources of every
+	// instance, which destroys the data of the disk and fs resources; a
+	// purge unprovisions, then deletes the object.
+	ObjectActionUnprovision ObjectAction = "unprovision"
+	ObjectActionPurge       ObjectAction = "purge"
 )
 
 // objectActionKinds are the object kinds each action accepts, as the daemon
@@ -50,6 +55,10 @@ var objectActionKinds = map[ObjectAction][]string{
 	// The deletion of a namespace configuration touches the whole namespace:
 	// it is not offered.
 	ObjectActionDelete: {"svc", "vol", "cfg", "sec", "usr"},
+	// The daemon declares unprovision and purge for svc and vol, and takes
+	// any kind: the purge of a cfg, a sec or a usr is a delete.
+	ObjectActionUnprovision: {"svc", "vol"},
+	ObjectActionPurge:       {"svc", "vol"},
 }
 
 // ObjectActionOptions are the options of the actions that take some.
@@ -130,6 +139,9 @@ func (s *Service) SubmitObjectAction(ctx context.Context, path string, action Ob
 		return ObjectActionResult{}, err
 	}
 	if !slices.Contains(kinds, reference.Kind) {
+		if action == ObjectActionPurge && slices.Contains(objectActionKinds[ObjectActionDelete], reference.Kind) {
+			return ObjectActionResult{}, fmt.Errorf("a %s object holds nothing to unprovision: its purge is a delete, delete_object", reference.Kind)
+		}
 		return ObjectActionResult{}, fmt.Errorf("the %s action applies to %s objects only", action, strings.Join(kinds, ", "))
 	}
 	if options.InterruptSyncs && action != ObjectActionStop && action != ObjectActionSwitch {
@@ -170,6 +182,10 @@ func (s *Service) SubmitObjectAction(ctx context.Context, path string, action Ob
 		}
 	case ObjectActionDelete:
 		if err := s.refuseLeakingDelete(ctx, reference); err != nil {
+			return ObjectActionResult{}, err
+		}
+	case ObjectActionUnprovision, ObjectActionPurge:
+		if err := s.refuseUnprovisionUp(ctx, reference, action); err != nil {
 			return ObjectActionResult{}, err
 		}
 	}
@@ -261,10 +277,27 @@ func (s *Service) refuseLeakingDelete(ctx context.Context, reference ClusterObje
 		switch instance.Availability {
 		case "down", "n/a", "":
 		default:
-			return fmt.Errorf("delete object %s: the instance on %s is %s: stop it, then unprovision it, before deleting it", reference.Path, instance.Node, instance.Availability)
+			return fmt.Errorf("delete object %s: the instance on %s is %s: stop it, then purge it, purge_object, which unprovisions and deletes it", reference.Path, instance.Node, instance.Availability)
 		}
 		if (reference.Kind == "svc" || reference.Kind == "vol") && (instance.Provisioned == "true" || instance.Provisioned == "mixed") {
-			return fmt.Errorf("delete object %s: the instance on %s is provisioned: stop it, then unprovision it, before deleting it", reference.Path, instance.Node)
+			return fmt.Errorf("delete object %s: the instance on %s is provisioned: stop it, then purge it, purge_object, which unprovisions and deletes it", reference.Path, instance.Node)
+		}
+	}
+	return nil
+}
+
+// refuseUnprovisionUp refuses to unprovision or purge an object an instance
+// of which is up or warn: the daemon asks nothing, stops the instance, then
+// destroys the data its disk and fs resources hold, where an operator would
+// expect a refusal of a service running.
+func (s *Service) refuseUnprovisionUp(ctx context.Context, reference ClusterObjectReference, action ObjectAction) error {
+	instances, err := s.ListObjectInstances(ctx, ListObjectInstancesOptions{Path: reference.Path, Limit: maxListObjectInstancesLimit})
+	if err != nil {
+		return fmt.Errorf("%s object %s: read its instances: %w", action, reference.Path, err)
+	}
+	for _, instance := range instances.Instances {
+		if instance.Availability == "up" || instance.Availability == "warn" {
+			return fmt.Errorf("%s object %s: the instance on %s is %s: stop it first, stop_object; the %s destroys the data of its disk and fs resources", action, reference.Path, instance.Node, instance.Availability, action)
 		}
 	}
 	return nil

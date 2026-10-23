@@ -137,7 +137,7 @@ func TestDeleteObjectRefusesWhatWouldLeak(t *testing.T) {
 		"mixed":       {"test/vol/data", []string{instanceRecord("test/vol/data", "n1", "down", "mixed")}, "provisioned"},
 	} {
 		client := &lifecycleClient{instances: strings.Join(tc.instances, ",")}
-		if _, err := New(client).SubmitObjectAction(context.Background(), tc.path, ObjectActionDelete, ObjectActionOptions{}); err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "stop it, then unprovision it") || client.posts != 0 {
+		if _, err := New(client).SubmitObjectAction(context.Background(), tc.path, ObjectActionDelete, ObjectActionOptions{}); err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "then purge it, purge_object") || client.posts != 0 {
 			t.Errorf("%s: %v, posts %d", name, err, client.posts)
 		}
 	}
@@ -152,6 +152,54 @@ func TestDeleteObjectRefusesWhatWouldLeak(t *testing.T) {
 		client := &lifecycleClient{instances: strings.Join(tc.instances, ",")}
 		if _, err := New(client).SubmitObjectAction(context.Background(), tc.path, ObjectActionDelete, ObjectActionOptions{}); err != nil || client.posts != 1 || !strings.HasSuffix(client.path, "/action/delete") {
 			t.Errorf("%s: %v, posts %d %s", name, err, client.posts, client.path)
+		}
+	}
+}
+
+// The daemon unprovisions an instance up, which it stops, then destroys its
+// data: the MCP refuses an unprovision or a purge while one is up or warn.
+func TestUnprovisionAndPurgeRefuseAnInstanceRunning(t *testing.T) {
+	for _, action := range []ObjectAction{ObjectActionUnprovision, ObjectActionPurge} {
+		for name, instances := range map[string][]string{
+			"up":   {instanceRecord("test/svc/web", "n1", "down", "true"), instanceRecord("test/svc/web", "n2", "up", "true")},
+			"warn": {instanceRecord("test/svc/web", "n1", "warn", "true")},
+		} {
+			client := &lifecycleClient{instances: strings.Join(instances, ",")}
+			if _, err := New(client).SubmitObjectAction(context.Background(), "test/svc/web", action, ObjectActionOptions{}); err == nil || !strings.Contains(err.Error(), "stop it first, stop_object") || client.posts != 0 {
+				t.Errorf("%s %s: %v, posts %d", action, name, err, client.posts)
+			}
+		}
+		// A provisioned object down, or one in n/a, is submitted, without a
+		// guard on the children: the daemon waits for them, visibly.
+		for name, tc := range map[string]struct {
+			path, post string
+			instances  []string
+		}{
+			"down, provisioned": {"test/svc/web", "/api/object/path/test/svc/web/action/", []string{instanceRecord("test/svc/web", "n1", "down", "true"), instanceRecord("test/svc/web", "n2", "down", "true")}},
+			"a vol in n/a":      {"test/vol/data", "/api/object/path/test/vol/data/action/", []string{instanceRecord("test/vol/data", "n1", "n/a", "true")}},
+		} {
+			client := &lifecycleClient{instances: strings.Join(tc.instances, ",")}
+			result, err := New(client).SubmitObjectAction(context.Background(), tc.path, action, ObjectActionOptions{})
+			if err != nil || client.posts != 1 || client.path != tc.post+string(action) || client.body != "" || len(client.query) != 0 || result.OrchestrationID == "" {
+				t.Errorf("%s %s: %v, POST %s %v %q", action, name, err, client.path, client.query, client.body)
+			}
+		}
+	}
+	// The purge of a cfg, a sec or a usr is a delete; an unprovision of one
+	// is refused for its kind.
+	for _, path := range []string{"test/cfg/web", "test/sec/web", "test/usr/web"} {
+		client := &lifecycleClient{}
+		if _, err := New(client).SubmitObjectAction(context.Background(), path, ObjectActionPurge, ObjectActionOptions{}); err == nil || !strings.Contains(err.Error(), "delete_object") || client.posts != 0 {
+			t.Errorf("purge %s: %v", path, err)
+		}
+		if _, err := New(client).SubmitObjectAction(context.Background(), path, ObjectActionUnprovision, ObjectActionOptions{}); err == nil || !strings.Contains(err.Error(), "svc, vol objects only") || client.posts != 0 {
+			t.Errorf("unprovision %s: %v", path, err)
+		}
+	}
+	for _, options := range []ObjectActionOptions{{Adopt: true}, {Size: "1g"}, {ConfigUpdatedAt: "2026-10-22T12:00:00Z"}, {InterruptSyncs: true}} {
+		client := &lifecycleClient{}
+		if _, err := New(client).SubmitObjectAction(context.Background(), "test/svc/web", ObjectActionUnprovision, options); err == nil || client.posts != 0 {
+			t.Errorf("unprovision with %+v accepted", options)
 		}
 	}
 }

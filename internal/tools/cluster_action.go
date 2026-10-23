@@ -30,7 +30,7 @@ func RegisterClusterLockTools(registrar *Registrar, service *core.Service) error
 	return addTool(registrar, &mcp.Tool{
 		Name: "list_cluster_locks", Title: "List cluster locks",
 		Description: "List the locks the OpenSVC cluster holds: a lock serializes what reads the state of the cluster to change it, such as network/<name> for the address management of a network. Each lock holds its name, the node and holder holding it, when it was acquired and when its lease ends, which frees a lock never released. " +
-			"The node speaking for the cluster answers; the daemon answers 503 when none speaks, or a peer it hears does not answer. This tool takes and releases nothing. Requires root.",
+			"The node speaking for the cluster answers; the daemon answers 503 when none speaks, or a peer it hears does not answer: list_node_locks then reads what one node knows. This tool takes and releases nothing. Requires root.",
 		Annotations: readOnlyClosedWorldAnnotations(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ ClusterLocksInput) (*mcp.CallToolResult, ClusterLocksOutput, error) {
 		result, err := service.ListClusterLocks(ctx)

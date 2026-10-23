@@ -5,6 +5,8 @@ tools:
   - get_instance_logs
   - list_object_instances
   - refresh_instance_status
+  - list_instance_sync_snapshots
+  - get_instance_resource_file
 stability: experimental
 ---
 
@@ -719,6 +721,59 @@ request instance status refresh: OpenSVC daemon POST ... returned HTTP 403 Forbi
 
 The message comes from the daemon's bounded RFC 7807 response. The MCP does not
 invent or bypass grant decisions.
+
+### `list_instance_sync_snapshots`
+
+```text
+GET /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/sync/snapshots?rid=<rid>
+```
+
+The snapshots the sync resources of an instance hold, the restorable points
+a `sync.store` keeps; `guest` on the namespace. `rid` defaults to `sync`,
+every sync resource; one, such as `sync#1`, is accepted. Only `sync.store`
+implements the listing: the other sync drivers return none. A sync resource
+in error fails the read, 500 "List the snapshots", with the resource and the
+cause, relayed: a store whose directory is missing answers `stat …: no such
+file or directory`.
+
+Each snapshot holds `rid`, `id`, `created_at`, `node`, `members`, such as
+`fs#1` or `config`, and `location`. The `id` is the session of the `sync
+update` that took the snapshot, what a restore, not offered, would take. At
+most 1000, the most recent first.
+
+### `get_instance_resource_file`
+
+```text
+GET /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/resource/file?rid=<rid>&name=<file>
+```
+
+One file a resource declares to replicate to its peers, `root`. The list is
+closed: the files of `ToSync`, the domain definition of a `container.kvm`,
+`lxc` or `vbox`, the metadata of a shared `disk.md`, the `sub_devs` of a
+`disk.zpool`. `get_instance_status` gives them in `resources[rid].files`,
+with their `csum` and `mtime`: comparing the csum between nodes tells a
+drift without reading the files.
+
+The daemon serves a file while the instance is `up`, and refuses with 400 a
+resource, or a file, its status does not declare. The MCP reads the
+instance status first and refuses before the call a file the resource does
+not declare, naming those it does, or the resources declaring files. It
+takes the full name, or a base name one declared file only has, such as
+`sub_devs`: in the recette, a model asked `sub_devs`, read the refusal
+naming the full path, and answered without calling again. The
+text is returned up to 64 KiB, cut on a character boundary, its `passwd`
+attributes masked, such as the graphics console password a kvm domain
+definition may hold, `secrets_masked` counting them; a binary file returns
+its size and `csum` only.
+
+The daemon dereferences the file information before testing the error of
+its `stat`: a file declared but missing, such as the `sub_devs` of a zpool
+before its first `sync update`, makes it panic rather than answer 404, an
+om3 defect.
+
+`GET …/config/file` of an instance is not offered: the route takes no
+`redact-secrets`; the drift of a configuration reads through `config.csum`
+and `updated_at`. `POST …/state/file` is a write.
 
 ## Errors
 

@@ -141,10 +141,11 @@ func (c *Client) GetFile(ctx context.Context, path string, query url.Values) ([]
 	return payload, nil
 }
 
-// GetBlob reads a bounded value and gives its media type. The daemon
+// GetBlob reads a bounded value or file and gives its media type. The daemon
 // answers the value of a data key as text/plain when it is valid UTF-8,
 // application/octet-stream otherwise, and relays the answer of a peer as
-// application/json: any type of a 200 is taken, its errors coming as 4xx or
+// application/json, and a resource file by its extension, text/xml for a
+// domain definition: any type of a 200 is taken, its errors coming as 4xx or
 // 5xx. A value beyond the bound is cut, and complete says so. A 200 without
 // body nor content type gives an empty media type.
 func (c *Client) GetBlob(ctx context.Context, path string, query url.Values) ([]byte, string, bool, error) {
@@ -154,7 +155,7 @@ func (c *Client) GetBlob(ctx context.Context, path string, query url.Values) ([]
 	if err != nil {
 		return nil, "", false, fmt.Errorf("create OpenSVC daemon GET request: %w", err)
 	}
-	request.Header.Set("Accept", "text/plain, application/octet-stream")
+	request.Header.Set("Accept", "*/*")
 	response, err := c.httpClient.Do(request)
 	if err != nil {
 		return nil, "", false, fmt.Errorf("request OpenSVC daemon %s: %w", path, err)

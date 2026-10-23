@@ -7,6 +7,26 @@ import (
 	"github.com/opensvc/om3-mcp/internal/core"
 )
 
+type ListNodeNetworkReservationsInput struct {
+	Node    string `json:"node" jsonschema:"the exact name of the node; no wildcard, selector or the _ alias"`
+	Network string `json:"network,omitempty" jsonschema:"optional exact name of a cluster backend network; omitted, every network"`
+}
+
+type NodeOnlyInput struct {
+	Node string `json:"node" jsonschema:"the exact name of the node; no wildcard, selector or the _ alias"`
+}
+
+type GetNodeDRBDConfigInput struct {
+	Node string `json:"node" jsonschema:"the exact name of the node; no wildcard, selector or the _ alias"`
+	Name string `json:"name" jsonschema:"the DRBD resource name, the base name of its file /etc/drbd.d/<name>.res, without / or \\"`
+}
+
+type ListNodeNetworkReservationsOutput = core.NodeNetworkReservationList
+
+type ListNodeLocksOutput = core.NodeLockList
+
+type GetNodeDRBDConfigOutput = core.NodeDRBDConfig
+
 type GetNodeStatusInput struct {
 	Node string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
 }
@@ -397,6 +417,63 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 				return nil, ListNodeIPAddressesOutput{}, err
 			}
 			return nil, addresses, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "list_node_network_reservations",
+			Title: "List node network reservations",
+			Description: "List the addresses one OpenSVC node holds reserved on the cluster backend networks, the daemon relaying the read to the node: network, ip, and the object and resource the address is reserved for. " +
+				"They are read from the reservation store: an address shows as soon as it is drawn, before the status of its object does, which list_network_ips does not see. A node in maintenance or starting answers 503, one without heartbeat 404. Requires root.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input ListNodeNetworkReservationsInput) (*mcp.CallToolResult, ListNodeNetworkReservationsOutput, error) {
+			result, err := service.ListNodeNetworkReservations(ctx, input.Node, input.Network)
+			if err != nil {
+				return nil, ListNodeNetworkReservationsOutput{}, err
+			}
+			return nil, result, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "list_node_locks",
+			Title: "List node locks",
+			Description: "List the cluster locks one OpenSVC node knows, the daemon relaying the read to the node: what its clients hold, and what it granted while it spoke for the cluster, which its clients may not have heard yet. " +
+				"A node taking the speaking over rebuilds its lock table from these: use it when list_cluster_locks, the table of the node speaking, fails, such as with a 503 while the speaking moves. Takes and releases nothing. Requires root.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input NodeOnlyInput) (*mcp.CallToolResult, ListNodeLocksOutput, error) {
+			result, err := service.ListNodeLocks(ctx, input.Node)
+			if err != nil {
+				return nil, ListNodeLocksOutput{}, err
+			}
+			return nil, result, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := addTool(
+		registrar,
+		&mcp.Tool{
+			Name:  "get_node_drbd_config",
+			Title: "Get node DRBD config",
+			Description: "Read the file of one DRBD resource on one OpenSVC node, /etc/drbd.d/<name>.res, the daemon relaying the read to the node: the disks, addresses and options of each node of the resource. A file missing answers 404. " +
+				"The files om3 writes hold no shared-secret; a value of one written by hand is masked, secrets_masked counts it. Text at most 64 KiB. Requires root.",
+			Annotations: readOnlyClosedWorldAnnotations(),
+		},
+		func(ctx context.Context, _ *mcp.CallToolRequest, input GetNodeDRBDConfigInput) (*mcp.CallToolResult, GetNodeDRBDConfigOutput, error) {
+			result, err := service.GetNodeDRBDConfig(ctx, input.Node, input.Name)
+			if err != nil {
+				return nil, GetNodeDRBDConfigOutput{}, err
+			}
+			return nil, result, nil
 		},
 	); err != nil {
 		return err

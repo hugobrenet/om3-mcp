@@ -138,11 +138,15 @@ func TestGetBlobGivesTextBytesOrNothing(t *testing.T) {
 	}{
 		{"text/plain", "hello", "text/plain", true},
 		{"application/octet-stream", "\xff\x00", "application/octet-stream", true},
+		// A resource file the daemon serves by its extension, such as the
+		// domain definition of a kvm container.
+		{"text/xml; charset=utf-8", "<domain/>", "text/xml", true},
+		{"application/xml", "<domain/>", "application/xml", true},
 		{"", "", "", true},
 	} {
 		server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-			if request.URL.Query().Get("name") != "k" {
-				t.Errorf("query %v", request.URL.Query())
+			if request.URL.Query().Get("name") != "k" || request.Header.Get("Accept") != "*/*" {
+				t.Errorf("query %v, accept %q", request.URL.Query(), request.Header.Get("Accept"))
 			}
 			if tc.contentType != "" {
 				response.Header().Set("Content-Type", tc.contentType)

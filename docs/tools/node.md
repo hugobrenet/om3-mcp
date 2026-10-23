@@ -16,6 +16,9 @@ tools:
   - get_node_san_topology
   - list_node_ip_addresses
   - probe_node_reachability
+  - list_node_network_reservations
+  - list_node_locks
+  - get_node_drbd_config
 stability: experimental
 ---
 
@@ -1293,6 +1296,48 @@ address. Each address holds `interface`, `address`, `prefix_length` (as
 reported; empty for a multicast group membership), `family`, `mac` and
 `deprecated`. The cache holds at most a few hundred entries: the list is not
 paginated, and a response over 4096 entries is an error.
+
+### `list_node_network_reservations`
+
+```text
+GET /api/node/name/<node>/network/reservation[?name=<network>]
+```
+
+The addresses one node holds reserved on the cluster backend networks,
+`root`, the daemon relaying the read: `network`, `ip`, and the `path` and
+`rid` the address is reserved for, by network then address. They are read
+from the reservation store: an address shows as soon as it is drawn, before
+the status of its object reports it, which `list_network_ips` does not see.
+A peer in maintenance or starting answers 503 with `Retry-After`, a peer
+without heartbeat 404: relayed, they are facts about the node.
+
+### `list_node_locks`
+
+```text
+GET /api/node/name/<node>/lock
+```
+
+The cluster locks one node knows, `root`, the daemon relaying the read:
+what the clients of the node hold, and what it granted while it spoke for
+the cluster, which its clients may not have heard yet. A node taking the
+speaking over rebuilds its lock table from these. The projection is the one
+of `list_cluster_locks`; this read serves when the node speaking answers
+503. It takes and releases nothing; `DELETE …/lock` is not offered.
+
+### `get_node_drbd_config`
+
+```text
+GET /api/node/name/<node>/drbd/config?name=<resource>
+```
+
+The file `/etc/drbd.d/<name>.res` of one DRBD resource on one node, `root`,
+the daemon relaying the read; 404 for a file missing. `name` holds no `/`
+nor `\`, refused before the call. The files om3 writes hold no
+`shared-secret`; one written by hand may, and its value is masked,
+`secrets_masked` counting it. The text is returned up to 64 KiB.
+
+`GET …/drbd/allocation` is not offered: it is not a read, each call reserves
+a minor and a port for 5 seconds, for a provision to follow.
 
 ## Node configuration by keyword
 

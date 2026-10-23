@@ -170,7 +170,7 @@ default node, selector, or pagination is used.
 | `policy` | Minimum available memory and swap percentages; `null` if absent; zero disables the corresponding check |
 | `config` | Environment, labels and three daemon periods the node configuration sets; `null` if absent |
 | `heartbeat` | Publication time, messages, secret version numbers, streams, alerts, peers, and their exact values; `null` if absent |
-| `daemon` | Daemon `pid`, `started_at`, and `subsystems`: `daemon_data`, `listener`, `dns`, `collector`, `scheduler`, `runner_imon`, each with its exact state and timestamps, or `null` if absent |
+| `daemon` | Daemon `pid`, `started_at`, and `subsystems`: `daemon_data`, `listener`, `dns`, `collector`, `scheduler`, `runner_imon`, each with its exact state and timestamps, or `null` if absent; a subsystem is named by its key, the `id` the daemon reports, which repeats it, is not returned |
 
 `membership.configured_peers` contains distinct configured node names other
 than the selected node, sorted by exact name and limited to 200. It returns

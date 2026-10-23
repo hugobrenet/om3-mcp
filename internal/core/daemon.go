@@ -97,7 +97,6 @@ type DaemonSubsystems struct {
 }
 
 type DaemonDataSubsystem struct {
-	ID           string `json:"id" jsonschema:"the subsystem identifier reported by OpenSVC"`
 	State        string `json:"state" jsonschema:"the exact subsystem state reported by OpenSVC"`
 	ConfiguredAt string `json:"configured_at" jsonschema:"the subsystem configuration timestamp reported by OpenSVC"`
 	CreatedAt    string `json:"created_at" jsonschema:"the subsystem creation timestamp reported by OpenSVC"`
@@ -106,7 +105,6 @@ type DaemonDataSubsystem struct {
 }
 
 type DaemonListenerSubsystem struct {
-	ID           string                    `json:"id" jsonschema:"the subsystem identifier reported by OpenSVC"`
 	State        string                    `json:"state" jsonschema:"the exact subsystem state reported by OpenSVC"`
 	ConfiguredAt string                    `json:"configured_at" jsonschema:"the subsystem configuration timestamp reported by OpenSVC"`
 	CreatedAt    string                    `json:"created_at" jsonschema:"the subsystem creation timestamp reported by OpenSVC"`
@@ -123,7 +121,6 @@ type DaemonListenerRateLimiter struct {
 }
 
 type DaemonDNSSubsystem struct {
-	ID                   string   `json:"id" jsonschema:"the subsystem identifier reported by OpenSVC"`
 	State                string   `json:"state" jsonschema:"the exact subsystem state reported by OpenSVC"`
 	ConfiguredAt         string   `json:"configured_at" jsonschema:"the subsystem configuration timestamp reported by OpenSVC"`
 	CreatedAt            string   `json:"created_at" jsonschema:"the subsystem creation timestamp reported by OpenSVC"`
@@ -134,7 +131,6 @@ type DaemonDNSSubsystem struct {
 }
 
 type DaemonCollectorSubsystem struct {
-	ID           string                  `json:"id" jsonschema:"the subsystem identifier reported by OpenSVC"`
 	State        string                  `json:"state" jsonschema:"the exact subsystem state reported by OpenSVC"`
 	ConfiguredAt string                  `json:"configured_at" jsonschema:"the subsystem configuration timestamp reported by OpenSVC"`
 	CreatedAt    string                  `json:"created_at" jsonschema:"the subsystem creation timestamp reported by OpenSVC"`
@@ -155,7 +151,6 @@ type DaemonCollectorEndpoint struct {
 }
 
 type DaemonSchedulerSubsystem struct {
-	ID           string `json:"id" jsonschema:"the subsystem identifier reported by OpenSVC"`
 	State        string `json:"state" jsonschema:"the exact subsystem state reported by OpenSVC"`
 	ConfiguredAt string `json:"configured_at" jsonschema:"the subsystem configuration timestamp reported by OpenSVC"`
 	CreatedAt    string `json:"created_at" jsonschema:"the subsystem creation timestamp reported by OpenSVC"`
@@ -165,7 +160,6 @@ type DaemonSchedulerSubsystem struct {
 }
 
 type DaemonRunnerIMonSubsystem struct {
-	ID           string `json:"id" jsonschema:"the subsystem identifier reported by OpenSVC"`
 	State        string `json:"state" jsonschema:"the exact subsystem state reported by OpenSVC"`
 	ConfiguredAt string `json:"configured_at" jsonschema:"the subsystem configuration timestamp reported by OpenSVC"`
 	CreatedAt    string `json:"created_at" jsonschema:"the subsystem creation timestamp reported by OpenSVC"`
@@ -173,8 +167,10 @@ type DaemonRunnerIMonSubsystem struct {
 	MaxRunning   int    `json:"max_running" jsonschema:"the instance-monitor runner concurrency limit reported by OpenSVC"`
 }
 
+// daemonSubsystemStatus is the status of a daemon subsystem. Its id, the
+// name of the subsystem, repeats the key it is reported under and is not
+// read: a model took the id of the collector for an identifier of the node.
 type daemonSubsystemStatus struct {
-	ID           string `json:"id"`
 	State        string `json:"state"`
 	ConfiguredAt string `json:"configured_at"`
 	CreatedAt    string `json:"created_at"`
@@ -387,11 +383,11 @@ func (s *Service) getClusterStatus(ctx context.Context) (clusterStatusResponse, 
 func daemonSubsystems(raw clusterNodeDaemon) DaemonSubsystems {
 	result := DaemonSubsystems{}
 	if value := raw.DaemonData; value != nil {
-		result.DaemonData = &DaemonDataSubsystem{ID: value.ID, State: value.State, ConfiguredAt: value.ConfiguredAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, QueueSize: value.QueueSize}
+		result.DaemonData = &DaemonDataSubsystem{State: value.State, ConfiguredAt: value.ConfiguredAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, QueueSize: value.QueueSize}
 	}
 	if value := raw.Listener; value != nil {
 		result.Listener = &DaemonListenerSubsystem{
-			ID: value.ID, State: value.State, ConfiguredAt: value.ConfiguredAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+			State: value.State, ConfiguredAt: value.ConfiguredAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 			Address: value.Address, Port: value.Port,
 			RateLimiter: DaemonListenerRateLimiter{Rate: value.RateLimiter.Rate, Burst: value.RateLimiter.Burst, ExpiresNS: value.RateLimiter.Expires},
 		}
@@ -399,21 +395,21 @@ func daemonSubsystems(raw clusterNodeDaemon) DaemonSubsystems {
 	if value := raw.DNS; value != nil {
 		nameservers, truncated := boundedStrings(value.Nameservers, maxDaemonDNSNameservers)
 		result.DNS = &DaemonDNSSubsystem{
-			ID: value.ID, State: value.State, ConfiguredAt: value.ConfiguredAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+			State: value.State, ConfiguredAt: value.ConfiguredAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 			NameserversTotal: len(value.Nameservers), Nameservers: nameservers, NameserversTruncated: truncated,
 		}
 	}
 	if value := raw.Collector; value != nil {
 		result.Collector = &DaemonCollectorSubsystem{
-			ID: value.ID, State: value.State, ConfiguredAt: value.ConfiguredAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+			State: value.State, ConfiguredAt: value.ConfiguredAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 			Endpoint: daemonCollectorEndpoint(value.URL),
 		}
 	}
 	if value := raw.Scheduler; value != nil {
-		result.Scheduler = &DaemonSchedulerSubsystem{ID: value.ID, State: value.State, ConfiguredAt: value.ConfiguredAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, Count: value.Count, MaxRunning: value.MaxRunning}
+		result.Scheduler = &DaemonSchedulerSubsystem{State: value.State, ConfiguredAt: value.ConfiguredAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, Count: value.Count, MaxRunning: value.MaxRunning}
 	}
 	if value := raw.RunnerIMon; value != nil {
-		result.RunnerIMon = &DaemonRunnerIMonSubsystem{ID: value.ID, State: value.State, ConfiguredAt: value.ConfiguredAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, MaxRunning: value.MaxRunning}
+		result.RunnerIMon = &DaemonRunnerIMonSubsystem{State: value.State, ConfiguredAt: value.ConfiguredAt, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, MaxRunning: value.MaxRunning}
 	}
 	return result
 }

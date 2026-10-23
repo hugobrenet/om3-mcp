@@ -75,6 +75,11 @@ func TestGetNodeStatusReportsTheDaemonSubsystems(t *testing.T) {
 	if result.Status.AgentVersion != "v3.0.0" {
 		t.Errorf("got agent version %q, want v3.0.0", result.Status.AgentVersion)
 	}
+	// The id of a subsystem repeats its key and is left out: the fixtures
+	// hold it, the result does not.
+	if encoded, _ := json.Marshal(status.Subsystems); strings.Contains(string(encoded), `"id"`) {
+		t.Errorf("a subsystem id is returned: %s", encoded)
+	}
 	if status.Subsystems.DaemonData == nil || status.Subsystems.DaemonData.State != "future-state" || status.Subsystems.DaemonData.QueueSize != 3 {
 		t.Errorf("got daemondata %#v, want exact unknown state and queue size", status.Subsystems.DaemonData)
 	}

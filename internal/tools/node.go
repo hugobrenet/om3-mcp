@@ -167,7 +167,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 			Title: "List node packages",
 			Description: "List bounded package entries from one OpenSVC node package cache, with exact-name, name-prefix, type, and architecture filters and stable pagination. " +
 				"Preserves versions, installation timestamps, signatures, empty source fields, and duplicate entries without comparing versions or interpreting freshness, vulnerability, compatibility, or trust. " +
-				"This root-only read does not inventory packages, execute push pkg, contact a collector, or refresh the cache; a missing cache remains an explicit daemon error.",
+				"This root-only read does not inventory packages, execute push pkg, contact a collector, or refresh the cache; a missing cache remains an explicit daemon error: refresh_node_packages rebuilds it.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input ListNodePackagesInput) (*mcp.CallToolResult, ListNodePackagesOutput, error) {
@@ -190,7 +190,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 			Title: "List node hardware",
 			Description: "List bounded hardware entries from one OpenSVC node system cache, with exact type, class, and driver filters and stable pagination. " +
 				"Preserves paths, descriptions, empty drivers, and duplicate devices without interpreting availability or health. " +
-				"This root-only read does not refresh the cache; a missing cache remains an explicit daemon error until asset data has been pushed.",
+				"This root-only read does not refresh the cache; a missing cache remains an explicit daemon error until asset data has been pushed: refresh_node_hardware rebuilds it.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input ListNodeHardwareInput) (*mcp.CallToolResult, ListNodeHardwareOutput, error) {
@@ -274,7 +274,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 			Title: "List node capabilities",
 			Description: "List the exact capability markers cached by OpenSVC for one node, with bounded pagination. " +
 				"Capabilities can represent built-in support, environment detections, or driver sub-features; their presence does not prove configuration, use, reachability, or current health. " +
-				"This root-only read does not trigger a capability scan or make changes.",
+				"This root-only read does not trigger a capability scan or make changes: refresh_node_capabilities rescans them.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input ListNodeCapabilitiesInput) (*mcp.CallToolResult, ListNodeCapabilitiesOutput, error) {
@@ -361,7 +361,7 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 			Description: "List the disks of one OpenSVC node from its disk inventory cache: identifier, device path, size, vendor, model, type, and the OpenSVC objects claiming disk regions. " +
 				"Compare nodes to find a LUN missing on one of them. " +
 				"The inventory holds presence and claims, not path or health states. " +
-				"This root-only read does not refresh the cache, written by the push disks schedule; a missing cache remains an explicit daemon error.",
+				"This root-only read does not refresh the cache, written by the push disks schedule; a missing cache remains an explicit daemon error: refresh_node_disks rebuilds it, and after scan_node_scsi shows a new LUN.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input ListNodeDisksInput) (*mcp.CallToolResult, ListNodeDisksOutput, error) {

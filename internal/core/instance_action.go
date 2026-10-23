@@ -36,6 +36,9 @@ const (
 	// instance; reset, they lift every capping of the object slice.
 	InstanceActionPGUpdate InstanceAction = "pg/update"
 	InstanceActionPGReset  InstanceAction = "pg/reset"
+	// An info recomputes the resource information cache of the instance,
+	// which list_resource_info reads.
+	InstanceActionInfo InstanceAction = "info"
 )
 
 // instanceActionKinds are the object kinds the instance actions accept, as
@@ -209,7 +212,7 @@ func validateInstanceTarget(path string, node string, action string, kinds []str
 func instanceActionQuery(action InstanceAction, options InstanceActionOptions) (url.Values, error) {
 	switch action {
 	case InstanceActionStart, InstanceActionStop, InstanceActionRestart, InstanceActionFreeze, InstanceActionUnfreeze, InstanceActionUnprovision, InstanceActionRun,
-		InstanceActionStartStandby, InstanceActionShutdown, InstanceActionPGUpdate, InstanceActionPGReset:
+		InstanceActionStartStandby, InstanceActionShutdown, InstanceActionPGUpdate, InstanceActionPGReset, InstanceActionInfo:
 	default:
 		return nil, fmt.Errorf("unsupported instance action %q", action)
 	}

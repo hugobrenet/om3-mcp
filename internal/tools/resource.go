@@ -53,7 +53,7 @@ func RegisterResourceTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:        "list_resource_info",
 			Title:       "List resource information",
-			Description: "Read bounded cached OpenSVC resource information key-value entries for one exact svc or vol, either aggregated across visible instances or restricted to one exact node. Values remain strings without type coercion, may contain sensitive driver or application data, and have no daemon-provided cache timestamp; the MCP filters, sorts, paginates, and bounds the response without running resource drivers.",
+			Description: "Read bounded cached OpenSVC resource information key-value entries for one exact svc or vol, either aggregated across visible instances or restricted to one exact node. Values remain strings without type coercion, may contain sensitive driver or application data, and have no daemon-provided cache timestamp; the MCP filters, sorts, paginates, and bounds the response without running resource drivers; refresh_resource_info recomputes the cache.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input ListResourceInfoInput) (*mcp.CallToolResult, ListResourceInfoOutput, error) {

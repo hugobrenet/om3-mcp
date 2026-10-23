@@ -49,9 +49,13 @@ type ObjectConfig struct {
 // take no redact-secrets parameter. They are left out of every keyword read.
 var secretKeywords = []string{"cluster.secret", "node.uuid"}
 
-// isSecretKeyword says whether a keyword is a secret, whatever its case.
+// isSecretKeyword says whether a keyword is a secret, whatever its case and
+// its scope: cluster.secret is scopable, and the daemon gives a value scoped
+// to a node in the keyword, cluster.secret@n1, as the redaction of a
+// configuration file compares its base option.
 func isSecretKeyword(keyword string) bool {
-	return slices.Contains(secretKeywords, strings.ToLower(keyword))
+	base, _, _ := strings.Cut(keyword, "@")
+	return slices.Contains(secretKeywords, strings.ToLower(base))
 }
 
 // omitSecretKeywords leaves the secret keywords out of items, and counts

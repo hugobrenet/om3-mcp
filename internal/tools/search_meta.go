@@ -112,7 +112,7 @@ var toolKeywords = map[string][]string{
 	"unfreeze_instance":           {"unfreeze node instance", "thaw instance", "resume instance"},
 	"unfreeze_node":               {"unfreeze node", "end node maintenance", "resume node", "thaw node"},
 	"unfreeze_object":             {"unfreeze", "thaw", "resume automation", "end maintenance"},
-	"unprovision_instance":        {"unprovision on node", "deprovision instance", "local unprovision", "free node storage"},
+	"unprovision_instance":        {"unprovision on node", "deprovision instance", "local unprovision", "free node storage", "free storage on node", "libérer le stockage", "release disk on node"},
 	"unprovision_object":          {"unprovision", "deprovision", "free storage", "destroy data", "release resources", "teardown"},
 	"update_node_config":          {"set node setting", "change node config", "edit node.conf", "configure heartbeat", "set node env"},
 	"update_object_config":        {"edit config", "change setting", "set keyword", "modify configuration", "configure", "unset", "set cluster", "cluster config"},

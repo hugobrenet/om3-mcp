@@ -134,7 +134,8 @@ func RegisterInstanceActionTools(registrar *Registrar, service *core.Service) er
 		&mcp.Tool{
 			Name:  "unprovision_instance",
 			Title: "Unprovision instance",
-			Description: "Unprovision the instance of one OpenSVC svc or vol object on one node, or some of its resources, destroying the data its disk and fs resources hold: it always acts on them, and cannot mark an instance unprovisioned without touching it. " +
+			Description: "Unprovision the instance of one OpenSVC svc or vol object on one node, or some of its resources, destroying the data its disk and fs resources hold, to free the storage of that node: it always acts on them, and cannot mark an instance unprovisioned without touching it. " +
+				"The object and its other instances are left: it is not stopped, nor purged. " +
 				"To record as unprovisioned resources a sysadmin freed by hand, touching nothing, call mark_instance_unprovisioned instead. " +
 				"The daemon of that node stops then unprovisions them, triggers included, outside of the orchestration of the object. " +
 				"Without leader, the resources the instances share are left; with leader, they are unprovisioned too, which the other instances lose: unprovision_object unprovisions every node in order. " +

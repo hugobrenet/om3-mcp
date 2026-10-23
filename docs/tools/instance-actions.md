@@ -10,6 +10,10 @@ tools:
   - unprovision_instance
   - mark_instance_unprovisioned
   - run_task
+  - start_instance_standby
+  - shutdown_instance
+  - update_instance_caps
+  - reset_instance_caps
 stability: experimental
 ---
 
@@ -43,11 +47,16 @@ Implementation:
 | `unprovision_instance` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/unprovision[?rid=…&leader=true]` | svc, vol | Yes | Yes |
 | `mark_instance_unprovisioned` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/unprovision?state_only=true[&rid=…]` | svc, vol | No | Yes |
 | `run_task` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/run?rid=task#…[&env=K=V…]` | svc, vol | Yes | No |
+| `start_instance_standby` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/startstandby[?rid=…]` | svc, vol | No | Yes |
+| `shutdown_instance` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/shutdown[?rid=…]` | svc, vol | Yes | Yes |
+| `update_instance_caps` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/pg/update[?rid=…]` | svc, vol | Yes | Yes |
+| `reset_instance_caps` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/pg/reset[?rid=…]` | svc, vol | No | Yes |
 
-They require `operator` on the object namespace, `unprovision_instance`,
-`mark_instance_unprovisioned` and `run_task` `admin`.
+They require `operator` on the object namespace; `unprovision_instance`,
+`mark_instance_unprovisioned`, `run_task`, `update_instance_caps` and
+`reset_instance_caps` require `admin`, as the daemon asserts it.
 
-- The eight actions fork `om <path> instance <action>` on the node, and the
+- The twelve actions fork `om <path> instance <action>` on the node, and the
   daemon answers at once with the `session_id` and the `exec_id` of the
   execution. The MCP then reads `GET /api/node/name/<node>/daemon/exec/id/<exec_id>`
   until the execution ends, `wait_seconds`, 10 by default, 60 at most, and
@@ -118,6 +127,56 @@ They require `operator` on the object namespace, `unprovision_instance`,
   place of a record destroys the data. A name matching the request better
   steers the model to the lesser, reversible, one, and
   `unprovision_instance` points to it.
+
+### Standby resources, shutdown and caps
+
+Two stopped flags are not to be confused. The flag of the instance, which the
+ha orchestration reads, "the instance is flagged stopped", is set by a stop
+and lifted by a start; none of the four actions below touches it. The flag
+of a resource, a file per resource that keeps the daemon from starting it
+again, is set by a stop with `rid`; `start_instance_standby` lifts it on
+every resource of the instance, and `shutdown_instance` without `rids` too.
+
+- `start_instance_standby` starts the resources `standby=true` only, such as
+  a disk or a filesystem kept up on a passive node: the instance shows
+  `stdby up`. Lifting the flag of the resources gives back to the daemon the
+  right to start again a resource a stop with `rid` stopped. It takes `rids`
+  and `disable_rollback`, as `start_instance`. Not destructive.
+- `shutdown_instance` stops every resource, the standby ones a stop leaves
+  up too, interrupts the data syncs and runs the pre and post shutdown
+  triggers: what precedes the shutdown of the node. Not flagging the
+  instance stopped, on an object `orchestrate=ha` it is undone at once: the
+  daemon, seeing the instance down without the flag, starts it again here
+  when the node leads the placement, or fails over. The MCP reads the
+  orchestration and the freeze of the object, the freeze of the instance and
+  of the node, and refuses the shutdown of an instance of an ha object none
+  of them freezes: `freeze_object` or `freeze_node` first, as the drain of a
+  node freezes it before its shutdowns, then the shutdown again.
+  `stop_instance` flags the instance, but leaves the standby resources up:
+  the refusal says so, since a model offered it as the way out of the guard
+  in the recette of 2026-10-23, where the shutdown was asked before a
+  reboot. It takes `rids`, not `force`. Destructive.
+- `update_instance_caps` writes the `pg_*` keywords of the configuration in
+  the cgroups of the instance on that node, as a start does; a memory limit
+  lowered under what the instance uses ends its processes: destructive.
+  `update_object_config` changes a value first; `cap_object` applies the
+  limits on every node by orchestration.
+- `reset_instance_caps` writes what a node that never capped anything holds,
+  within the slice of the object, including a capping the configuration
+  does not know: one left by an older agent, by systemd or by hand. The
+  instance runs without limits until the next update or start, which writes
+  the `pg_*` keywords configured again; a `pg_*` keyword set to `default`
+  lifts one for good. Not destructive.
+- Neither caps action is atomic: one file written per controller, an
+  execution that fails may have written, or lifted, part of the limits, and
+  `log_tail` names the file refused. The descriptions say so: in the recette
+  of 2026-10-23, a reset failed on `cpuset.cpus`, a controller not delegated
+  to the slice, after `memory.max` was lifted, and the model, reading
+  `failed`, concluded that no limit had been lifted.
+- `prstart` and `prstop`, the SCSI persistent reservations, are not offered:
+  no lab disk to try them on, and `prstop` on an instance running lifts the
+  only protection against a write from another node. `boot` neither: it
+  serves the start of a node, before the daemon.
 
 ### Running tasks
 

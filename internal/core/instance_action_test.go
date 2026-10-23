@@ -45,6 +45,9 @@ type instanceActionClient struct {
 	taskTypes    string
 	taskKeywords string
 	taskInfo     string
+	// orchestrate and frozen are those of the object, nodeFrozenAt the
+	// freeze time of n1, for a shutdown.
+	orchestrate, frozen, nodeFrozenAt string
 }
 
 func (c *instanceActionClient) GetJSON(_ context.Context, path string, query url.Values, output any) error {
@@ -65,7 +68,9 @@ func (c *instanceActionClient) GetJSON(_ context.Context, path string, query url
 	case path == "/api/node/name/n1/instance/path/test/svc/web":
 		return json.Unmarshal([]byte(`{"kind":"InstanceItem","meta":{"node":"n1","object":"test/svc/web"},"data":{"config":{"csum":"c","priority":50,"scope":["n1"],"updated_at":"2026-10-23T12:00:00Z"},"status":{"avail":"n/a","overall":"n/a","provisioned":"n/a","resources":{`+c.taskInfo+`}}}}`), output)
 	case path == "/api/object":
-		return json.Unmarshal([]byte(fmt.Sprintf(`{"items":[{"meta":{"object":%q},"data":{"topology":%q}}]}`, query.Get("path"), c.topology)), output)
+		return json.Unmarshal([]byte(fmt.Sprintf(`{"items":[{"meta":{"object":%q},"data":{"topology":%q,"orchestrate":%q,"frozen":%q}}]}`, query.Get("path"), c.topology, c.orchestrate, c.frozen)), output)
+	case path == "/api/cluster/status":
+		return json.Unmarshal([]byte(fmt.Sprintf(`{"cluster":{"config":{"nodes":["n1","n2"]},"node":{"n1":{"status":{"frozen_at":%q}}}}}`, c.nodeFrozenAt)), output)
 	case strings.HasPrefix(path, "/api/node/name/n1/daemon/exec/id/"):
 		c.execReads++
 		if c.execErr != nil {
@@ -159,6 +164,10 @@ func TestRunInstanceActionSendsItsOptionsAndReadsTheExecution(t *testing.T) {
 		{InstanceActionUnprovision, InstanceActionOptions{Rids: []string{"fs#1"}, Leader: true}, "leader=true&rid=fs%231"},
 		{InstanceActionUnprovision, InstanceActionOptions{}, ""},
 		{InstanceActionUnprovision, InstanceActionOptions{Rids: []string{"fs#1"}, StateOnly: true}, "rid=fs%231&state_only=true"},
+		{InstanceActionStartStandby, InstanceActionOptions{Rids: []string{"fs#1"}, DisableRollback: true}, "disable_rollback=true&rid=fs%231"},
+		{InstanceActionShutdown, InstanceActionOptions{Rids: []string{"fs#2"}}, "rid=fs%232"},
+		{InstanceActionPGUpdate, InstanceActionOptions{Rids: []string{"app#1"}}, "rid=app%231"},
+		{InstanceActionPGReset, InstanceActionOptions{}, ""},
 	} {
 		client := &instanceActionClient{
 			instances: []string{instanceMonitorRecord("test/svc/web", "n1", "down", "idle")},
@@ -247,11 +256,13 @@ func TestRunInstanceActionRefusesBeforeTheCall(t *testing.T) {
 		{"kind", "test/cfg/web", "n1", InstanceActionStart, InstanceActionOptions{}, nil, "", "svc, vol objects only"},
 		{"node alias", "test/svc/web", "_", InstanceActionStart, InstanceActionOptions{}, nil, "", "the _ alias"},
 		{"rid selector", "test/svc/web", "n1", InstanceActionStart, InstanceActionOptions{Rids: []string{"fs"}}, nil, "", "one exact resource id"},
-		{"rids on freeze", "test/svc/web", "n1", InstanceActionFreeze, InstanceActionOptions{Rids: []string{"fs#1"}}, nil, "", "start, stop, restart, unprovision and run actions only"},
+		{"rids on freeze", "test/svc/web", "n1", InstanceActionFreeze, InstanceActionOptions{Rids: []string{"fs#1"}}, nil, "", "do not apply to the freeze and unfreeze actions"},
 		{"leader on stop", "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{Leader: true}, nil, "", "unprovision action only"},
 		{"state only on stop", "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{StateOnly: true}, nil, "", "unprovision action only"},
 		{"state only and leader", "test/svc/web", "n1", InstanceActionUnprovision, InstanceActionOptions{StateOnly: true, Leader: true}, nil, "", "exclusive"},
-		{"rollback on stop", "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{DisableRollback: true}, nil, "", "start and restart actions only"},
+		{"rollback on stop", "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{DisableRollback: true}, nil, "", "start, restart and startstandby actions only"},
+		{"rollback on shutdown", "test/svc/web", "n1", InstanceActionShutdown, InstanceActionOptions{DisableRollback: true}, nil, "", "start, restart and startstandby actions only"},
+		{"syncs on shutdown", "test/svc/web", "n1", InstanceActionShutdown, InstanceActionOptions{InterruptSyncs: true}, nil, "", "stop action only"},
 		{"syncs on start", "test/svc/web", "n1", InstanceActionStart, InstanceActionOptions{InterruptSyncs: true}, nil, "", "stop action only"},
 		{"config time", "test/svc/web", "n1", InstanceActionStart, InstanceActionOptions{ConfigUpdatedAt: "yesterday"}, nil, "", "RFC 3339"},
 		{"wait", "test/svc/web", "n1", InstanceActionStart, InstanceActionOptions{Wait: 61 * time.Second}, nil, "", "between 1 and 60 seconds"},
@@ -399,5 +410,29 @@ func TestRunTaskRefusesBeforeTheCall(t *testing.T) {
 	client := &instanceActionClient{instances: []string{instanceMonitorRecord("test/svc/web", "n1", "down", "idle")}}
 	if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionStart, InstanceActionOptions{Env: []string{"VAR=a"}}); err == nil || !strings.Contains(err.Error(), "run action only") {
 		t.Errorf("env on a start: %v", err)
+	}
+}
+
+// A shutdown does not flag the instance stopped: on an object orchestrated
+// ha, the daemon would start it again, or fail over, unless the object, the
+// instance or the node is frozen.
+func TestShutdownInstanceRefusesWhatTheDaemonWouldUndo(t *testing.T) {
+	frozenInstance := `{"meta":{"node":"n1","object":"test/svc/web"},"data":{"status":{"avail":"up","frozen_at":"2026-10-23T12:00:00Z"},"monitor":{"state":"idle"}}}`
+	up := instanceMonitorRecord("test/svc/web", "n1", "up", "idle")
+	zero := "0001-01-01T00:00:00Z"
+	client := &instanceActionClient{instances: []string{up}, orchestrate: "ha", frozen: "unfrozen", nodeFrozenAt: zero}
+	if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionShutdown, InstanceActionOptions{}); err == nil || !strings.Contains(err.Error(), "freeze_object or freeze_node first") || len(client.posts) != 0 {
+		t.Fatalf("unfrozen ha: %v %v", err, client.posts)
+	}
+	for name, client := range map[string]*instanceActionClient{
+		"object frozen":   {instances: []string{up}, orchestrate: "ha", frozen: "frozen", nodeFrozenAt: zero},
+		"instance frozen": {instances: []string{frozenInstance}, orchestrate: "ha", frozen: "unfrozen", nodeFrozenAt: zero},
+		"node frozen":     {instances: []string{up}, orchestrate: "ha", frozen: "unfrozen", nodeFrozenAt: "2026-10-23T12:00:00Z"},
+		"not ha":          {instances: []string{up}, orchestrate: "no", frozen: "unfrozen", nodeFrozenAt: zero},
+	} {
+		client.execs = []string{execRecord("succeeded", new(int), true, "")}
+		if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionShutdown, InstanceActionOptions{}); err != nil || len(client.posts) != 1 || client.posts[0] != "/api/node/name/n1/instance/path/test/svc/web/action/shutdown" {
+			t.Errorf("%s: %v %v", name, err, client.posts)
+		}
 	}
 }

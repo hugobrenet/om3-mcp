@@ -54,9 +54,12 @@ func (s *Service) ListClusterIPResources(ctx context.Context, options ListCluste
 		if strings.ContainsAny(path, "*?[],\\") {
 			return ClusterIPResourceList{}, fmt.Errorf("path must be one exact canonical OpenSVC object path")
 		}
-		if _, err := validateExactObjectPath(path); err != nil {
+		reference, err := validateExactObjectPath(path)
+		if err != nil {
 			return ClusterIPResourceList{}, err
 		}
+		// The daemon names the object of a resource in the canonical form.
+		path = reference.Path
 	}
 	node := strings.TrimSpace(options.Node)
 	if node != "" {

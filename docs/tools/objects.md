@@ -25,6 +25,12 @@ Implementation:
 ## Tool selection
 
 Use `list_cluster_objects` to discover canonical paths visible to the caller.
+A path is taken in any form the daemon accepts, `root/svc/web`, `svc/web` or
+`web`, and returned in its canonical form, the one the daemon gives, as om3
+writes it: `<ns>/<kind>/<name>`, without the root namespace, and there
+without the `svc` and `ccfg` kinds, `web` and `cfg/app`; `cluster` for the
+cluster configuration; `<ns>/` for a namespace configuration. The MCP
+compares what the daemon answers to that form.
 Use `get_object_status` after selecting one exact path. Continue with
 `list_object_instances` when an aggregate object state requires node-level
 diagnosis. Use `get_object_config` when the diagnosis requires declared driver,

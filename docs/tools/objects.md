@@ -438,6 +438,11 @@ items. The tool leaves them out before the sort and the bound, so that
 `list_object_data_keys`, and refuses a `keywords` filter naming one before
 the call. The data keys of a cfg, plain text, are returned.
 
+The cluster configuration is the object `cluster`, `root/ccfg/cluster`:
+`get_object_config` and `list_object_config_keywords` read it with `path:
+cluster`, its `hb` and `arbitrator` sections included; `get_cluster_config`
+reads its file, redacted.
+
 The two keywords om3 declares secret, `cluster.secret` and `node.uuid`, are
 never returned either. The daemon gives them in clear to `root` through the
 keyword reads, which take no `redact-secrets` parameter, unlike the file

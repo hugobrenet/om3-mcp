@@ -3,6 +3,7 @@ domain: config-writes
 tools:
   - update_object_config
   - create_object
+  - update_node_config
 stability: experimental
 ---
 
@@ -102,6 +103,16 @@ query, applied by the daemon in this order:
   repeated: a `+=` would apply twice.
 - Annotated destructive, and not idempotent.
 
+### The cluster configuration
+
+The cluster configuration is the object `cluster`, which om3-mcp reads as
+`root/ccfg/cluster`, the path the daemon serves its configuration by:
+`GET` and `PATCH /api/cluster/config` call the handlers of the object
+configuration. `update_object_config` with `path: cluster` writes it, with
+`wait_seconds` and the read back, which `PATCH /api/cluster/config` would not
+offer. The daemon requires `admin` on the namespace `root`, a global `admin`
+or `root`. `cluster.secret`, written, is never read back: `secrets_omitted`.
+
 ## `create_object`
 
 `POST /api/object/path/<ns>/<kind>/<name>/config/file`, the configuration
@@ -129,3 +140,26 @@ file as `application/octet-stream`:
   created read again through the daemon with secret redaction, bounded as
   `get_cluster_config` bounds its file.
 - Annotated not destructive, and not idempotent.
+
+## `update_node_config`
+
+Changes the configuration of one node: deletes sections, unsets keywords,
+then applies set operations, as `update_object_config` does.
+
+```text
+PATCH /api/node/name/<node>/config?delete=…&unset=…&set=…
+```
+
+The daemon relays the write to the node. The operations are checked as for an
+object, 50 at most, 4 KiB per value. Unlike an object:
+
+- the configuration of a node does not propagate: there is no `wait`, and the
+  daemon gives no `OM-Last-Modified`;
+- the answer is `{"is_changed"}` only;
+- a configuration that does not validate is refused with 400, and a keyword
+  the daemon does not know is written with a warning it does not return.
+
+The tool returns `outcome`, `written` or `unchanged`, `is_changed`, and the
+keywords named, read again with `get_node_config_keywords`; `node.uuid`,
+written, is not read back and is counted in `secrets_omitted`. Destructive,
+not idempotent. Requires `root`.

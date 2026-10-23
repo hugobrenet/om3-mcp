@@ -37,7 +37,7 @@ func RegisterObjectConfigWriteTools(registrar *Registrar, service *core.Service)
 		&mcp.Tool{
 			Name:  "update_object_config",
 			Title: "Update object configuration",
-			Description: "Change the configuration of one OpenSVC object: delete sections, unset keywords, then apply set operations, in this order, as the daemon does. " +
+			Description: "Change the configuration of one OpenSVC object: delete sections, unset keywords, then apply set operations, in this order, as the daemon does. The cluster configuration is the object cluster, path cluster, which requires admin on the namespace root, admin or root. " +
 				"A set operation is <section>.<keyword><operator><value>: = sets the value, += appends one, -= removes one, |= appends one absent, ^= toggles one, and <section>.<keyword>[<index>]=<value> inserts at an index. " +
 				"Read the MCP resource om3://docs/object-config, the reference of the format, in the same turn as the call, and the configuration with get_object_config; check the keywords of a resource with one list_object_config_keywords call, its driver and options, rather than from memory. " +
 				"The daemon validates the result and writes nothing it refuses, with the reason: 400 for a value it does not accept; a keyword it does not know is written all the same, as a warning it does not return: check the keyword exists first; 403 for a keyword of a resource changed, or its section deleted, while the resource is up on a node, which must be stopped first; 409 when the configuration changed meanwhile, a value is held by a resource of another object on the same node, or a resize runs. " +

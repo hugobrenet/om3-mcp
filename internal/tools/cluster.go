@@ -26,7 +26,7 @@ func RegisterClusterTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:        "get_cluster_config",
 			Title:       "Get cluster configuration",
-			Description: "Read the bounded raw OpenSVC cluster configuration file for diagnostic context. The MCP always requests daemon-side secret redaction, returns at most 65536 bytes, and does not interpret the configuration. Requires root access to the daemon endpoint.",
+			Description: "Read the bounded raw OpenSVC cluster configuration file for diagnostic context. The MCP always requests daemon-side secret redaction, returns at most 65536 bytes, and does not interpret the configuration. To read it by keyword, write it or list its keywords, use get_object_config, update_object_config and list_object_config_keywords with path cluster. Requires root access to the daemon endpoint.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ GetClusterConfigInput) (*mcp.CallToolResult, GetClusterConfigOutput, error) {

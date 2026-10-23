@@ -103,6 +103,12 @@ func (s *Service) RunNodeExecAction(ctx context.Context, node string, action Nod
 	if err != nil {
 		return NodeExecActionResult{}, err
 	}
+	return s.runNodeExec(ctx, node, string(action), nil, wait)
+}
+
+// runNodeExec posts one node action the daemon runs as an execution, then
+// waits a bounded time for its end.
+func (s *Service) runNodeExec(ctx context.Context, node string, action string, query url.Values, wait time.Duration) (NodeExecActionResult, error) {
 	poster, ok := s.client.(JSONPoster)
 	if !ok {
 		return NodeExecActionResult{}, fmt.Errorf("OpenSVC daemon client does not support POST requests")
@@ -111,7 +117,7 @@ func (s *Service) RunNodeExecAction(ctx context.Context, node string, action Nod
 		return NodeExecActionResult{}, fmt.Errorf("%s node %s: %w", action, node, err)
 	}
 	var accepted daemonInstanceActionAccepted
-	if err := poster.PostJSON(ctx, fmt.Sprintf("/api/node/name/%s/action/%s", node, action), nil, nil, &accepted); err != nil {
+	if err := poster.PostJSON(ctx, fmt.Sprintf("/api/node/name/%s/action/%s", node, action), query, nil, &accepted); err != nil {
 		return NodeExecActionResult{}, fmt.Errorf("%s node %s: %w", action, node, err)
 	}
 	if !daemonExecutionUUIDPattern.MatchString(accepted.SessionID) || !daemonExecutionUUIDPattern.MatchString(accepted.ExecID) {

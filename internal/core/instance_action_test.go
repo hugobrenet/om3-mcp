@@ -168,6 +168,7 @@ func TestRunInstanceActionSendsItsOptionsAndReadsTheExecution(t *testing.T) {
 		{InstanceActionShutdown, InstanceActionOptions{Rids: []string{"fs#2"}}, "rid=fs%232"},
 		{InstanceActionPGUpdate, InstanceActionOptions{Rids: []string{"app#1"}}, "rid=app%231"},
 		{InstanceActionPGReset, InstanceActionOptions{}, ""},
+		{InstanceActionInfo, InstanceActionOptions{Rids: []string{"disk#2"}}, "rid=disk%232"},
 	} {
 		client := &instanceActionClient{
 			instances: []string{instanceMonitorRecord("test/svc/web", "n1", "down", "idle")},

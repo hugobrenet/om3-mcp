@@ -33,6 +33,11 @@ type nodeActionClient struct {
 	orchReads     int
 	logReads      int
 	posts         []string
+	postQuery     url.Values
+	// caches are the successive answers of the cache reads, by path; the
+	// last one repeats.
+	caches     map[string][]string
+	cacheReads map[string]int
 }
 
 func (c *nodeActionClient) GetJSON(_ context.Context, path string, query url.Values, output any) error {
@@ -47,6 +52,17 @@ func (c *nodeActionClient) GetJSON(_ context.Context, path string, query url.Val
 	case strings.HasPrefix(path, "/api/node/name/n1/daemon/exec/id/"):
 		c.execReads++
 		return json.Unmarshal([]byte(c.execs[min(c.execReads-1, len(c.execs)-1)]), output)
+	case c.caches[path] != nil:
+		if c.cacheReads == nil {
+			c.cacheReads = map[string]int{}
+		}
+		answers := c.caches[path]
+		answer := answers[min(c.cacheReads[path], len(answers)-1)]
+		c.cacheReads[path]++
+		if answer == "404" {
+			return daemonProblemError{status: http.StatusNotFound, detail: "waiting for cached value"}
+		}
+		return json.Unmarshal([]byte(answer), output)
 	case path == "/api/node/name/n1/daemon/orchestration/id/"+testOrchestrationID:
 		c.orchReads++
 		answer := c.orchestrations[min(c.orchReads-1, len(c.orchestrations)-1)]
@@ -68,15 +84,17 @@ func (c *nodeActionClient) GetSSE(_ context.Context, _ string, _ url.Values, con
 	return nil
 }
 
-func (c *nodeActionClient) PostJSON(_ context.Context, path string, _ url.Values, _, output any) error {
+func (c *nodeActionClient) PostJSON(_ context.Context, path string, query url.Values, _, output any) error {
 	c.posts = append(c.posts, path)
+	c.postQuery = query
 	if c.postErr != nil {
 		return c.postErr
 	}
 	switch {
 	case output == nil:
 		return nil
-	case strings.HasSuffix(path, "/freeze"), strings.HasSuffix(path, "/unfreeze"):
+	case strings.HasSuffix(path, "/freeze"), strings.HasSuffix(path, "/unfreeze"), strings.Contains(path, "/action/scan/"), strings.Contains(path, "/action/push/"),
+		strings.HasSuffix(path, "/scsi/scan"), strings.HasSuffix(path, "/dequeue"):
 		return json.Unmarshal([]byte(`{"session_id":"`+testSessionID+`","exec_id":"`+testExecID+`"}`), output)
 	}
 	return json.Unmarshal([]byte(`{"orchestration_id":"`+testOrchestrationID+`","node":"n1"}`), output)
@@ -205,5 +223,73 @@ func TestAbortNodeAndClearNode(t *testing.T) {
 	cleared, err := New(client).ClearNode(context.Background(), "n1")
 	if err != nil || !cleared.Cleared || cleared.PreviousState != "drain failed" || cleared.CurrentState != "idle" || client.posts[0] != "/api/node/name/n1/action/clear" {
 		t.Fatalf("%+v %v", cleared, err)
+	}
+}
+
+func hardwareCache(entries int) string {
+	items := make([]string, entries)
+	for i := range items {
+		items[i] = fmt.Sprintf(`{"kind":"HardwareItem","meta":{"node":"n1"},"data":{"type":"pci","class":"Bridge","driver":"pcieport","path":"00:%02d.0","description":"bridge"}}`, i)
+	}
+	return `{"kind":"HardwareList","items":[` + strings.Join(items, ",") + `]}`
+}
+
+// A refresh of a cache counts its entries before and after; a push failing
+// on the collector it sends to has refreshed the cache all the same.
+func TestRunNodeRefreshCountsTheCacheBeforeAndAfter(t *testing.T) {
+	one := 1
+	hardware := "/api/node/name/n1/system/hardware"
+	client := &nodeActionClient{
+		monitors: []string{"idle|none|"},
+		execs:    []string{execRecord("failed", &one, true, "exit status 1")},
+		logs:     []string{execLogEntry("error", "node: push asset: collector not configured")},
+		caches:   map[string][]string{hardware: {hardwareCache(2), hardwareCache(3)}},
+	}
+	result, err := New(client).RunNodeRefresh(context.Background(), "n1", NodeRefreshHardware, NodeRefreshOptions{})
+	if err != nil || client.posts[0] != "/api/node/name/n1/action/push/asset" || *result.CacheEntriesBefore != 2 || *result.CacheEntriesAfter != 3 ||
+		*result.ExitCode != 1 || !strings.Contains(result.LogTail[0].Message, "collector") {
+		t.Fatalf("%+v %v", result, err)
+	}
+	// A cache missing before is no error.
+	zero := 0
+	client = &nodeActionClient{monitors: []string{"idle|none|"}, execs: []string{execRecord("succeeded", &zero, true, "")}, caches: map[string][]string{hardware: {"404", hardwareCache(1)}}}
+	result, err = New(client).RunNodeRefresh(context.Background(), "n1", NodeRefreshHardware, NodeRefreshOptions{})
+	if err != nil || result.CacheEntriesBefore != nil || *result.CacheEntriesAfter != 1 {
+		t.Fatalf("missing before: %+v %v", result, err)
+	}
+	// A scan or a dequeue reads no cache.
+	for _, refresh := range []NodeRefresh{NodeScanSCSI, NodeDequeue} {
+		client := &nodeActionClient{monitors: []string{"idle|none|"}, execs: []string{execRecord("succeeded", &zero, true, "")}}
+		result, err := New(client).RunNodeRefresh(context.Background(), "n1", refresh, NodeRefreshOptions{})
+		if err != nil || result.CacheEntriesBefore != nil || result.CacheEntriesAfter != nil || client.posts[0] != "/api/node/name/n1/action/"+string(refresh) {
+			t.Fatalf("%s: %+v %v", refresh, result, err)
+		}
+	}
+}
+
+func TestScanNodeSCSINarrowsAsOm3Does(t *testing.T) {
+	zero := 0
+	wwn, iqn := "0x500143802426baf4", "iqn.2026-10.com.opensvc:lab"
+	client := &nodeActionClient{monitors: []string{"idle|none|"}, execs: []string{execRecord("succeeded", &zero, true, "")}}
+	if _, err := New(client).RunNodeRefresh(context.Background(), "n1", NodeScanSCSI, NodeRefreshOptions{HBA: wwn, Target: iqn, LUN: "3"}); err != nil ||
+		client.postQuery.Get("hba") != wwn || client.postQuery.Get("target") != iqn || client.postQuery.Get("lun") != "3" {
+		t.Fatalf("%v %v", err, client.postQuery)
+	}
+	for name, tc := range map[string]struct {
+		refresh NodeRefresh
+		options NodeRefreshOptions
+		want    string
+	}{
+		"target alone":   {NodeScanSCSI, NodeRefreshOptions{Target: wwn}, "target needs hba"},
+		"lun alone":      {NodeScanSCSI, NodeRefreshOptions{HBA: wwn, LUN: "1"}, "lun needs target"},
+		"hba not a name": {NodeScanSCSI, NodeRefreshOptions{HBA: "2"}, "port name"},
+		"lun not a lun":  {NodeScanSCSI, NodeRefreshOptions{HBA: wwn, Target: wwn, LUN: "x"}, "logical unit number"},
+		"hba elsewhere":  {NodeRefreshDisks, NodeRefreshOptions{HBA: wwn}, "SCSI scan only"},
+		"unknown":        {NodeRefresh("register"), NodeRefreshOptions{}, "unsupported"},
+	} {
+		client := &nodeActionClient{monitors: []string{"idle|none|"}}
+		if _, err := New(client).RunNodeRefresh(context.Background(), "n1", tc.refresh, tc.options); err == nil || !strings.Contains(err.Error(), tc.want) || len(client.posts) != 0 {
+			t.Errorf("%s: %v, posts %v", name, err, client.posts)
+		}
 	}
 }

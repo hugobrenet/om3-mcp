@@ -6,6 +6,13 @@ tools:
   - drain_node
   - abort_node
   - clear_node
+  - refresh_node_capabilities
+  - refresh_node_hardware
+  - refresh_node_disks
+  - refresh_node_packages
+  - scan_node_scsi
+  - dequeue_node_actions
+  - refresh_resource_info
 stability: experimental
 ---
 
@@ -33,6 +40,13 @@ Implementation:
 | `drain_node` | `POST /api/node/name/<node>/action/drain` | Yes | Yes |
 | `abort_node` | `POST /api/node/name/<node>/action/abort` | No | Yes |
 | `clear_node` | `POST /api/node/name/<node>/action/clear` | No | Yes |
+| `refresh_node_capabilities` | `POST /api/node/name/<node>/action/scan/capabilities` | No | Yes |
+| `refresh_node_hardware` | `POST /api/node/name/<node>/action/push/asset` | No | Yes |
+| `refresh_node_disks` | `POST /api/node/name/<node>/action/push/disk` | No | Yes |
+| `refresh_node_packages` | `POST /api/node/name/<node>/action/push/pkg` | No | Yes |
+| `scan_node_scsi` | `POST /api/node/name/<node>/action/scsi/scan[?hba=…&target=…&lun=…]` | No | Yes |
+| `dequeue_node_actions` | `POST /api/node/name/<node>/action/dequeue` | Yes | No |
+| `refresh_resource_info` | `POST /api/node/name/<node>/instance/path/<ns>/<kind>/<name>/action/info[?rid=…]` | No | Yes |
 
 Every tool takes `node`, one exact node name, never the `_` alias, and reads
 the node status first: a node absent from the cluster status is refused
@@ -88,5 +102,63 @@ before the call.
   `previous_state`, `current_state` and `cleared`. A new drain or freeze
   lifts a failed state itself: the clear serves when nothing is asked again.
 
-`dequeue`, `push/asset`, `push/disk`, `push/pkg`, `register`,
-`scan/capabilities`, `scsi/scan` and `sysreport` are not offered.
+`register` and `sysreport` are not offered, for the reasons the end of the
+next section gives.
+
+## Refreshes
+
+Four reads of the MCP serve caches the node writes, not the live state:
+`list_node_capabilities` reads `capabilities-v3.json`, which the daemon
+writes at its start and when the packages change; `list_node_hardware`,
+`list_node_disks` and `list_node_packages` read the system, disk and package
+caches the push actions write; `list_resource_info` reads the resource
+information an instance info computes. A cache missing answers 404 "waiting
+for cached value", the error an agent meets on a new node. The daemon gives
+no time for these caches: the refresh tools count the entries of the cache
+before and after, `cache_entries_before` and `cache_entries_after`, and the
+date of a cache is the one of its file on the node.
+
+Each tool posts the action, which the node runs as an execution, and waits
+for it as the freeze does: `completed`, `state`, `exit_code`, `error`, and
+`log_tail` for a failure. They require `root`, but `refresh_resource_info`,
+`operator` on the namespace.
+
+- `refresh_node_capabilities` rescans the capabilities.
+- `refresh_node_hardware`, `refresh_node_disks` and `refresh_node_packages`
+  run `push asset`, `push disk` and `push pkg`: the node probes, writes the
+  cache, then sends it to the collector, in that order. Without a collector,
+  or with one refusing, the cache is written and the execution fails on the
+  send, `exit_code` 1: no failure of the refresh, the descriptions say so.
+  The om command writes that error to its standard error, out of the
+  journal: `log_tail` is empty, and the cause unsaid, as seen on dev5n1 on
+  2026-10-23, where `system.json` and `disks.json` went from 9 October to
+  that day while the model, reading `exit_code` 1, an empty `log_tail` and
+  the same number of entries, concluded the cache had not been refreshed. The inventory of many nodes in
+  the collector is refreshed by `queue_node_action` of oc3-mcp, by filter.
+- `scan_node_scsi` scans the SCSI hosts for new devices: every host, or one
+  host by its port name, an FC WWN, with or without `0x`, or an iSCSI
+  initiator name `iqn.…`, a target of it by its port name, a logical unit of
+  that target, a number or `-`. om3 resolves `hba` and `target` from these
+  names, not from numbers, ignores a target without its host, scanning every
+  host, and a logical unit without its target: the MCP refuses those
+  combinations. A scan adds what the kernel finds and removes nothing. An
+  om3 defect makes `hba` alone write the host number as the bus in the scan
+  file of every host: only the whole scan, and `hba` with `target` and
+  `lun`, scan what they say. A new
+  LUN shows in `list_node_disks` once `refresh_node_disks` rebuilt the cache.
+- `dequeue_node_actions` runs `om node dequeue`: the node reads its queue on
+  the collector, acknowledges it, then runs each entry as `om node <args>` or
+  `om svc -s <service> <args>` and sends back their results. The queue may
+  hold any command an administrator of the collector queued, service actions
+  and array disk creations among them, and the MCP does not read it before:
+  `list_node_actions` of oc3-mcp reads it. Destructive, not idempotent. A
+  node without collector fails with `exit_code` 1, the error, collector not
+  configured, written out of the journal: `log_tail` holds only "fetch
+  actions from collector".
+- `refresh_resource_info` recomputes the resource information of an
+  instance, `rids` narrowing it, `config_updated_at` accepted.
+
+Not offered: `sysreport`, which sends system files to the collector and
+refreshes nothing the MCP reads, left to `queue_node_action` of oc3-mcp, and
+`register`, which binds the node to a collector and writes `node.uuid`.
+

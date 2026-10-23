@@ -31,7 +31,7 @@ documents describe the implemented tool contracts.
 | Actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_object`, `unfreeze_object`, `abort_object_orchestration`, `start_object`, `stop_object`, `restart_object`, `switch_object`, `giveback_object`, `provision_object`, `resize_object`, `cap_object`, `enable_object`, `disable_object`, `delete_object`, `unprovision_object`, `purge_object` | [Action tools](actions.md) |
 | Configuration writes (`OPENSVC_MCP_ACTIONS=enabled`) | `update_object_config`, `create_object`, `update_node_config` | [Configuration write tools](config-writes.md) |
 | Instance actions (`OPENSVC_MCP_ACTIONS=enabled`) | `start_instance`, `stop_instance`, `restart_instance`, `freeze_instance`, `unfreeze_instance`, `clear_instance`, `unprovision_instance`, `mark_instance_unprovisioned`, `run_task`, `start_instance_standby`, `shutdown_instance`, `update_instance_caps`, `reset_instance_caps` | [Instance action tools](instance-actions.md) |
-| Node actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_node`, `unfreeze_node`, `drain_node`, `abort_node`, `clear_node` | [Node action tools](node-actions.md) |
+| Node actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_node`, `unfreeze_node`, `drain_node`, `abort_node`, `clear_node`, `refresh_node_capabilities`, `refresh_node_hardware`, `refresh_node_disks`, `refresh_node_packages`, `scan_node_scsi`, `dequeue_node_actions`, `refresh_resource_info` | [Node action tools](node-actions.md) |
 | Data writes (`OPENSVC_MCP_ACTIONS=enabled`) | `set_object_data_key`, `delete_object_data_key`, `create_object_certificate`, `renew_object_certificate` | [Data write tools](data-writes.md) |
 | Cluster actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_cluster`, `unfreeze_cluster`, `abort_cluster_orchestration` | [Cluster action tools](cluster-actions.md) |
 | Daemon actions (`OPENSVC_MCP_ACTIONS=enabled`) | `set_daemon_log_level`, `start_heartbeat`, `restart_heartbeat`, `restart_daemon_listener`, `restart_daemon` | [Daemon action tools](daemon-actions.md) |
@@ -206,6 +206,13 @@ are representative and will differ between calls.
 | `drain_node` | No | Yes | `root` |
 | `abort_node` | No | No | `root` |
 | `clear_node` | No | No | `root` |
+| `refresh_node_capabilities` | No | No | `root` |
+| `refresh_node_hardware` | No | No | `root` |
+| `refresh_node_disks` | No | No | `root` |
+| `refresh_node_packages` | No | No | `root` |
+| `scan_node_scsi` | No | No | `root` |
+| `dequeue_node_actions` | No | Yes | `root` |
+| `refresh_resource_info` | No | No | `operator` on the object namespace |
 | `set_object_data_key` | No | Yes | `admin` on the object namespace; for a usr, its grants too, or `root` |
 | `delete_object_data_key` | No | Yes | `admin` on the object namespace; for a usr, its grants too, or `root` |
 | `create_object_certificate` | No | Yes | `admin` on the namespace of the sec and of its ca; `root` for ACME through `acme.webroot` |

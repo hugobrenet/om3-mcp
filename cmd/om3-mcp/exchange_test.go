@@ -117,7 +117,9 @@ func TestOAuthExchangeMultiClusterTools(t *testing.T) {
 				found = true
 			}
 		}
-		if (tool.Name != "list_clusters") != found {
+		// The tools that read no daemon take no cluster.
+		local := tool.Name == "list_clusters" || tool.Name == "preview_action"
+		if !local != found {
 			t.Fatalf("incorrect target schema for %s", tool.Name)
 		}
 	}

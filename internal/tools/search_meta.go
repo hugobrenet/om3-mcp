@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/opensvc/om3-mcp/internal/core"
 )
 
 // The _meta keys the tool search of an AI client reads, such as the OpenSVC
@@ -15,6 +16,13 @@ import (
 const (
 	coreToolMeta     = "opensvc/core"
 	keywordsToolMeta = "opensvc/keywords"
+	// A client hides a tool marked hidden from the model, and from its search.
+	hiddenToolMeta = "opensvc/hidden"
+	// previewToolMeta names the tool a client calls, before it asks the user
+	// to confirm a call, to tell what the call would do: with the arguments
+	// of the call, or, previewWrapsMeta set, with {tool, arguments}.
+	previewToolMeta  = "opensvc/preview_tool"
+	previewWrapsMeta = "opensvc/preview_wraps_arguments"
 
 	maxToolKeywords     = 12
 	maxToolKeywordBytes = 40
@@ -24,6 +32,19 @@ const (
 // objects, instances and nodes, and the identity of the caller. The other
 // tools are found by a search.
 var coreTools = []string{"get_cluster_status", "list_cluster_objects", "get_object_status", "get_instance_status", "get_node_status", "get_caller_identity"}
+
+// previewTools are the tools that tell what a write would do with its own
+// arguments; the actions with a sentence are told by previewActionTool.
+var previewTools = map[string]string{
+	"update_object_config": "preview_object_config_update",
+	"update_node_config":   "preview_node_config_update",
+	"create_object":        "preview_object_create",
+}
+
+const previewActionTool = "preview_action"
+
+// hiddenTools are for the client, never offered to the model.
+var hiddenTools = []string{"preview_object_config_update", "preview_node_config_update", "preview_object_create", previewActionTool}
 
 // toolKeywords are the words a question may use for a tool that its
 // description does not hold, such as synonyms: the model does not see them,
@@ -139,6 +160,9 @@ var toolKeywords = map[string][]string{
 // searchMeta is the _meta of a tool for the tool search. Every tool has
 // keywords, so that a new tool is not registered without them.
 func searchMeta(name string) (mcp.Meta, error) {
+	if slices.Contains(hiddenTools, name) {
+		return mcp.Meta{hiddenToolMeta: true}, nil
+	}
 	keywords, ok := toolKeywords[name]
 	if !ok || len(keywords) == 0 || len(keywords) > maxToolKeywords {
 		return nil, fmt.Errorf("tool %q needs 1 to %d search keywords", name, maxToolKeywords)
@@ -151,6 +175,12 @@ func searchMeta(name string) (mcp.Meta, error) {
 	meta := mcp.Meta{keywordsToolMeta: slices.Clone(keywords)}
 	if slices.Contains(coreTools, name) {
 		meta[coreToolMeta] = true
+	}
+	if preview, ok := previewTools[name]; ok {
+		meta[previewToolMeta] = preview
+	} else if slices.Contains(core.ActionSummaryTools(), name) {
+		meta[previewToolMeta] = previewActionTool
+		meta[previewWrapsMeta] = true
 	}
 	return meta, nil
 }

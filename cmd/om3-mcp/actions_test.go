@@ -44,9 +44,10 @@ func TestActionToolsAreRegisteredOnlyWhenEnabled(t *testing.T) {
 			if present && (tool.Annotations == nil || tool.Annotations.ReadOnlyHint) {
 				t.Fatalf("%s must be announced as a state-changing tool: %+v", name, tool.Annotations)
 			}
-			// Unfreezing resumes automatic actions that may interrupt the service.
-			if present && name == "unfreeze_object" && (tool.Annotations.DestructiveHint == nil || !*tool.Annotations.DestructiveHint) {
-				t.Fatalf("unfreeze_object must be destructive: %+v", tool.Annotations)
+			// Unfreezing resumes automatic actions that may interrupt the
+			// service; a creation is confirmed with its file.
+			if present && (name == "unfreeze_object" || name == "create_object") && (tool.Annotations.DestructiveHint == nil || !*tool.Annotations.DestructiveHint) {
+				t.Fatalf("%s must be destructive: %+v", name, tool.Annotations)
 			}
 		}
 		if _, present := found["get_node_status"]; !present {

@@ -350,7 +350,7 @@ func (s *Service) refuseShutdownUnflagged(ctx context.Context, reference Cluster
 	if isSetTime(nodeStatus.Status.FrozenAt) {
 		return nil
 	}
-	return fmt.Errorf("shutdown instance %s on %s: the object is orchestrated ha and neither it nor the node is frozen: a shutdown does not flag the instance stopped, and the daemon would start it again here, or fail over, at once; freeze_object or freeze_node first, as a drain does, then shutdown_instance again; stop_instance would flag the instance stopped, but leaves the standby resources up", reference.Path, node)
+	return fmt.Errorf("shutdown instance %s on %s: the object is orchestrated ha and neither it nor the node is frozen: a shutdown does not flag the instance stopped, and the daemon would start it again here, or fail over, at once; freeze_object or freeze_node first, as a drain does, then shutdown_instance again", reference.Path, node)
 }
 
 // ClearInstance lifts the failed monitor state of the instance of one exact

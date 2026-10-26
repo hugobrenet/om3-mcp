@@ -138,7 +138,7 @@ var toolKeywords = map[string][]string{
 	"scan_node_scsi":                 {"scsi scan", "nouveau lun", "new lun", "rescan disks", "san lun mapped", "hba"},
 	"set_daemon_log_level":           {"set log level", "quiet daemon", "reduce logs", "daemon verbosity"},
 	"set_object_data_key":            {"set key", "add secret", "store password", "add config file", "change secret", "user password"},
-	"shutdown_instance":              {"shutdown", "node shutdown", "stop standby", "before reboot", "full stop on node", "reboot", "arrêt propre", "avant reboot", "maintenance du nœud", "kernel update"},
+	"shutdown_instance":              {"shutdown", "node shutdown", "stop standby", "before reboot", "full stop on node", "reboot", "arrêt propre", "avant reboot", "maintenance du nœud", "kernel update", "stop cleanly", "stop all resources"},
 	"start_heartbeat":                {"start heartbeat", "enable hb stream", "resume heartbeat"},
 	"start_instance":                 {"start on node", "bring up instance", "start one node", "local start"},
 	"start_instance_standby":         {"standby", "start standby", "passive node", "standby resources", "stdby", "ressources de secours", "secours", "remonter secours"},

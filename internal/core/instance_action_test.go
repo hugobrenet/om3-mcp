@@ -422,7 +422,10 @@ func TestShutdownInstanceRefusesWhatTheDaemonWouldUndo(t *testing.T) {
 	up := instanceMonitorRecord("test/svc/web", "n1", "up", "idle")
 	zero := "0001-01-01T00:00:00Z"
 	client := &instanceActionClient{instances: []string{up}, orchestrate: "ha", frozen: "unfrozen", nodeFrozenAt: zero}
-	if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionShutdown, InstanceActionOptions{}); err == nil || !strings.Contains(err.Error(), "freeze_object or freeze_node first") || len(client.posts) != 0 {
+	if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionShutdown, InstanceActionOptions{}); err == nil || !strings.Contains(err.Error(), "freeze_object or freeze_node first") || len(client.posts) != 0 ||
+		// The next step only: a tool named beside it, which does something
+		// else, is taken for an instruction.
+		strings.Contains(err.Error(), "stop_instance") {
 		t.Fatalf("unfrozen ha: %v %v", err, client.posts)
 	}
 	for name, client := range map[string]*instanceActionClient{

@@ -98,9 +98,10 @@ func RegisterObjectTools(registrar *Registrar, service *core.Service) error {
 	if err := addTool(
 		registrar,
 		&mcp.Tool{
-			Name:        "get_object_status",
-			Title:       "Get object status",
-			Description: "Inspect the last-known aggregate operational status and instance placement of one exact OpenSVC object. This read-only call does not refresh instance drivers; use updated_at to assess freshness before drilling into instance or resource details.",
+			Name:  "get_object_status",
+			Title: "Get object status",
+			Description: "Inspect the last-known aggregate operational status and instance placement of one exact OpenSVC object. This read-only call does not refresh instance drivers; use updated_at to assess freshness before drilling into instance or resource details. " +
+				"A path the user gives is read here directly: a path that does not exist, or that the caller may not see, is refused with that reason, so no listing is needed to check it first.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input GetObjectStatusInput) (*mcp.CallToolResult, GetObjectStatusOutput, error) {

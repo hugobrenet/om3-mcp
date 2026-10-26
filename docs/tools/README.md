@@ -28,6 +28,7 @@ documents describe the implemented tool contracts.
 | Pools | `list_storage_pools`, `list_pool_volumes` | [Pool tools](pools.md) |
 | Networks | `list_networks`, `list_network_ips` | [Network tools](networks.md) |
 | Auth | `get_caller_identity` | [Auth tools](auth.md) |
+| Previews, for the client only | `preview_object_config_update`, `preview_node_config_update`, `preview_object_create`, `preview_action` | [Preview tools](previews.md) |
 | Actions (`OPENSVC_MCP_ACTIONS=enabled`) | `freeze_object`, `unfreeze_object`, `abort_object_orchestration`, `start_object`, `stop_object`, `restart_object`, `switch_object`, `giveback_object`, `provision_object`, `resize_object`, `cap_object`, `enable_object`, `disable_object`, `delete_object`, `unprovision_object`, `purge_object` | [Action tools](actions.md) |
 | Configuration writes (`OPENSVC_MCP_ACTIONS=enabled`) | `update_object_config`, `create_object`, `update_node_config` | [Configuration write tools](config-writes.md) |
 | Instance actions (`OPENSVC_MCP_ACTIONS=enabled`) | `start_instance`, `stop_instance`, `restart_instance`, `freeze_instance`, `unfreeze_instance`, `clear_instance`, `unprovision_instance`, `mark_instance_unprovisioned`, `run_task`, `start_instance_standby`, `shutdown_instance`, `update_instance_caps`, `reset_instance_caps` | [Instance action tools](instance-actions.md) |
@@ -50,8 +51,14 @@ catalog:
   a search: `get_cluster_status`, `list_cluster_objects`, `get_object_status`,
   `get_instance_status`, `get_node_status` and `get_caller_identity`.
 
+Two more keys concern the confirmation of a call, see
+[preview tools](previews.md): `opensvc/preview_tool` and
+`opensvc/preview_wraps_arguments` on the tools the user confirms, and
+`opensvc/hidden` on the preview tools, which a client never shows the model
+and which carry no keywords.
+
 The registrar sets them from `internal/tools/search_meta.go` and refuses a
-tool without keywords; a tool declaration sets no `_meta`. The descriptions of
+tool without keywords, a hidden one aside; a tool declaration sets no `_meta`. The descriptions of
 the core tools are kept as replays measured them: changing them changes what
 the model does on the first turn of a question.
 

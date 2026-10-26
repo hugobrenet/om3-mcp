@@ -71,7 +71,7 @@ func RegisterObjectConfigWriteTools(registrar *Registrar, service *core.Service)
 				"The daemon refuses, with the reason: an object that exists, whose configuration update_object_config changes; a configuration it does not accept, 400; resources holding a value a resource of another object holds on the same node, a mount point, a block device, a volume group or an address, 409 naming them. " +
 				"Returns the configuration created, read again with the secrets redacted. " +
 				configWriteAccess,
-			Annotations: actionAnnotations(false, false),
+			Annotations: actionAnnotations(true, false),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input CreateObjectInput) (*mcp.CallToolResult, CreateObjectOutput, error) {
 			result, err := service.CreateObject(ctx, core.CreateObjectOptions{

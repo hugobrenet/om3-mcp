@@ -233,6 +233,7 @@ func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catal
 		tools.RegisterDaemonTools, tools.RegisterClusterTools, tools.RegisterNodeTools,
 		tools.RegisterObjectTools, tools.RegisterInstanceTools, tools.RegisterResourceTools, tools.RegisterScheduleTools,
 		tools.RegisterPoolTools, tools.RegisterNetworkTools, tools.RegisterAuthTools, tools.RegisterNodeConfigTools, tools.RegisterClusterLockTools, tools.RegisterDaemonLogTools,
+		tools.RegisterPreviewTools,
 	} {
 		if err := register(registrar, service); err != nil {
 			return nil, err

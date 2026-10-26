@@ -139,7 +139,10 @@ file as `application/octet-stream`:
 - **Result.** `created`, `last_modified`, `flagged_stopped`, and the file
   created read again through the daemon with secret redaction, bounded as
   `get_cluster_config` bounds its file.
-- Annotated not destructive, and not idempotent.
+- Annotated destructive, and not idempotent: a client asks the user to
+  confirm it, with its preview, the file as given (see
+  [preview tools](previews.md)); the resources it declares may take a value
+  another object holds.
 
 ## `update_node_config`
 

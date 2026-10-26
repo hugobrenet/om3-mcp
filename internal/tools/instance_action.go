@@ -225,7 +225,7 @@ func RegisterInstanceActionTools(registrar *Registrar, service *core.Service) er
 			Name:  "shutdown_instance",
 			Title: "Shutdown instance",
 			Description: "Shut down the instance of one OpenSVC svc or vol object on one node, or some of its resources, as before the shutdown of the node: the daemon of that node stops every resource, the standby ones a stop leaves up too, interrupts the data syncs, and runs the pre and post shutdown triggers. " +
-				"Unlike stop_instance, it does not flag the instance stopped: on an object orchestrated ha, the daemon would start it again here, or fail over, at once. The MCP refuses it there unless the object, the instance or the node is frozen: freeze_object or freeze_node first, as a drain does, then shutdown_instance again; stop_instance flags the instance stopped but leaves the standby resources up. Without rids, it also lifts the stopped flag of the resources. " +
+				"It does not flag the instance stopped: on an object orchestrated ha, the daemon would start it again here, or fail over, at once. The MCP refuses it there unless the object, the instance or the node is frozen: freeze_object or freeze_node first, as a drain does, then shutdown_instance again. Without rids, it also lifts the stopped flag of the resources. " +
 				instanceActionFollowUp,
 			Annotations: actionAnnotations(true, true),
 		},

@@ -302,6 +302,14 @@ func TestRunInstanceActionRefusesBeforeTheCall(t *testing.T) {
 	if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{}); err == nil || !strings.Contains(err.Error(), "config is older") {
 		t.Fatalf("daemon refusal: %v", err)
 	}
+
+	// A 409 to a config_updated_at names it as the likely cause, and the
+	// next step: the call again without it.
+	client = &instanceActionClient{instances: []string{down}, postErr: daemonProblemError{status: http.StatusConflict, detail: "config is older"}}
+	if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{ConfigUpdatedAt: "2026-10-28T11:16:40Z"}); err == nil ||
+		!strings.Contains(err.Error(), "leave config_updated_at out and call again") || !strings.Contains(err.Error(), "config is older") {
+		t.Fatalf("config_updated_at refusal: %v", err)
+	}
 }
 
 func TestClearInstanceLiftsAFailureOnly(t *testing.T) {

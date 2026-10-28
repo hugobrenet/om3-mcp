@@ -13,7 +13,7 @@ type StartInstanceInput struct {
 	Node            string   `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
 	Rids            []string `json:"rids,omitempty" jsonschema:"optional exact resource ids, such as fs#1 or app#2, at most 50; omitted, the whole instance; the daemon refuses an id the object has not"`
 	DisableRollback bool     `json:"disable_rollback,omitempty" jsonschema:"optional; true leaves started the resources started before a failure, rather than stopping them"`
-	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time, the last_modified update_object_config gives: the daemon refuses with 409 a node whose configuration is older"`
+	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time: leave it out unless this call follows update_object_config in this turn, then the last_modified it gave; the status or frozen times of a listing are not it. The daemon refuses with 409 a node whose configuration is older"`
 	WaitSeconds     int      `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
 }
 
@@ -22,14 +22,14 @@ type StopInstanceInput struct {
 	Node            string   `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
 	Rids            []string `json:"rids,omitempty" jsonschema:"optional exact resource ids, such as fs#1 or app#2, at most 50; omitted, the whole instance; the daemon refuses an id the object has not"`
 	InterruptSyncs  bool     `json:"interrupt_syncs,omitempty" jsonschema:"optional; true ends the data syncs running on the instance instead of waiting for them to end before stopping"`
-	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time, the last_modified update_object_config gives: the daemon refuses with 409 a node whose configuration is older"`
+	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time: leave it out unless this call follows update_object_config in this turn, then the last_modified it gave; the status or frozen times of a listing are not it. The daemon refuses with 409 a node whose configuration is older"`
 	WaitSeconds     int      `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
 }
 
 type FreezeInstanceInput struct {
 	Path            string `json:"path" jsonschema:"the exact canonical OpenSVC svc or vol object path; no wildcard or selector"`
 	Node            string `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
-	ConfigUpdatedAt string `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time, the last_modified update_object_config gives: the daemon refuses with 409 a node whose configuration is older"`
+	ConfigUpdatedAt string `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time: leave it out unless this call follows update_object_config in this turn, then the last_modified it gave; the status or frozen times of a listing are not it. The daemon refuses with 409 a node whose configuration is older"`
 	WaitSeconds     int    `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
 }
 
@@ -38,7 +38,7 @@ type UnprovisionInstanceInput struct {
 	Node            string   `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
 	Rids            []string `json:"rids,omitempty" jsonschema:"optional exact resource ids, such as fs#1, at most 50; omitted, the whole instance; the daemon refuses an id the object has not"`
 	Leader          bool     `json:"leader,omitempty" jsonschema:"optional; true also unprovisions the resources the instances share, such as a shared disk, which the leader of the placement holds; false by default, the shared resources left for the other instances"`
-	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time, the last_modified update_object_config gives: the daemon refuses with 409 a node whose configuration is older"`
+	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time: leave it out unless this call follows update_object_config in this turn, then the last_modified it gave; the status or frozen times of a listing are not it. The daemon refuses with 409 a node whose configuration is older"`
 	WaitSeconds     int      `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
 }
 
@@ -46,7 +46,7 @@ type MarkInstanceUnprovisionedInput struct {
 	Path            string   `json:"path" jsonschema:"the exact canonical OpenSVC svc or vol object path; no wildcard or selector"`
 	Node            string   `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
 	Rids            []string `json:"rids,omitempty" jsonschema:"optional exact resource ids, such as fs#1 or disk#1, at most 50: the resources freed by hand; omitted, the whole instance"`
-	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time, the last_modified update_object_config gives: the daemon refuses with 409 a node whose configuration is older"`
+	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time: leave it out unless this call follows update_object_config in this turn, then the last_modified it gave; the status or frozen times of a listing are not it. The daemon refuses with 409 a node whose configuration is older"`
 	WaitSeconds     int      `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
 }
 
@@ -55,7 +55,7 @@ type RunTaskInput struct {
 	Node            string   `json:"node" jsonschema:"the exact name of the node to run the tasks on; no wildcard, selector or the _ alias"`
 	Rids            []string `json:"rids" jsonschema:"the tasks to run, each an exact task#<name> resource id, one at least, at most 50"`
 	Env             []string `json:"env,omitempty" jsonschema:"optional KEY=VALUE variables exported to the commands of the tasks, after those of their configuration, at most 32, each at most 4096 bytes on one line, the key of capitals, digits and underscores; PATH, LD_* and OPENSVC_* are refused; their values are never returned"`
-	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time, the last_modified update_object_config gives: the daemon refuses with 409 a node whose configuration is older"`
+	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time: leave it out unless this call follows update_object_config in this turn, then the last_modified it gave; the status or frozen times of a listing are not it. The daemon refuses with 409 a node whose configuration is older"`
 	WaitSeconds     int      `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
 }
 
@@ -63,7 +63,7 @@ type InstanceResourcesInput struct {
 	Path            string   `json:"path" jsonschema:"the exact canonical OpenSVC svc or vol object path; no wildcard or selector"`
 	Node            string   `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
 	Rids            []string `json:"rids,omitempty" jsonschema:"optional exact resource ids, such as fs#1 or app#2, at most 50; omitted, the whole instance; the daemon refuses an id the object has not"`
-	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time, the last_modified update_object_config gives: the daemon refuses with 409 a node whose configuration is older"`
+	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time: leave it out unless this call follows update_object_config in this turn, then the last_modified it gave; the status or frozen times of a listing are not it. The daemon refuses with 409 a node whose configuration is older"`
 	WaitSeconds     int      `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
 }
 

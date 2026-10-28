@@ -13,5 +13,5 @@ The binary embeds `catalog/` (`embed.go`), files beginning with `.` or `_` apart
 - both results carry `resultType` `complete`, `ttlMs` and `cacheScope` `public`.
 
 The go-sdk does not serve the extension yet: `skills/list` and `skills/get` are custom methods, to replace by those of the SDK when it does.
-A skill whose frontmatter breaks the specification, a `name` other than its directory or no `description`, stops the start of the server; so does anything the server would not serve: a file beside the directories, a directory without `SKILL.md`, a file that is no UTF-8 text.
+A skill whose frontmatter breaks the specification, a `name` other than its directory or no `description`, or holds a value other than a string or a map of strings on one level, the form the OpenSVC agent reads (a long description may be a `|` or `>` block), stops the start of the server; so does anything the server would not serve: a file beside the directories, a directory without `SKILL.md`, a file that is no UTF-8 text.
 The MCP serves the skills only; activating one, and keeping its URIs out of a generic resource reading, is the client's.

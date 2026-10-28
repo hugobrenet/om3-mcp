@@ -159,7 +159,11 @@ pages.
 #### Cluster facts
 
 `cluster` contains the exact identifier and name, configured quorum flag, and
-daemon-reported `is_compatible` and `is_frozen` flags. Configuration issues are
+daemon-reported `is_compatible` and `is_frozen` flags. The daemon sets
+`is_frozen` as soon as one node is frozen (`daemon/cstat`): it is no freeze
+of the whole cluster, and the `frozen_at` of each node says which one; the
+tool description says so, a model reading `true` having answered that the
+cluster was frozen instead of naming the node. Configuration issues are
 OpenSVC-provided strings, not MCP conclusions. They are limited to 50 with
 `config_issues_total` and `config_issues_truncated`.
 

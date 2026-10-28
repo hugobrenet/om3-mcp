@@ -150,8 +150,9 @@ every resource of the instance, and `shutdown_instance` without `rids` too.
   when the node leads the placement, or fails over. The MCP reads the
   orchestration and the freeze of the object, the freeze of the instance and
   of the node, and refuses the shutdown of an instance of an ha object none
-  of them freezes: `freeze_object` or `freeze_node` first, as the drain of a
-  node freezes it before its shutdowns, then the shutdown again.
+  of them freezes: `freeze_instance` on that node first, the narrowest freeze,
+  which leaves the service free to fail over, then the shutdown again. The
+  drain of a node freezes the node itself before its shutdowns.
   `stop_instance` flags the instance, but leaves the standby resources up:
   the refusal says so, since a model offered it as the way out of the guard
   in the recette of 2026-10-23, where the shutdown was asked before a

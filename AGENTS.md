@@ -60,6 +60,9 @@ shared with `oc3-mcp`.
   instead of repeating that sequence; only its input validation and result
   type are its own. Reuse the existing validators (`validateExactObjectPath`,
   `validExactNodeName`…) rather than writing local rules.
+- `skills`: the Agent Skills, one directory with a `SKILL.md` each under
+  `catalog/`, and their embedding only; `internal/skills` serves them as the
+  MCP Skills extension. See [skills](skills/README.md).
 - `internal/tools`: MCP declarations, schemas, annotations and registrar.
   Handlers stay thin: typed input, one core use case, typed output.
 

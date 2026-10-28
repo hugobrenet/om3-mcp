@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -158,6 +159,13 @@ func (s *Service) RunInstanceAction(ctx context.Context, path string, node strin
 	endpoint := fmt.Sprintf("/api/node/name/%s/instance/path/%s/%s/%s/action/%s", node, reference.Namespace, reference.Kind, reference.Name, action)
 	var accepted daemonInstanceActionAccepted
 	if err := poster.PostJSON(ctx, endpoint, query, nil, &accepted); err != nil {
+		// The daemon answers 409 to a node whose configuration is older
+		// than config_updated_at: a model fills it with a status time of a
+		// listing, which no configuration matches.
+		var problem daemonProblem
+		if options.ConfigUpdatedAt != "" && errors.As(err, &problem) && problem.HTTPStatus() == http.StatusConflict {
+			return InstanceActionResult{}, fmt.Errorf("%s instance %s on %s: the daemon refused config_updated_at %s, most likely not the last_modified update_object_config gave in this turn: leave config_updated_at out and call again (the daemon said: %s)", action, reference.Path, node, options.ConfigUpdatedAt, problem.ProblemDetail())
+		}
 		return InstanceActionResult{}, fmt.Errorf("%s instance %s on %s: %w", action, reference.Path, node, err)
 	}
 	if !daemonExecutionUUIDPattern.MatchString(accepted.SessionID) || !daemonExecutionUUIDPattern.MatchString(accepted.ExecID) {
@@ -350,7 +358,7 @@ func (s *Service) refuseShutdownUnflagged(ctx context.Context, reference Cluster
 	if isSetTime(nodeStatus.Status.FrozenAt) {
 		return nil
 	}
-	return fmt.Errorf("shutdown instance %s on %s: the object is orchestrated ha and neither it nor the node is frozen: a shutdown does not flag the instance stopped, and the daemon would start it again here, or fail over, at once; freeze_object or freeze_node first, as a drain does, then shutdown_instance again", reference.Path, node)
+	return fmt.Errorf("shutdown instance %s on %s: the object is orchestrated ha and neither it nor the node is frozen: a shutdown does not flag the instance stopped, and the daemon would start it again here, or fail over, at once; freeze_instance on %s first, then shutdown_instance again", reference.Path, node, node)
 }
 
 // ClearInstance lifts the failed monitor state of the instance of one exact

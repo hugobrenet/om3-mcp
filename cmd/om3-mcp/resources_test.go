@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,9 +28,9 @@ const maxObjectConfigReferenceBytes = 16 << 10
 // driver.
 type keywordCatalog map[string]map[string]bool
 
-// The MCP serves the reference of the configuration of an object as its
-// only resource, in Markdown, whose examples use only keywords the catalog of
-// the daemon gives, a scope only on a keyword that takes one.
+// The MCP serves the reference of the configuration of an object, beside
+// the files of the skills, in Markdown, whose examples use only keywords the
+// catalog of the daemon gives, a scope only on a keyword that takes one.
 func TestObjectConfigResource(t *testing.T) {
 	handler, err := newConfiguredToolsHandler(nil, nil, nil, false, nil)
 	if err != nil {
@@ -49,8 +50,14 @@ func TestObjectConfigResource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Resources) != 1 || list.Resources[0].URI != "om3://docs/object-config" || list.Resources[0].MIMEType != "text/markdown" || list.Resources[0].Description == "" {
+	index := slices.IndexFunc(list.Resources, func(resource *mcp.Resource) bool { return resource.URI == "om3://docs/object-config" })
+	if index < 0 || list.Resources[index].MIMEType != "text/markdown" || list.Resources[index].Description == "" {
 		t.Fatalf("resources = %+v", list.Resources)
+	}
+	for _, resource := range list.Resources {
+		if resource.URI != "om3://docs/object-config" && !strings.HasPrefix(resource.URI, "skill://") {
+			t.Errorf("unexpected resource %s", resource.URI)
+		}
 	}
 	read, err := session.ReadResource(ctx, &mcp.ReadResourceParams{URI: "om3://docs/object-config"})
 	if err != nil {

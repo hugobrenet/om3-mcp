@@ -302,6 +302,14 @@ func TestRunInstanceActionRefusesBeforeTheCall(t *testing.T) {
 	if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{}); err == nil || !strings.Contains(err.Error(), "config is older") {
 		t.Fatalf("daemon refusal: %v", err)
 	}
+
+	// A 409 to a config_updated_at names it as the likely cause, and the
+	// next step: the call again without it.
+	client = &instanceActionClient{instances: []string{down}, postErr: daemonProblemError{status: http.StatusConflict, detail: "config is older"}}
+	if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionStop, InstanceActionOptions{ConfigUpdatedAt: "2026-10-28T11:16:40Z"}); err == nil ||
+		!strings.Contains(err.Error(), "leave config_updated_at out and call again") || !strings.Contains(err.Error(), "config is older") {
+		t.Fatalf("config_updated_at refusal: %v", err)
+	}
 }
 
 func TestClearInstanceLiftsAFailureOnly(t *testing.T) {
@@ -422,7 +430,7 @@ func TestShutdownInstanceRefusesWhatTheDaemonWouldUndo(t *testing.T) {
 	up := instanceMonitorRecord("test/svc/web", "n1", "up", "idle")
 	zero := "0001-01-01T00:00:00Z"
 	client := &instanceActionClient{instances: []string{up}, orchestrate: "ha", frozen: "unfrozen", nodeFrozenAt: zero}
-	if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionShutdown, InstanceActionOptions{}); err == nil || !strings.Contains(err.Error(), "freeze_object or freeze_node first") || len(client.posts) != 0 ||
+	if _, err := New(client).RunInstanceAction(context.Background(), "test/svc/web", "n1", InstanceActionShutdown, InstanceActionOptions{}); err == nil || !strings.Contains(err.Error(), "freeze_instance on n1 first") || len(client.posts) != 0 ||
 		// The next step only: a tool named beside it, which does something
 		// else, is taken for an instruction.
 		strings.Contains(err.Error(), "stop_instance") {

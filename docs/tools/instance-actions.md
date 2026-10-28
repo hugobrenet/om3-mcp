@@ -150,8 +150,9 @@ every resource of the instance, and `shutdown_instance` without `rids` too.
   when the node leads the placement, or fails over. The MCP reads the
   orchestration and the freeze of the object, the freeze of the instance and
   of the node, and refuses the shutdown of an instance of an ha object none
-  of them freezes: `freeze_object` or `freeze_node` first, as the drain of a
-  node freezes it before its shutdowns, then the shutdown again.
+  of them freezes: `freeze_instance` on that node first, the narrowest freeze,
+  which leaves the service free to fail over, then the shutdown again. The
+  drain of a node freezes the node itself before its shutdowns.
   `stop_instance` flags the instance, but leaves the standby resources up:
   the refusal says so, since a model offered it as the way out of the guard
   in the recette of 2026-10-23, where the shutdown was asked before a
@@ -233,7 +234,12 @@ no instance. `rids`, exact resource ids, applies to start, stop and restart,
 and the daemon refuses an id the object has not; `disable_rollback` to start
 and restart; `interrupt_syncs` to stop; `config_updated_at`, the
 `last_modified` of `update_object_config`, to the five actions, for which the
-daemon refuses with 409 a node whose configuration is older. `force`,
+daemon refuses with 409 a node whose configuration is older. Its description
+says to leave it out unless the call follows `update_object_config` in the
+same turn: on 2026-10-28 a model filled it with the status time of a listing,
+and the daemon refused the freeze. A 409 to a call carrying it names it as
+the likely cause and says to call again without it, the daemon detail after.
+`force`,
 `force_affinity`, `to`, `move_to`, `sync_to`, `master`, `slave`, `slaves`,
 `subset`, `tag` and `session_id` are not offered.
 

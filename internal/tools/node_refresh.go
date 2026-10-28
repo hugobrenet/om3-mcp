@@ -25,7 +25,7 @@ type RefreshResourceInfoInput struct {
 	Path            string   `json:"path" jsonschema:"the exact canonical OpenSVC svc or vol object path; no wildcard or selector"`
 	Node            string   `json:"node" jsonschema:"the exact name of the node of the instance; no wildcard, selector or the _ alias"`
 	Rids            []string `json:"rids,omitempty" jsonschema:"optional exact resource ids, at most 50; omitted, every resource of the instance"`
-	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time, the last_modified update_object_config gives: the daemon refuses with 409 a node whose configuration is older"`
+	ConfigUpdatedAt string   `json:"config_updated_at,omitempty" jsonschema:"optional RFC 3339 time: leave it out unless this call follows update_object_config in this turn, then the last_modified it gave; the status or frozen times of a listing are not it. The daemon refuses with 409 a node whose configuration is older"`
 	WaitSeconds     int      `json:"wait_seconds,omitempty" jsonschema:"optional seconds to wait for the end of the execution, 1 to 60; omitted, 10"`
 }
 

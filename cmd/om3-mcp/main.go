@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -18,7 +19,9 @@ import (
 	"github.com/opensvc/om3-mcp/internal/config"
 	"github.com/opensvc/om3-mcp/internal/core"
 	"github.com/opensvc/om3-mcp/internal/resources"
+	"github.com/opensvc/om3-mcp/internal/skills"
 	"github.com/opensvc/om3-mcp/internal/tools"
+	skillfiles "github.com/opensvc/om3-mcp/skills"
 	"github.com/opensvc/osvc-auth-mcp/mcpauth"
 )
 
@@ -212,7 +215,11 @@ func shutdownHTTPServer(server *http.Server, timeout time.Duration) error {
 func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catalog, router tools.ClusterRouter, actions bool, limiter *mcpauth.CallLimiter) (http.Handler, error) {
 	service := core.New(api)
 	server := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: serverVersion}, &mcp.ServerOptions{
-		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}, Resources: &mcp.ResourceCapabilities{}},
+		Capabilities: &mcp.ServerCapabilities{
+			Tools: &mcp.ToolCapabilities{}, Resources: &mcp.ResourceCapabilities{},
+			// The skills are read as resources; no directory read is served.
+			Extensions: map[string]any{skills.Extension: map[string]any{"directoryRead": false}},
+		},
 	})
 	registrar, err := tools.NewRegistrar(server)
 	if err != nil {
@@ -272,6 +279,13 @@ func newConfiguredToolsHandler(api core.JSONGetter, catalog *clusterconfig.Catal
 		}
 	}
 	if err := resources.Register(server); err != nil {
+		return nil, err
+	}
+	skillCatalog, err := fs.Sub(skillfiles.FS, "catalog")
+	if err != nil {
+		return nil, err
+	}
+	if err := skills.Register(server, skillCatalog); err != nil {
 		return nil, err
 	}
 	if api == nil {

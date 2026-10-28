@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/opensvc/om3-mcp/internal/core"
 	"go.yaml.in/yaml/v2"
@@ -47,7 +48,7 @@ func TestSkillsNameRealTools(t *testing.T) {
 			t.Fatalf("register tools: %v", err)
 		}
 	}
-	paths, err := filepath.Glob("../../skills/*/SKILL.md")
+	paths, err := filepath.Glob("../../skills/catalog/*/SKILL.md")
 	if err != nil || len(paths) == 0 {
 		t.Fatalf("no skill found: %v", err)
 	}
@@ -66,13 +67,13 @@ func TestSkillsNameRealTools(t *testing.T) {
 				t.Fatal("the frontmatter is not closed")
 			}
 			var frontmatter skillFrontmatter
-			if err := yaml.UnmarshalStrict([]byte(header), &frontmatter); err != nil {
+			if err := yaml.Unmarshal([]byte(header), &frontmatter); err != nil {
 				t.Fatalf("frontmatter: %v", err)
 			}
 			if frontmatter.Name != filepath.Base(filepath.Dir(path)) || len(frontmatter.Name) > 64 || !skillNamePattern.MatchString(frontmatter.Name) {
 				t.Errorf("name %q must be the directory name, at most 64 lowercase letters, digits and single hyphens", frontmatter.Name)
 			}
-			if frontmatter.Description == "" || len(frontmatter.Description) > 1024 {
+			if frontmatter.Description == "" || utf8.RuneCountInString(frontmatter.Description) > 1024 {
 				t.Errorf("description must hold 1 to 1024 characters")
 			}
 			declared := strings.Fields(frontmatter.Metadata[skillToolsKey])

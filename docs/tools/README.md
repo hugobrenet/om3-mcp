@@ -8,6 +8,9 @@ contacting daemons or checking grants.
 See [token exchange](../token-exchange.md#tool-contracts) for the shared target
 contract. Without exchange configuration, daemon tools remain listed but blocked.
 
+Beside the tools, the server serves Agent Skills, procedures that combine
+them, as the MCP Skills extension: see [skills](../../skills/README.md).
+
 This directory documents the human-facing contracts of the OpenSVC daemon MCP
 tools. Names, descriptions, annotations and JSON Schemas are defined in
 `internal/tools` and exposed by bearer-checked `tools/list` calls. These

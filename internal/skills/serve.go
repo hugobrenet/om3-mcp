@@ -195,6 +195,7 @@ func loadSkills(skillFS fs.FS) ([]Entry, []skillFileContent, error) {
 // parseSkillFrontmatter reads the YAML frontmatter of a SKILL.md, every
 // field kept as written, its string values strings, and checks the fields
 // the specification requires: name, the directory name, and description.
+// Each value is a string or a map of strings, the form a client reads.
 func parseSkillFrontmatter(dir string, content []byte) (map[string]any, error) {
 	rest, ok := bytes.CutPrefix(content, []byte("---\n"))
 	if !ok {
@@ -213,6 +214,22 @@ func parseSkillFrontmatter(dir string, content []byte) (map[string]any, error) {
 		return nil, fmt.Errorf("frontmatter: %w", err)
 	}
 	fields := frontmatter.(map[string]any)
+	// The agent reads strings, and maps of strings on one level, only: a
+	// list, a number or a deeper map would be served, then refused at its
+	// loading.
+	for key, value := range fields {
+		switch value := value.(type) {
+		case string:
+		case map[string]any:
+			for nested, item := range value {
+				if _, ok := item.(string); !ok {
+					return nil, fmt.Errorf("frontmatter %s.%s is no string", key, nested)
+				}
+			}
+		default:
+			return nil, fmt.Errorf("frontmatter %s is neither a string nor a map of strings", key)
+		}
+	}
 	name, _ := fields["name"].(string)
 	if name != dir || len(name) > 64 || !skillNamePattern.MatchString(name) {
 		return nil, fmt.Errorf("name %q must be the directory name, at most 64 lowercase letters, digits and single hyphens", name)

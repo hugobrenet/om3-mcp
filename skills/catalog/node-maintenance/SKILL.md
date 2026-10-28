@@ -46,8 +46,8 @@ first, once, naming each action and what will stop, only when the request
 does not settle the scope, or when the reads show a surprise:
 
 - the node is already frozen, or a drain is under way;
-- for one service, its instance on the node is up, not only stdby up: the
-  service will move to another node;
+- for one service, its instance on the node under maintenance is up, not
+  only stdby up: the service will move to another node;
 - for the whole node, a service on it is orchestrated start or no: it will
   stay down after the maintenance.
 
@@ -65,9 +65,8 @@ After such a question, wait for the answer before any action.
 2. `shutdown_instance` with the object path and the node. It stops every
    resource, the standby ones too, and runs the shutdown triggers.
 
-**The whole node**: `drain_node`, with wait_seconds 60, for the drain only. It
-freezes the node, then shuts down every instance on it, standby resources
-included, in one call. Do not freeze or shut down the instances one by one
+**The whole node**: `drain_node`. It freezes the node, then shuts down every
+instance on it, standby resources included, in one call. Do not freeze or shut down the instances one by one
 first. Its instances up list is read before the drain: the instances the
 drain is to stop, not a proof they stopped.
 

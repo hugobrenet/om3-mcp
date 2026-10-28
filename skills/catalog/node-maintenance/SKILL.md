@@ -66,9 +66,9 @@ After such a question, wait for the answer before any action.
    resource, the standby ones too, and runs the shutdown triggers.
 
 **The whole node**: `drain_node`. It freezes the node, then shuts down every
-instance on it, standby resources included, in one call. Do not freeze or shut down the instances one by one
-first. Its instances up list is read before the drain: the instances the
-drain is to stop, not a proof they stopped.
+instance on it, standby resources included, in one call. Do not freeze or shut
+down the instances one by one first. Its instances up list is read before the
+drain: the instances the drain is to stop, not a proof they stopped.
 
 The drain is not over when the tool answers. Read its completed, monitor
 state and local expect: a drain of several services often outlasts the wait,

@@ -101,7 +101,7 @@ var toolKeywords = map[string][]string{
 	"list_node_capabilities":         {"capabilities", "features", "supported", "drivers available"},
 	"list_node_config_keywords":      {"node keywords reference", "node config syntax", "heartbeat options", "arbitrator options"},
 	"list_node_disks":                {"disk", "lun", "wwid", "storage", "block device", "volume"},
-	"list_node_drivers":              {"drivers", "plugins", "resource types", "supported drivers"},
+	"list_node_drivers":              {"drivers", "plugins", "resource types", "supported drivers", "driver features", "driver availability", "driver grant"},
 	"list_node_hardware":             {"hardware", "pci", "memory banks", "cpu", "inventory", "devices"},
 	"list_node_ip_addresses":         {"node ip", "interfaces", "nic", "addresses", "network interfaces"},
 	"list_node_locks":                {"node locks", "lock holders", "speaker 503", "verrous du nœud"},

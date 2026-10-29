@@ -59,9 +59,12 @@ type ListNodeCapabilitiesInput struct {
 type ListNodeCapabilitiesOutput = core.NodeCapabilityList
 
 type ListNodeDriversInput struct {
-	Node   string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
-	Limit  int    `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
-	Cursor string `json:"cursor,omitempty" jsonschema:"optional next_cursor returned by a previous call for the same node"`
+	Node      string `json:"node" jsonschema:"required exact OpenSVC node name; no wildcard, selector or underscore alias"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"optional page size between 1 and 200; defaults to 100"`
+	Cursor    string `json:"cursor,omitempty" jsonschema:"optional next_cursor returned by a previous call for the same node and filters"`
+	Group     string `json:"group,omitempty" jsonschema:"optional exact driver group, such as fs, disk, ip, container, app, task or sync"`
+	Feature   string `json:"feature,omitempty" jsonschema:"optional exact feature the drivers have, a word of the features vocabulary the result gives, such as provision, resize or snapshot"`
+	Available *bool  `json:"available,omitempty" jsonschema:"optional: true keeps the drivers the node has what they need for, false those it has not"`
 }
 
 type ListNodeDriversOutput = core.NodeDriverList
@@ -294,14 +297,15 @@ func RegisterNodeTools(registrar *Registrar, service *core.Service) error {
 		&mcp.Tool{
 			Name:  "list_node_drivers",
 			Title: "List node drivers",
-			Description: "List the exact driver names registered in one running OpenSVC daemon, with bounded pagination. " +
-				"Registration means the daemon knows the driver; it does not prove that runtime dependencies are available, that the driver is configured or used, or that it is healthy. " +
-				"This root-only read does not scan capabilities, execute drivers, or make changes.",
+			Description: "List the drivers of one OpenSVC node, the catalog its daemon describes: for each, what it does, its features, such as provision, resize or snapshot, with the vocabulary of their meanings, whether the node has what it needs, the grant using it needs and the one only its provision needs, the drivers a virtual one selects, and the driver an alias names. Filter by group, feature or availability, with bounded pagination. " +
+				"Use it to choose the driver of a resource: the type keyword of a resource is the driver without its group, and an alias is kept for old configurations only. " +
+				"It does not tell whether a driver is configured, used or healthy. This root-only read does not scan capabilities, execute drivers, or make changes.",
 			Annotations: readOnlyClosedWorldAnnotations(),
 		},
 		func(ctx context.Context, _ *mcp.CallToolRequest, input ListNodeDriversInput) (*mcp.CallToolResult, ListNodeDriversOutput, error) {
 			drivers, err := service.ListNodeDrivers(ctx, core.ListNodeDriversOptions{
 				Node: input.Node, Limit: input.Limit, Cursor: input.Cursor,
+				Group: input.Group, Feature: input.Feature, Available: input.Available,
 			})
 			if err != nil {
 				return nil, ListNodeDriversOutput{}, err

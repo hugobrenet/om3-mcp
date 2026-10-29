@@ -223,7 +223,9 @@ func nodeMembershipFacts(nodeName string, configuredNodes []string) NodeMembersh
 const localDaemonNodeAlias = "_"
 
 // errNodeTarget is the error of every tool given an invalid node.
-var errNodeTarget = errors.New("node must be one exact OpenSVC node name of at most 255 characters, without wildcard, selector or the _ alias")
+// A question on the cluster names no node: the error names where the nodes
+// are, rather than leaving the model to ask the user for one.
+var errNodeTarget = errors.New("node must be one exact OpenSVC node name of at most 255 characters, without wildcard, selector or the _ alias: get_cluster_status lists the nodes of the cluster; for a question on the cluster, call this tool for each of them")
 
 // validateNodeTarget requires one exact node name. The daemon resolves the _
 // alias to itself, which is the node carrying the cluster VIP: it would move

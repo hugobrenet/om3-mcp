@@ -32,7 +32,9 @@ to the end of its line; a list is separated by spaces.
   resource of a service, a `cfg` or `sec` holds data
   keys, and a namespace configuration, `nscfg`, holds the quotas of a
   namespace.
-- `list_node_drivers` gives the drivers a node has. To check the keywords of
+- `list_node_drivers` gives the drivers a node has, what each does, whether
+  the node can run it (`available`), the grant using or provisioning it
+  needs, and the driver an alias names, to write instead. To check the keywords of
   a resource, call `list_object_config_keywords` once for it, its `driver`,
   `<group>.<type>`, and in `options` the keywords it uses: the answer gives
   their definitions, and `missing_options` the keywords the driver does not

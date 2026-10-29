@@ -836,10 +836,20 @@ The MCP does not translate these markers into availability or health verdicts.
 
 ### `list_node_drivers`
 
-Returns the exact driver names registered in one running OpenSVC daemon. Use
-it to establish whether that daemon knows how to parse and operate a driver
-type before checking its detected capabilities, configuration, or resource
-status.
+Returns the driver catalog of one OpenSVC node, as its daemon describes it:
+for each driver, what it does, its features, whether the node has what it
+needs, the grants using it and provisioning it need, the drivers a virtual
+one selects, and the driver an alias names. Use it to choose the driver of a
+resource, and to tell whether the node and the user can use it, before
+checking its configuration or its resource status.
+
+A question on the drivers of the cluster names no node: the model reads the
+nodes with `get_cluster_status`, then calls the tool for each. On 2026-10-29,
+asked "which drivers are available?", a model once called it with an empty
+node, then asked the user for one. The refusal of an invalid node, shared by
+every node tool, now names `get_cluster_status`. The same day, 70 runs of six
+such questions, on six node tools, with the refusal as it was and as it is,
+called no node tool with an empty node.
 
 #### OpenSVC API and authorization
 
@@ -847,36 +857,62 @@ status.
 GET /api/node/name/{node}/drivers
 ```
 
-The endpoint requires the global `root` grant. It reads the in-memory driver
-registry of the named node's daemon, which OpenSVC proxies when necessary. This read does not execute drivers, scan capabilities, probe
-dependencies, or change daemon state.
+The endpoint requires the global `root` grant. It reads the driver catalog of
+the named node's daemon, which OpenSVC proxies when necessary. This read does
+not execute drivers, scan capabilities, probe dependencies, or change daemon
+state.
 
-The registry includes drivers compiled or loaded into the running process.
-Registration alone does not prove that required commands or operating-system
-features exist, that a driver is configured or used, or that it is healthy.
-Use `list_node_capabilities` separately when the last detected runtime support
-matters. The MCP deliberately does not merge both sources into an
-`available` verdict.
+#### What the daemon describes
+
+Since om3 v3.0.0-rc53-169 (2026-10), the daemon describes each driver; the
+MCP passes its fields through, renamed in snake case, and the vocabulary of
+the features with their meanings, once per page:
+
+| Field | Meaning |
+|---|---|
+| `name` | `<group>.<type>`, or `<group>` for a driver of no type; the `type` keyword of a resource is the type within its group |
+| `group`, `type` | The driver group, the section of the resource, such as `fs`, and its type, such as `ext4` |
+| `doc` | A line saying what the driver does |
+| `features` | Words of the vocabulary, such as `provision`, `resize`, `snapshot`, `move` or `encap`; a virtual driver has those of the driver it selects on the node; empty for the drivers of other groups |
+| `selects` | For a virtual driver, the drivers it selects among on the node, in the order it prefers them, as `container.oci` selects `container.docker`, then `container.podman` |
+| `alias_of` | The driver this one is another name of, kept for the configurations written with it, as `disk.lvm` for `disk.vg`: new configurations use that driver |
+| `available` | True when the node has what the driver needs, as its capabilities say; a virtual driver is available when one of those it selects is |
+| `grant` | The grant a service needs to use the driver at all, such as `root`; absent when any user granted on the namespace may |
+| `provision_grant` | The grant only the provision needs, beyond `grant`: a user not holding it may still use the driver on what a sysadmin provisioned, with `provision = false`; absent when the provision needs no more |
+
+`available` is the daemon's verdict from the capabilities it detected; the
+MCP computes none. The catalog does not tell whether a driver is configured,
+used or healthy: `get_object_config` and the status tools do.
+
+A daemon of an older version gives the names only, without the vocabulary:
+the result says `described: false`, every other field of the drivers is then
+unknown, and the `feature` and `available` filters are refused, the `group`
+filter reading the group from the name.
 
 #### Input and pagination
 
 | Input | Required | Default | Bounds | Meaning |
 |---|---:|---:|---:|---|
-| `node` | Yes | — | Exact node name; at most 255 characters | Node whose running driver registry is read |
-| `limit` | No | 100 | 1..200 | Maximum distinct driver names returned |
-| `cursor` | No | — | At most 1024 characters | Exact `next_cursor` from the preceding page for the same node |
+| `node` | Yes | — | Exact node name; at most 255 characters | Node whose driver catalog is read |
+| `group` | No | — | One lowercase word | Keeps the drivers of that group, such as `fs` or `container` |
+| `feature` | No | — | One word of the vocabulary | Keeps the drivers having that feature, such as `resize`; a word the vocabulary does not hold is refused with the vocabulary |
+| `available` | No | — | Boolean | Keeps the drivers the node has, or has not, what they need for |
+| `limit` | No | 100 | 1..200 | Maximum drivers returned |
+| `cursor` | No | — | At most 1024 characters | Exact `next_cursor` from the preceding page for the same node and filters |
 
 The MCP validates the live response shape observed from OpenSVC:
 `DriverList` containing `DriverItem` entries. `meta.node` must match the
-requested node, returned in the output `node` field. Names are preserved exactly; only
-exact duplicates are removed before lexicographic sorting. `reported_total`
-is the raw number of entries returned by OpenSVC; `total` is the number of
-distinct names. A page is additionally bounded to 64 Ki Unicode code points,
-and each name to 1024.
+requested node, returned in the output `node` field. Names are preserved
+exactly; a name repeated keeps its first entry, and the drivers are sorted by
+name. `reported_total` is the raw number of entries returned by OpenSVC;
+`total` is the number of distinct drivers the filters keep. A page is
+additionally bounded to 64 Ki Unicode code points of driver text, and each
+name to 1024.
 
-The current OpenAPI schema spells the item enum `DriversItem`, while both the
-daemon handler and the live response use `DriverItem`. The MCP follows the
-actual daemon contract and rejects the schema-only spelling.
+The OpenAPI schema spells the kinds `DriversList` and `DriversItem`, while
+both the daemon handler and the live response use `DriverList` and
+`DriverItem`. The MCP follows the actual daemon contract and rejects the
+schema-only spelling.
 
 #### MCP properties
 
@@ -893,27 +929,29 @@ actual daemon contract and rejects the schema-only spelling.
 Input:
 
 ```json
-{"node":"node-a","limit":5}
+{"node":"dev5n1","group":"container"}
 ```
 
-Representative driver registry output:
+Representative output, the vocabulary and the drivers cut:
 
 ```json
 {
-  "provenance": {"source":"opensvc_daemon","observed_at":"2026-09-24T15:30:00Z"},
-  "node": "node-a",
-  "reported_total": 122,
-  "total": 122,
-  "count": 5,
-  "drivers": [
-    "app.forking",
-    "app.simple",
-    "array.freenas",
-    "array.hds",
-    "array.hoc"
+  "provenance": {"source":"opensvc_daemon","observed_at":"2026-10-28T16:00:00Z"},
+  "node": "dev5n1",
+  "described": true,
+  "features": [
+    {"name":"provision","doc":"The provision makes what the resource stands for, as a logical volume or a filesystem, and the resource can be configured on one made by a sysadmin instead."},
+    {"name":"encap","doc":"The resource is a guest om also runs in, which holds encapsulated resources."}
   ],
-  "next_cursor": "array.hoc",
-  "truncated": true
+  "reported_total": 132,
+  "total": 6,
+  "count": 6,
+  "drivers": [
+    {"name":"container.docker","group":"container","type":"docker","doc":"Runs a container with docker.","features":["start","stop","signal","encap"],"available":true},
+    {"name":"container.oci","group":"container","type":"oci","doc":"Runs an OCI container with the first container runtime the node has.","features":["start","stop","signal","encap"],"selects":["container.docker","container.podman"],"available":true},
+    {"name":"container.podman","group":"container","type":"podman","doc":"Runs a container with podman.","features":["start","stop","signal","encap"],"available":false}
+  ],
+  "truncated": false
 }
 ```
 
@@ -924,8 +962,10 @@ Representative driver registry output:
 | Missing, invalid or expired access token (OAuth on HTTPS, OpenID Connect on the socket) | MCP HTTP `401` |
 | Missing global `root` grant | Tool error containing daemon HTTP `403` |
 | Oversized or non-exact non-empty `node` | Tool error before the daemon request |
-| Invalid page size or cursor | Tool validation error |
-| Cursor no longer present after a registry change | Explicit stale-cursor tool error |
+| Invalid page size, cursor, group or feature word | Tool validation error |
+| Feature the vocabulary does not hold | Tool error naming the vocabulary |
+| `feature` or `available` on a daemon giving the names only | Tool error saying to filter by group or call without them |
+| Cursor no longer present after a catalog change | Explicit stale-cursor tool error |
 | Unexpected list/item kind, node, or driver name | Tool error; no partial list |
 | Daemon or remote-node proxy unavailable | Tool error with transport context |
 
